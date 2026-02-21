@@ -105,68 +105,68 @@
         /* ===== MAIN LAYOUT ===== */
         #mainApp { display: flex; flex-direction: column; min-height: 100vh; }
 
-        /* ===== MODO GIROSCÓPIO ===== */
+        /* ===== MAPA TELA TODA ===== */
         #mapaWrapper {
             position: fixed;
             inset: 0;
             background: #111620;
             z-index: 0;
-            overflow: hidden;
+            overflow: hidden;   /* corta as bordas quando o container expande na rotação */
         }
 
         /* O mapa em si é maior que a tela para acomodar a rotação sem bordas brancas */
         #mapaDiv {
             width: 100%;
             height: 100%;
-            /* A rotação é aplicada via JS diretamente no container de tiles do Leaflet */
         }
 
-        /* Marcador da moto — FIXO no centro absoluto da tela, fora do mapa */
+        /* Moto fixa — posicionada no inferior da tela (25% do topo para o rodapé)
+           para que a maior parte da tela mostre o percurso à frente */
         #motoFixa {
             position: fixed;
             left: 50%;
-            top: 50%;
-            transform: translate(-50%, -50%);
+            bottom: 22%;          /* fica a 22% da base — mostra bastante mapa à frente */
+            transform: translateX(-50%);
             z-index: 600;
             pointer-events: none;
-            width: 72px;
-            height: 72px;
+            width: 60px;
+            height: 60px;
             display: flex;
             align-items: center;
             justify-content: center;
         }
         #motoFixa .moto-glow {
             position: absolute;
-            inset: -20px;
+            inset: -22px;
             border-radius: 50%;
-            background: radial-gradient(circle, rgba(245,166,35,0.22) 0%, transparent 70%);
+            background: radial-gradient(circle, rgba(245,166,35,0.25) 0%, transparent 70%);
             animation: ondaMoto 2.5s ease-out infinite;
         }
         #motoFixa .moto-anel {
             position: absolute;
             inset: -10px;
             border-radius: 50%;
-            border: 2px solid rgba(245,166,35,0.4);
+            border: 2px solid rgba(245,166,35,0.45);
             animation: anelMoto 2.5s ease-out infinite 0.4s;
         }
         #motoFixa .moto-sombra {
             position: absolute;
             bottom: -6px; left: 50%;
             transform: translateX(-50%);
-            width: 36px; height: 8px;
+            width: 32px; height: 7px;
             border-radius: 50%;
-            background: rgba(0,0,0,0.5);
+            background: rgba(0,0,0,0.55);
             filter: blur(3px);
         }
         #motoFixa .moto-emoji {
-            width: 52px;
+            width: 48px;
             height: auto;
             position: relative; z-index: 2;
-            filter: drop-shadow(0 3px 14px rgba(245,166,35,0.85));
+            filter: drop-shadow(0 3px 16px rgba(245,166,35,0.9));
             display: block;
         }
-        @keyframes ondaMoto { 0%{transform:scale(0.5);opacity:0.8} 80%{transform:scale(2.4);opacity:0} 100%{transform:scale(0.5);opacity:0} }
-        @keyframes anelMoto { 0%{transform:scale(0.6);opacity:1} 100%{transform:scale(2.6);opacity:0} }
+        @keyframes ondaMoto { 0%{transform:scale(0.5);opacity:0.8} 80%{transform:scale(2.6);opacity:0} 100%{transform:scale(0.5);opacity:0} }
+        @keyframes anelMoto { 0%{transform:scale(0.6);opacity:1} 100%{transform:scale(2.8);opacity:0} }
 
         /* Indicador de bússola no topo */
         #compassIndicator {
@@ -594,8 +594,8 @@
         <div id="mapaDiv"></div>
     </div>
 
-    <!-- MOTO FIXA NO CENTRO (fora do mapa, overlay) -->
-    <div id="motoFixa">
+    <!-- MOTO FIXA NO INFERIOR DA TELA (overlay — só visível no modo rotacional) -->
+    <div id="motoFixa" style="display:flex;">
         <div class="moto-glow"></div>
         <div class="moto-anel"></div>
         <div class="moto-sombra"></div>
@@ -751,56 +751,36 @@ function inicializarMapa() {
         attributionControl: false,
         minZoom: 5,
         maxZoom: 20
-    }).setView(FABRICA, 14);
+    }).setView(FABRICA, 16);
 
-    // Tiles offline (locais) + fallback online
-    // Tenta tile local primeiro, cai para CartoCDN se não tiver
+    // Tiles offline locais + fallback online
     const tileOffline = L.tileLayer('./tiles/{z}/{x}/{y}.png', {
-        maxZoom: 16,
-        minZoom: 10,
-        errorTileUrl: ''
+        maxZoom: 16, minZoom: 10, errorTileUrl: ''
     });
-
     const tileOnline = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 20
     });
-
-    // Usa tile local se disponível, senão online
-    tileOffline.on('tileerror', function(e) {
-        // tile local não existe — deixa o online cobrir
-    });
-
     tileOnline.addTo(mapaObj);
-    tileOffline.addTo(mapaObj); // camada local sobrepõe a online quando disponível
+    tileOffline.addTo(mapaObj);
 
-    // Labels
     L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', {
         maxZoom: 20, opacity: 0.6
     }).addTo(mapaObj);
 
     L.control.zoom({ position: 'topright' }).addTo(mapaObj);
-
-    // Ao arrastar, desativa seguimento mas mantém giroscópio
     mapaObj.on('dragstart', () => { seguindoMoto = false; });
 
-    // Pega o container raiz do Leaflet para rotacionar
-    // Rotacionamos o mapPane inteiro (tiles + marcadores) ao redor do centro
-    mapaTilePane = mapaObj.getPane('mapPane') || mapaObj._container;
-
-    // Inicia loop de animação do giroscópio
     iniciarLoopGiro();
 }
 
 // ===== LOOP GIROSCÓPIO =====
 function iniciarLoopGiro() {
     if (rafGiro) cancelAnimationFrame(rafGiro);
-
     function loop() {
         if (giroAtivo && mapaObj) {
-            // Suaviza a rotação com interpolação exponencial
             const diff = anguloMinimo(bearingAlvo - mapaRotacaoAtual);
-            if (Math.abs(diff) > 0.3) {
-                mapaRotacaoAtual += diff * 0.12; // fator de suavização
+            if (Math.abs(diff) > 0.2) {
+                mapaRotacaoAtual += diff * 0.10;
                 aplicarRotacaoMapa(mapaRotacaoAtual);
             }
         }
@@ -809,40 +789,43 @@ function iniciarLoopGiro() {
     rafGiro = requestAnimationFrame(loop);
 }
 
-// Retorna diferença de ângulo no intervalo [-180, 180]
 function anguloMinimo(diff) {
     while (diff > 180) diff -= 360;
     while (diff < -180) diff += 360;
     return diff;
 }
 
-// Aplica a rotação CSS ao container do mapa, girando em torno do centro da tela
+// Rotaciona TODO o container do Leaflet em torno da posição da moto na tela.
+// A moto fica fixada em bottom:22% — calculamos o ponto de pivot correto.
 function aplicarRotacaoMapa(graus) {
     if (!mapaObj) return;
     const container = mapaObj.getContainer();
-    const cx = container.clientWidth / 2;
-    const cy = container.clientHeight / 2;
-    // Rotaciona o mapPane (que contém tiles e marcadores) ao redor do centro
-    const pane = mapaObj.getPane('mapPane');
-    if (pane) {
-        pane.style.transformOrigin = `${cx}px ${cy}px`;
-        pane.style.transform = `rotate(${-graus}deg)`;
-        pane.style.willChange = 'transform';
-    }
-    // Rótulos (labels) também
-    const shadowPane = mapaObj.getPane('shadowPane');
-    if (shadowPane) {
-        shadowPane.style.transformOrigin = `${cx}px ${cy}px`;
-        shadowPane.style.transform = `rotate(${-graus}deg)`;
-    }
-    // Atualiza agulha da bússola: aponta para o Norte
+    const W = container.clientWidth;
+    const H = container.clientHeight;
+
+    // Pivot = posição da moto na tela (centro X, 78% do topo = bottom 22%)
+    const pivotX = W / 2;
+    const pivotY = H * 0.78;
+
+    // Rotaciona o container inteiro do mapa
+    container.style.transformOrigin = `${pivotX}px ${pivotY}px`;
+    container.style.transform = `rotate(${-graus}deg)`;
+    container.style.willChange = 'transform';
+
+    // Expande o mapa para cobrir as bordas durante a rotação
+    // (diagonal da tela = tamanho mínimo seguro)
+    const diag = Math.ceil(Math.sqrt(W * W + H * H));
+    const margem = Math.ceil((diag - Math.min(W, H)) / 2);
+    container.style.margin = `-${margem}px`;
+    container.style.width = `${W + margem * 2}px`;
+    container.style.height = `${H + margem * 2}px`;
+
+    // Recalcula o tamanho do mapa Leaflet para preencher o container expandido
+    mapaObj.invalidateSize({ pan: false });
+
+    // Atualiza agulha — contra-rotaciona para sempre apontar Norte
     const needle = document.getElementById('compassNeedle');
-    if (needle) {
-        needle.style.transform = `rotate(${graus}deg)`;
-        needle.style.transition = 'transform 0.4s ease';
-        needle.style.display = 'block';
-        needle.style.fontSize = '20px';
-    }
+    if (needle) needle.style.transform = `rotate(${graus}deg)`;
 }
 
 // ===== TOGGLE GIROSCÓPIO =====
@@ -850,25 +833,34 @@ function toggleGiroMode() {
     giroAtivo = !giroAtivo;
     const btn = document.getElementById('compassIndicator');
     const needle = document.getElementById('compassNeedle');
+    const container = mapaObj?.getContainer();
+    const motoFixaEl = document.getElementById('motoFixa');
+
     if (giroAtivo) {
         btn.style.borderColor = 'rgba(61,156,255,0.5)';
         btn.style.background = 'rgba(61,156,255,0.15)';
-        showToast('🧭 Giroscópio ativado', 'success');
         seguindoMoto = true;
+        if (motoFixaEl) motoFixaEl.style.display = 'flex';
+        // Remove marcador Leaflet se existir
+        if (motoMarker) { try { mapaObj.removeLayer(motoMarker); } catch(e){} motoMarker = null; }
+        showToast('🗺️ Mapa rotacional ativado', 'success');
     } else {
-        // Restaura rotação zero
-        const pane = mapaObj.getPane('mapPane');
-        if (pane) {
-            pane.style.transform = 'none';
+        // Restaura container
+        if (container) {
+            container.style.transform = 'none';
+            container.style.transformOrigin = '';
+            container.style.margin = '0';
+            container.style.width = '';
+            container.style.height = '';
+            mapaObj.invalidateSize({ pan: false });
         }
-        const shadowPane = mapaObj.getPane('shadowPane');
-        if (shadowPane) shadowPane.style.transform = 'none';
         mapaRotacaoAtual = 0;
         bearingAlvo = 0;
         btn.style.borderColor = 'var(--border)';
         btn.style.background = 'rgba(10,10,15,0.85)';
         if (needle) needle.style.transform = 'rotate(0deg)';
-        showToast('🗺️ Mapa normal', '');
+        if (motoFixaEl) motoFixaEl.style.display = 'none';
+        showToast('🗺️ Mapa fixo (Norte)', '');
     }
 }
 
@@ -998,6 +990,10 @@ function iniciarGPS() {
     );
 }
 
+// Histórico de bearings para suavização (média móvel)
+const bearingHistory = [];
+const BEARING_SMOOTH = 6; // quantos pontos para média
+
 async function processarPosicao(pos) {
     const lat = pos.coords.latitude;
     const lon = pos.coords.longitude;
@@ -1005,41 +1001,48 @@ async function processarPosicao(pos) {
 
     setBadge(true, `±${Math.round(acc)}m`);
 
-    // Calcula direção e distância movida
     let distMovida = 999;
     if (posAtual) {
         const dx = Math.abs(lat - posAtual[0]);
         const dy = Math.abs(lon - posAtual[1]);
-        if (dx > 0.000005 || dy > 0.000005) {
+        if (dx > 0.000008 || dy > 0.000008) {
             const novoBearing = calcBearing(posAtual, [lat, lon]);
-            motoBearing = novoBearing;
-            bearingAlvo = novoBearing; // alimenta o giroscópio
+
+            // Média móvel circular para suavizar o bearing
+            bearingHistory.push(novoBearing);
+            if (bearingHistory.length > BEARING_SMOOTH) bearingHistory.shift();
+
+            // Média circular (evita problema entre 359° e 1°)
+            let sinSum = 0, cosSum = 0;
+            for (const b of bearingHistory) {
+                sinSum += Math.sin(b * Math.PI / 180);
+                cosSum += Math.cos(b * Math.PI / 180);
+            }
+            const bearingMedio = (Math.atan2(sinSum, cosSum) * 180 / Math.PI + 360) % 360;
+
+            motoBearing = bearingMedio;
+            bearingAlvo = bearingMedio;
         }
         distMovida = calcDistM(posAtual[0], posAtual[1], lat, lon);
     }
     posAtual = [lat, lon];
 
-    // Atualiza marcador no mapa sempre (visual fluido) — em modo giroscópio só move o centro
+    // Mostra/oculta overlay da moto conforme modo
+    const motoFixaEl = document.getElementById('motoFixa');
+    if (motoFixaEl) motoFixaEl.style.display = giroAtivo ? 'flex' : 'none';
+
     posicionarMoto([lat, lon]);
 
-    // Envia pro Supabase no máximo a cada 3s (throttle)
     const agora = Date.now();
     if (agora - ultimoEnvioGPS >= THROTTLE_GPS_MS) {
         ultimoEnvioGPS = agora;
         await enviarPosicaoSupabase(lat, lon, acc);
     }
 
-    // Verifica proximidade com paradas
     if (rotaAtual && paradasList.length) await verificarProximidade(lat, lon);
 
-    // Atualiza rota azul se entregador moveu mais de 50m
-    if (rotaAtual && distMovida > 50) {
-        const proxima = paradasList.find(p => p.status === 'pendente' && p.coords);
-        if (proxima) {
-            ultimaProximaId = null; // força redesenho da rota azul
-            desenharRotaProxima(posAtual, proxima);
-        }
-    }
+    // Recalcula rota completa dinamicamente a cada ~80m
+    if (rotaAtual) agendarRecalculoRota();
 }
 
 async function enviarPosicaoSupabase(lat, lon, acc = 0) {
@@ -1234,18 +1237,16 @@ async function executarMarcarEntregue(paradaId, nome) {
 
 // ===== OSRM — ROTA REAL PELAS RUAS =====
 
-// Busca rota no OSRM e retorna array de [lat, lon]
+// Busca rota no OSRM passando por vários pontos e retorna array de [lat, lon]
 async function buscarRotaOSRM(pontos) {
     if (pontos.length < 2) return null;
-    // OSRM recebe lon,lat
     const coords = pontos.map(p => `${p[1]},${p[0]}`).join(';');
     const url = `${OSRM_BASE}${coords}?overview=full&geometries=geojson&steps=false`;
     try {
-        const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
         if (!resp.ok) return null;
         const json = await resp.json();
         if (json.code !== 'Ok' || !json.routes?.length) return null;
-        // GeoJSON vem como [lon, lat] → inverter para Leaflet [lat, lon]
         return json.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
     } catch(e) {
         console.warn('OSRM err:', e);
@@ -1253,73 +1254,85 @@ async function buscarRotaOSRM(pontos) {
     }
 }
 
-// Desenha a rota completa (fábrica → todas as paradas) em vermelho tracejado
+// ─── ROTA COMPLETA ────────────────────────────────────────────────────────────
+// Desenha: posição atual → parada 1 pendente → parada 2 → ... → última
+// Recalcula sempre que uma parada é entregue ou a posição muda muito.
+let ultimaRotaCompletaKey = '';
+let redesenhoRotaTimer = null;
+
 async function desenharRotaCompleta(paradas) {
-    // Monta chave de cache com os IDs das paradas
-    const key = paradas.map(p => p.id + p.status).join('|');
-    let coords;
-
-    if (cacheRotaCompletaKey === key && cacheRotaCompleta) {
-        coords = cacheRotaCompleta;
-    } else {
-        const pontos = [FABRICA, ...paradas.map(p => p.coords)];
-        coords = await buscarRotaOSRM(pontos);
-        if (coords) {
-            cacheRotaCompleta = coords;
-            cacheRotaCompletaKey = key;
-        }
-    }
-
-    // Remove layer anterior
-    if (rotaCompletaLayer) { try { mapaObj.removeLayer(rotaCompletaLayer); } catch(e){} rotaCompletaLayer = null; }
-
-    if (coords) {
-        rotaCompletaLayer = L.polyline(coords, {
-            color: '#ff4757', weight: 3, opacity: 0.45, dashArray: '10 7'
-        }).addTo(mapaObj);
-    } else {
-        // Fallback: linha reta se OSRM falhar
-        const pts = [FABRICA, ...paradas.map(p => p.coords)];
-        rotaCompletaLayer = L.polyline(pts, {
-            color: '#ff4757', weight: 2, opacity: 0.3, dashArray: '8 6'
-        }).addTo(mapaObj);
-    }
-    // Garante que a moto fique por cima
-    if (motoMarker) motoMarker.bringToFront();
-}
-
-// Desenha trecho azul da posição atual até a próxima parada
-async function desenharRotaProxima(posAtual, proxima) {
-    if (!posAtual || !proxima?.coords) {
-        if (rotaProximaLayer) { try { mapaObj.removeLayer(rotaProximaLayer); } catch(e){} rotaProximaLayer = null; }
-        ultimaProximaId = null;
+    const pendentes = paradas.filter(p => p.status !== 'entregue' && p.coords);
+    if (!pendentes.length) {
+        if (rotaCompletaLayer) { try { mapaObj.removeLayer(rotaCompletaLayer); } catch(e){} rotaCompletaLayer = null; }
         return;
     }
 
-    // Só redesenha se a próxima parada mudou
-    if (ultimaProximaId === proxima.id) {
-        // Só atualiza o ponto de origem (posição do entregador mudou)
-        // Para não ficar chamando OSRM a cada 4s, redesenha só quando próxima muda
-        // ou quando ainda não tem layer
-        if (rotaProximaLayer) return;
-    }
-    ultimaProximaId = proxima.id;
+    // Chave de cache: paradas pendentes + posição atual (arredondada a ~50m)
+    const posKey = posAtual ? `${(posAtual[0]*1000).toFixed(0)}_${(posAtual[1]*1000).toFixed(0)}` : 'nopos';
+    const key = posKey + '|' + pendentes.map(p => p.id).join(',');
 
-    const coords = await buscarRotaOSRM([posAtual, proxima.coords]);
+    if (ultimaRotaCompletaKey === key && rotaCompletaLayer) return; // já está desenhada
+    ultimaRotaCompletaKey = key;
 
-    if (rotaProximaLayer) { try { mapaObj.removeLayer(rotaProximaLayer); } catch(e){} rotaProximaLayer = null; }
+    // Pontos: posição atual (ou fábrica) → todas as paradas pendentes em ordem
+    const origem = posAtual || FABRICA;
+    const pontos  = [origem, ...pendentes.map(p => p.coords)];
+
+    const coords = await buscarRotaOSRM(pontos);
+
+    if (rotaCompletaLayer) { try { mapaObj.removeLayer(rotaCompletaLayer); } catch(e){} rotaCompletaLayer = null; }
 
     if (coords) {
-        rotaProximaLayer = L.polyline(coords, {
-            color: '#3d9cff', weight: 5, opacity: 0.9
+        // Divide a polyline em dois trechos visuais:
+        // Trecho ativo (posição → próxima parada): azul brilhante
+        // Restante (próximas → última parada): cinza tracejado
+        rotaCompletaLayer = L.polyline(coords, {
+            color: '#3d9cff', weight: 5, opacity: 0.95
         }).addTo(mapaObj);
+
+        // Overlay cinza tracejado para o trecho restante (se houver mais de 1 parada)
+        // — reutilizamos rotaCompletaLayer como a linha cheia; o resto fica mais suave
+        if (pendentes.length > 1) {
+            // Refaz chamada só com as paradas pendentes (sem posição atual) para ter a rota "restante"
+            const coordsResto = await buscarRotaOSRM(pendentes.map(p => p.coords));
+            if (coordsResto) {
+                const restoLayer = L.polyline(coordsResto, {
+                    color: 'rgba(255,255,255,0.18)', weight: 3, opacity: 1, dashArray: '8 6'
+                }).addTo(mapaObj);
+                layersEstaticos.push(restoLayer);
+            }
+        }
     } else {
-        // Fallback linha reta
-        rotaProximaLayer = L.polyline([posAtual, proxima.coords], {
-            color: '#3d9cff', weight: 4, opacity: 0.85
+        // Fallback linha reta se OSRM falhar
+        rotaCompletaLayer = L.polyline(pontos, {
+            color: '#3d9cff', weight: 4, opacity: 0.7, dashArray: '10 6'
         }).addTo(mapaObj);
     }
+
     if (motoMarker) motoMarker.bringToFront();
+}
+
+// ─── REDESENHO DINÂMICO ───────────────────────────────────────────────────────
+// Chamado quando o entregador se move. Recalcula a rota a cada ~100m percorridos.
+let posUltimoRecalculo = null;
+
+function agendarRecalculoRota() {
+    // Só recalcula se moveu mais de 80m desde o último recalculo
+    if (posUltimoRecalculo && posAtual) {
+        const dist = calcDistM(posUltimoRecalculo[0], posUltimoRecalculo[1], posAtual[0], posAtual[1]);
+        if (dist < 80) return;
+    }
+    posUltimoRecalculo = posAtual ? [...posAtual] : null;
+
+    // Debounce: aguarda 1.5s para não chamar OSRM a cada GPS tick
+    clearTimeout(redesenhoRotaTimer);
+    redesenhoRotaTimer = setTimeout(() => {
+        const paradas = paradasList.filter(p => p.coords);
+        if (paradas.length) {
+            ultimaRotaCompletaKey = ''; // força redesenho
+            desenharRotaCompleta(paradas);
+        }
+    }, 1500);
 }
 
 // ===== MAPA =====
@@ -1327,30 +1340,38 @@ function posicionarMoto(pos) {
     if (!mapaObj || !window.L) return;
 
     if (giroAtivo) {
-        // MODO GIROSCÓPIO: moto fixa no centro da tela — só move o centro do mapa
-        // Marcador Leaflet é apenas um ponto de precisão GPS (círculo leve)
-        if (!motoMarker) {
-            // Cria marcador invisível apenas para referência de posição
-            const icon = L.divIcon({
-                html: `<div style="position:relative;width:44px;height:auto;">
-                    <div style="position:absolute;inset:-12px;border-radius:50%;
-                        background:radial-gradient(circle,rgba(245,166,35,0.2) 0%,transparent 70%);
-                        animation:ondaMoto 2.5s ease-out infinite;pointer-events:none;"></div>
-                    <img src="${MOTO_IMG_B64}" style="width:44px;height:auto;
-                        filter:drop-shadow(0 2px 10px rgba(245,166,35,0.85));
-                        display:block;" />
-                </div>`,
-                className: '', iconSize: [44, 78], iconAnchor: [22, 39]
-            });
-            motoMarker = L.marker(pos, { icon, zIndexOffset: 1000 }).addTo(mapaObj);
-        } else {
-            motoMarker.setLatLng(pos);
+        // MODO GIROSCÓPIO:
+        // A moto está fixada visualmente em bottom:22% (78% da altura da tela).
+        // Para que o ponto GPS fique EXATAMENTE onde a moto aparece na tela,
+        // precisamos que o centro do mapa esteja deslocado para cima.
+        // Usamos panBy para ajustar o offset verticalmente.
+
+        // Remove marcador Leaflet — a moto é o overlay #motoFixa
+        if (motoMarker) {
+            try { mapaObj.removeLayer(motoMarker); } catch(e) {}
+            motoMarker = null;
         }
-        // Sempre centraliza o mapa na moto (o mapa "segue" a moto)
-        mapaObj.setView(pos, mapaObj.getZoom() || 17, { animate: true, duration: 0.5 });
+
+        // Calcula offset em pixels: moto está em 78% da tela, centro do mapa em 50%
+        // → moto está 28% abaixo do centro → offset negativo (sobe o mapa)
+        const H = mapaObj.getContainer().clientHeight;
+        const offsetPx = Math.round(H * 0.28); // pixels que a moto está abaixo do centro
+
+        // Converte o ponto GPS para pixel, aplica offset, converte de volta
+        if (seguindoMoto) {
+            const ptTela = mapaObj.latLngToContainerPoint(pos);
+            const alvo = L.point(ptTela.x, ptTela.y + offsetPx);
+            const latLngAlvo = mapaObj.containerPointToLatLng(alvo);
+            // Se o ponto já está próximo do alvo, não anima (evita pulo)
+            const centroAtual = mapaObj.getCenter();
+            const distCentro = mapaObj.distance(centroAtual, latLngAlvo);
+            if (distCentro > 3) {
+                mapaObj.setView(latLngAlvo, mapaObj.getZoom() || 17, { animate: true, duration: 0.6, easeLinearity: 0.5 });
+            }
+        }
 
     } else {
-        // MODO NORMAL: marcador completo com emoji da moto
+        // MODO NORMAL: marcador completo com imagem da moto
         const html = `
             <div style="position:relative;width:56px;height:56px;display:flex;align-items:center;justify-content:center;">
                 <div style="position:absolute;inset:-16px;border-radius:50%;
@@ -1362,11 +1383,12 @@ function posicionarMoto(pos) {
                 <div style="position:absolute;bottom:-4px;left:50%;transform:translateX(-50%);
                     width:32px;height:7px;border-radius:50%;
                     background:rgba(0,0,0,0.4);filter:blur(3px);"></div>
-                <div style="font-size:30px;transform:rotate(${motoBearing}deg);
+                <div style="transform:rotate(${motoBearing}deg);
                     transition:transform 0.5s ease;
-                    filter:drop-shadow(0 2px 8px rgba(245,166,35,0.8));
                     position:relative;z-index:2;">
-                    <img src="${MOTO_IMG_B64}" style="width:40px;height:auto;display:block;" /></div>
+                    <img src="${MOTO_IMG_B64}" style="width:44px;height:auto;display:block;
+                        filter:drop-shadow(0 2px 10px rgba(245,166,35,0.9));" />
+                </div>
                 <style>
                     @keyframes ondaMoto{0%{transform:scale(0.5);opacity:0.8}80%{transform:scale(2.2);opacity:0}100%{transform:scale(0.5);opacity:0}}
                     @keyframes anelMoto{0%{transform:scale(0.6);opacity:1}100%{transform:scale(2.4);opacity:0}}
@@ -1379,9 +1401,7 @@ function posicionarMoto(pos) {
             motoMarker.setLatLng(pos);
             motoMarker.setIcon(icon);
         } else {
-            motoMarker = L.marker(pos, { icon, zIndexOffset: 1000 })
-                .addTo(mapaObj)
-                .bindPopup('<b>🛵 Você está aqui</b>');
+            motoMarker = L.marker(pos, { icon, zIndexOffset: 1000 }).addTo(mapaObj);
         }
 
         if (seguindoMoto) {
@@ -1401,24 +1421,20 @@ function limparLayersEstaticos() {
 function limparTodasRotasVisuais() {
     limparLayersEstaticos();
     if (rotaCompletaLayer) { try { mapaObj.removeLayer(rotaCompletaLayer); } catch(e){} rotaCompletaLayer = null; }
-    if (rotaProximaLayer) { try { mapaObj.removeLayer(rotaProximaLayer); } catch(e){} rotaProximaLayer = null; }
-    cacheRotaCompleta = null;
-    cacheRotaCompletaKey = '';
-    ultimaProximaId = null;
+    if (rotaProximaLayer)  { try { mapaObj.removeLayer(rotaProximaLayer);  } catch(e){} rotaProximaLayer  = null; }
+    ultimaRotaCompletaKey = '';
+    posUltimoRecalculo = null;
+    clearTimeout(redesenhoRotaTimer);
 }
 
 async function renderizarMapaCompleto() {
     if (!mapaObj || !window.L) return;
 
-    // Remove apenas layers estáticos (paradas, marcadores) — linhas de rota gerenciadas separadamente
     limparLayersEstaticos();
 
-    // Paradas da rota ativa (para lógica de rota e próxima parada)
     const paradas = paradasList.filter(p => p.coords);
     const pendentes = paradas.filter(p => p.status !== 'entregue');
     const proxima = pendentes[0] || null;
-
-    // TODOS os clientes históricos (já extraídos em carregarDados)
     const todasParadas = todosOsClientes;
 
     // Marcador fábrica
@@ -1435,16 +1451,13 @@ async function renderizarMapaCompleto() {
     }).addTo(mapaObj).bindPopup('<b>🏭 Fábrica</b>');
     layersEstaticos.push(fabMarker);
 
-    // Rota completa pelas ruas (vermelho tracejado) — async, não bloqueia
-    if (paradas.length >= 1) {
-        desenharRotaCompleta(paradas); // não aguarda — atualiza quando chegar
+    // Rota completa dinâmica: posição atual → todas as paradas pendentes pelas ruas
+    if (pendentes.length >= 1) {
+        ultimaRotaCompletaKey = ''; // força redesenho ao recarregar dados
+        desenharRotaCompleta(paradas);
     } else {
-        // Sem paradas: limpa layer de rota completa
         if (rotaCompletaLayer) { try { mapaObj.removeLayer(rotaCompletaLayer); } catch(e){} rotaCompletaLayer = null; }
     }
-
-    // Rota até a próxima parada (azul) — só redesenha quando a parada muda
-    desenharRotaProxima(posAtual, proxima); // também async
 
     // Agrupa clientes próximos (raio ~30m) para exibir lado a lado
     const RAIO_GRUPO = 0.00027; // ~30 metros em graus
