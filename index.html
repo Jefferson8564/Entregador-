@@ -544,13 +544,6 @@ let mediaMinPorParada = 12;
 let toastTimer = null;
 let paradaPagamentoPendente = null; // parada aguardando resposta de pagamento
 
-// ===== CONTROLE FÁBRICA =====
-const FABRICA_LAT = -8.1837523;
-const FABRICA_LON = -34.9383004;
-const RAIO_FABRICA = 20; // metros para detectar saída da fábrica
-let estavaNaFabrica = null; // null = posição inicial ainda não lida
-let checkHorarioTimer = null; // timer para verificar horários de rotas
-
 // ===== OSRM / ROTA REAL =====
 let rotaCompletaLayer = null;   // polyline vermelha tracejada (rota completa pelas ruas)
 let rotaProximaLayer = null;    // polyline azul (posição atual → próxima parada)
@@ -613,7 +606,18 @@ async function carregarDados() {
     await calcularMediaEta();
     const { data: rotas } = await sb.from("delivery_routes")
         .select("*").order("hora_saida", { ascending: true });
-    todasAsRotas = rotas || [];
+
+    const hoje = new Date().toISOString().split('T')[0];
+    const dia = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][new Date().getDay()];
+
+    // Aplica a mesma lógica de data do Admin: status calculado por data, não salvo
+    todasAsRotas = (rotas || []).map(r => {
+        const concluidoHoje = r.fim_em && r.fim_em.startsWith(hoje);
+        const emAndamentoHoje = r.saida_em && r.saida_em.startsWith(hoje);
+        if (r.status === 'concluido' && !concluidoHoje) return { ...r, status: 'criada' };
+        if (r.status === 'em_andamento' && !emAndamentoHoje) return { ...r, status: 'criada' };
+        return r;
+    });
 
     const emAndamento = todasAsRotas.find(r => r.status === 'em_andamento');
     if (emAndamento) {
@@ -624,93 +628,6 @@ async function carregarDados() {
         paradasList = [];
     }
 
-    renderTudo();
-    renderizarMapaCompleto();
-}
-
-// Retorna a próxima rota que deve ser iniciada (aguardando ou no horário)
-function getProximaRotaPendente() {
-    if (rotaAtual) return null;
-    const agora = horaAtual();
-    const dia = diaHoje();
-    return todasAsRotas.find(r =>
-        (r.status === 'aguardando' || r.status === 'criada') &&
-        (r.dias_semana || []).includes(dia) &&
-        (r.hora_saida || '00:00') <= agora
-    ) || null;
-}
-
-// Retorna rotas futuras (ainda não no horário, mas do dia de hoje)
-function getRotasFuturas() {
-    const agora = horaAtual();
-    const dia = diaHoje();
-    return todasAsRotas.filter(r =>
-        (r.status === 'criada' || r.status === 'aguardando') &&
-        (r.dias_semana || []).includes(dia) &&
-        (r.hora_saida || '00:00') > agora
-    );
-}
-
-function diaHoje() {
-    return ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][new Date().getDay()];
-}
-
-function horaAtual() {
-    return new Date().toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
-}
-
-// Atualiza status das rotas que chegaram ao horário → 'aguardando'
-async function verificarRotasNoHorario() {
-    if (rotaAtual) return;
-    const agora = horaAtual();
-    const dia = diaHoje();
-    const paraAguardar = todasAsRotas.filter(r =>
-        r.status === 'criada' &&
-        (r.dias_semana || []).includes(dia) &&
-        (r.hora_saida || '00:00') <= agora
-    );
-    for (const r of paraAguardar) {
-        await sb.from("delivery_routes").update({status: 'aguardando'}).eq("id", r.id);
-        r.status = 'aguardando';
-        showToast(`🏭 Rota "${r.nome}" pronta! Saia da fábrica para iniciar.`, 'warn');
-    }
-    if (paraAguardar.length > 0) {
-        renderTudo();
-        renderizarMapaCompleto();
-    }
-}
-
-// Encerra a rota atual ao voltar para a fábrica com tudo entregue
-async function encerrarRota() {
-    if (!rotaAtual) return;
-    await sb.from("delivery_routes").update({
-        status: 'concluido',
-        fim_em: new Date().toISOString()
-    }).eq("id", rotaAtual.id);
-    await sb.from("config").upsert(
-        { key: "admin_gps", value: JSON.stringify({ lat: null, lon: null, ts: null }) },
-        { onConflict: 'key' }
-    );
-    const nome = rotaAtual.nome;
-    rotaAtual = null;
-    paradasList = [];
-    limparTodasRotasVisuais();
-    showToast(`✅ ${nome} concluída! Voltou à fábrica.`, 'success');
-    await carregarDados();
-}
-
-// Inicia a próxima rota ao sair da fábrica
-async function iniciarProximaRota() {
-    const proxima = getProximaRotaPendente();
-    if (!proxima) return;
-    await sb.from("delivery_routes").update({
-        status: 'em_andamento',
-        saida_em: new Date().toISOString()
-    }).eq("id", proxima.id);
-    proxima.status = 'em_andamento';
-    rotaAtual = proxima;
-    paradasList = proxima.paradas || [];
-    showToast(`🛵 ${proxima.nome} iniciada! GPS ativo.`, 'success');
     renderTudo();
     renderizarMapaCompleto();
 }
@@ -754,23 +671,12 @@ function iniciarGPS() {
     }
     setBadge(true, 'Conectando...');
 
-    // Captura posição inicial imediatamente para definir estavaNaFabrica
-    navigator.geolocation.getCurrentPosition(
-        pos => processarPosicao(pos),
-        null,
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
-    );
-
     // maximumAge: 3000 evita leituras duplicadas em menos de 3s
     watchId = navigator.geolocation.watchPosition(
         pos => processarPosicao(pos),
         err => setBadge(false, 'GPS erro'),
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 3000 }
     );
-
-    // Checa horários de rotas a cada 30s
-    if (checkHorarioTimer) clearInterval(checkHorarioTimer);
-    checkHorarioTimer = setInterval(() => verificarRotasNoHorario(), 30000);
 }
 
 async function processarPosicao(pos) {
@@ -800,41 +706,8 @@ async function processarPosicao(pos) {
         await enviarPosicaoSupabase(lat, lon, acc);
     }
 
-    // ===== LÓGICA DA FÁBRICA =====
-    const distFabrica = calcDistM(lat, lon, FABRICA_LAT, FABRICA_LON);
-    const naFabrica = distFabrica <= RAIO_FABRICA;
-
-    // Primeira leitura: define estado inicial sem disparar eventos
-    if (estavaNaFabrica === null) {
-        estavaNaFabrica = naFabrica;
-        // Se já está na fábrica e tem rota no horário → atualiza para 'aguardando'
-        if (naFabrica) await verificarRotasNoHorario();
-        atualizarBannerFabrica(naFabrica, distFabrica);
-    } else {
-        // Entrou na fábrica
-        if (!estavaNaFabrica && naFabrica) {
-            estavaNaFabrica = true;
-            // Só encerra rota se todas as paradas foram entregues
-            const todasEntregues = paradasList.length > 0 && paradasList.every(p => p.status === 'entregue');
-            if (rotaAtual && todasEntregues) {
-                await encerrarRota();
-            } else {
-                await verificarRotasNoHorario();
-            }
-            atualizarBannerFabrica(true, distFabrica);
-        }
-        // Saiu da fábrica → só inicia rota se não tem rota ativa
-        else if (estavaNaFabrica && !naFabrica) {
-            estavaNaFabrica = false;
-            atualizarBannerFabrica(false, distFabrica);
-            if (!rotaAtual) await iniciarProximaRota();
-        } else {
-            atualizarBannerFabrica(naFabrica, distFabrica);
-        }
-    }
-
-    // Verifica proximidade com paradas da rota ativa
-    if (rotaAtual && paradasList.length) verificarProximidade(lat, lon);
+    // Verifica proximidade com paradas
+    if (rotaAtual && paradasList.length) await verificarProximidade(lat, lon);
 
     // Atualiza rota azul se entregador moveu mais de 50m
     if (rotaAtual && distMovida > 50) {
@@ -843,55 +716,6 @@ async function processarPosicao(pos) {
             ultimaProximaId = null; // força redesenho da rota azul
             desenharRotaProxima(posAtual, proxima);
         }
-    }
-}
-
-// Banner de status da fábrica no mapa
-function atualizarBannerFabrica(naFabrica, dist) {
-    let chip = document.getElementById('fabricaChip');
-    if (!chip) {
-        chip = document.createElement('div');
-        chip.id = 'fabricaChip';
-        chip.style.cssText = `
-            position:absolute; bottom:80px; left:50%; transform:translateX(-50%);
-            z-index:500; white-space:nowrap; padding:8px 16px; border-radius:20px;
-            font-size:12px; font-weight:700; backdrop-filter:blur(12px);
-            -webkit-backdrop-filter:blur(12px); pointer-events:none;
-            transition: all 0.3s;
-        `;
-        document.getElementById('mapaWrapper').appendChild(chip);
-    }
-
-    if (rotaAtual) {
-        chip.style.display = 'none';
-        return;
-    }
-
-    const proxima = getProximaRotaPendente();
-
-    if (naFabrica && proxima) {
-        chip.style.display = 'block';
-        chip.style.background = 'rgba(61,156,255,0.25)';
-        chip.style.border = '1px solid rgba(61,156,255,0.6)';
-        chip.style.color = '#3d9cff';
-        chip.style.animation = 'chipPulse 1.2s ease-in-out infinite';
-        chip.textContent = `🏭 Saia da fábrica para iniciar: ${proxima.nome}`;
-    } else if (naFabrica) {
-        chip.style.display = 'block';
-        chip.style.background = 'rgba(0,232,122,0.15)';
-        chip.style.border = '1px solid rgba(0,232,122,0.4)';
-        chip.style.color = '#00e87a';
-        chip.style.animation = '';
-        chip.textContent = `🏭 Na fábrica · ${Math.round(dist)}m`;
-    } else if (proxima) {
-        chip.style.display = 'block';
-        chip.style.background = 'rgba(245,166,35,0.2)';
-        chip.style.border = '1px solid rgba(245,166,35,0.5)';
-        chip.style.color = '#f5a623';
-        chip.style.animation = 'chipPulse 1.2s ease-in-out infinite';
-        chip.textContent = `⚠️ Volte à fábrica para iniciar: ${proxima.nome}`;
-    } else {
-        chip.style.display = 'none';
     }
 }
 
@@ -918,46 +742,48 @@ function setBadge(on, txt) {
 }
 
 // ===== PROXIMIDADE =====
-function verificarProximidade(lat, lon) {
-    const proxima = paradasList.find(p => p.status === 'pendente' && p.coords);
-    if (!proxima) return;
-
-    const dist = calcDistM(lat, lon, proxima.coords[0], proxima.coords[1]);
-    const chip = document.getElementById('proximidadeChip');
-    chip.style.display = 'block';
-
-    if (dist <= RAIO_ENTREGA) {
-        chip.className = 'proximidadeChip chegando';
-        chip.textContent = `📍 Na área de ${proxima.nome}!`;
-        if (!estavaNaParada || paradaAtualId !== proxima.id) {
-            estavaNaParada = true;
-            paradaAtualId = proxima.id;
-            // Mostra confirm de chegada E checa se tem pagamento pendente
-            mostrarConfirmModal(proxima);
-            verificarPagamentoEntrega(proxima);
+async function verificarProximidade(lat, lon) {
+    // Processa todas as paradas pendentes em loop — para encadear paradas no mesmo local
+    let continuar = true;
+    while (continuar) {
+        continuar = false;
+        const proxima = paradasList.find(p => p.status === 'pendente' && p.coords);
+        if (!proxima) {
+            document.getElementById('proximidadeChip').style.display = 'none';
+            return;
         }
-    } else if (dist <= 200) {
-        chip.className = 'proximidadeChip longe';
-        chip.textContent = `🛵 ${Math.round(dist)}m de ${proxima.nome}`;
-        if (estavaNaParada && paradaAtualId === proxima.id) {
-            // Saiu da área → confirma entrega
+
+        const dist = calcDistM(lat, lon, proxima.coords[0], proxima.coords[1]);
+        const chip = document.getElementById('proximidadeChip');
+        chip.style.display = 'block';
+
+        if (dist <= RAIO_ENTREGA) {
+            // ✅ Está na área — marca entregue imediatamente
+            chip.className = 'proximidadeChip chegando';
+            chip.textContent = `✅ Entregando ${proxima.nome}...`;
+
+            // Só dispara uma vez por parada
+            if (paradaAtualId !== proxima.id) {
+                paradaAtualId = proxima.id;
+                estavaNaParada = true;
+                verificarPagamentoEntrega(proxima);
+                await executarMarcarEntregue(proxima.id, proxima.nome);
+                paradaAtualId = null;
+                estavaNaParada = false;
+                // Verifica se a próxima parada também está na área (mesmo local)
+                continuar = true;
+            }
+        } else {
+            // Fora da área — mostra distância
+            chip.className = 'proximidadeChip longe';
+            chip.textContent = dist <= 200
+                ? `🛵 ${Math.round(dist)}m de ${proxima.nome}`
+                : `🏁 ${Math.round(dist)}m — ${proxima.nome}`;
             estavaNaParada = false;
             paradaAtualId = null;
-            fecharConfirmModal();
-            executarMarcarEntregue(proxima.id, proxima.nome);
-        }
-    } else {
-        chip.className = 'proximidadeChip longe';
-        chip.textContent = `🏁 ${Math.round(dist)}m — ${proxima.nome}`;
-        if (estavaNaParada && paradaAtualId === proxima.id) {
-            estavaNaParada = false;
-            paradaAtualId = null;
-            fecharConfirmModal();
-            executarMarcarEntregue(proxima.id, proxima.nome);
+            renderProximaCard(proxima, dist);
         }
     }
-
-    renderProximaCard(proxima, dist);
 }
 
 // ===== PAGAMENTO NA ENTREGA =====
@@ -1070,7 +896,13 @@ async function executarMarcarEntregue(paradaId, nome) {
     // Verifica se todas as paradas foram entregues
     const todasEntregues = paradasList.every(p => p.status === 'entregue');
     if (todasEntregues) {
-        showToast('🏁 Todas entregues! Volte à fábrica para encerrar a rota.', 'success');
+        await sb.from("delivery_routes")
+            .update({ status: 'concluido', fim_em: new Date().toISOString() })
+            .eq("id", rotaAtual.id);
+        await sb.from("config").upsert({ key: "admin_gps", value: JSON.stringify({ lat: null, lon: null, ts: null }) }, { onConflict: 'key' });
+        showToast('🏁 Todas as entregas concluídas!', 'success');
+        rotaAtual = null;
+        limparTodasRotasVisuais();
     }
 
     renderTudo();
@@ -1082,6 +914,7 @@ async function executarMarcarEntregue(paradaId, nome) {
 // Busca rota no OSRM e retorna array de [lat, lon]
 async function buscarRotaOSRM(pontos) {
     if (pontos.length < 2) return null;
+    // OSRM recebe lon,lat
     const coords = pontos.map(p => `${p[1]},${p[0]}`).join(';');
     const url = `${OSRM_BASE}${coords}?overview=full&geometries=geojson&steps=false`;
     try {
@@ -1089,6 +922,7 @@ async function buscarRotaOSRM(pontos) {
         if (!resp.ok) return null;
         const json = await resp.json();
         if (json.code !== 'Ok' || !json.routes?.length) return null;
+        // GeoJSON vem como [lon, lat] → inverter para Leaflet [lat, lon]
         return json.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
     } catch(e) {
         console.warn('OSRM err:', e);
@@ -1096,66 +930,42 @@ async function buscarRotaOSRM(pontos) {
     }
 }
 
-// ===== LAYERS DE ROTA POR SEGMENTO =====
-let rotaSegmentosLayers = []; // layers individuais de cada trecho pendente/entregue
-
-function limparSegmentosRota() {
-    rotaSegmentosLayers.forEach(l => { try { mapaObj.removeLayer(l); } catch(e){} });
-    rotaSegmentosLayers = [];
-}
-
-// Desenha a rota completa separando trechos entregues (verde) e pendentes (vermelho)
+// Desenha a rota completa (fábrica → todas as paradas) em vermelho tracejado
 async function desenharRotaCompleta(paradas) {
-    // Remove layers anteriores
-    if (rotaCompletaLayer) { try { mapaObj.removeLayer(rotaCompletaLayer); } catch(e){} rotaCompletaLayer = null; }
-    limparSegmentosRota();
-
-    if (!paradas || paradas.length === 0) return;
-
-    // Monta pontos completos: fábrica → todas as paradas
-    const todosOsPontos = [FABRICA, ...paradas.map(p => p.coords)];
-
-    // Tenta buscar rota completa pelo OSRM para usar como base
+    // Monta chave de cache com os IDs das paradas
     const key = paradas.map(p => p.id + p.status).join('|');
-    let coordsCompletas;
+    let coords;
+
     if (cacheRotaCompletaKey === key && cacheRotaCompleta) {
-        coordsCompletas = cacheRotaCompleta;
+        coords = cacheRotaCompleta;
     } else {
-        coordsCompletas = await buscarRotaOSRM(todosOsPontos);
-        if (coordsCompletas) {
-            cacheRotaCompleta = coordsCompletas;
+        const pontos = [FABRICA, ...paradas.map(p => p.coords)];
+        coords = await buscarRotaOSRM(pontos);
+        if (coords) {
+            cacheRotaCompleta = coords;
             cacheRotaCompletaKey = key;
         }
     }
 
-    // Para cada segmento fábrica→p1, p1→p2, etc., desenha com cor certa
-    for (let i = 0; i < paradas.length; i++) {
-        const origem = i === 0 ? FABRICA : paradas[i - 1].coords;
-        const destino = paradas[i].coords;
-        const entregue = paradas[i].status === 'entregue';
-        const cor = entregue ? '#4ade80' : '#ff4757'; // verde claro : vermelho
-        const opacidade = entregue ? 0.5 : 0.75;
-        const espessura = entregue ? 3 : 3.5;
+    // Remove layer anterior
+    if (rotaCompletaLayer) { try { mapaObj.removeLayer(rotaCompletaLayer); } catch(e){} rotaCompletaLayer = null; }
 
-        // Tenta extrair o trecho do OSRM completo (aproximação pelo índice de pontos)
-        let segCoords = await buscarRotaOSRM([origem, destino]);
-        if (!segCoords) segCoords = [origem, destino]; // fallback linha reta
-
-        const layer = L.polyline(segCoords, {
-            color: cor,
-            weight: espessura,
-            opacity: opacidade,
-            dashArray: entregue ? '6 5' : null,
-            lineJoin: 'round',
-            lineCap: 'round'
+    if (coords) {
+        rotaCompletaLayer = L.polyline(coords, {
+            color: '#ff4757', weight: 3, opacity: 0.45, dashArray: '10 7'
         }).addTo(mapaObj);
-        rotaSegmentosLayers.push(layer);
+    } else {
+        // Fallback: linha reta se OSRM falhar
+        const pts = [FABRICA, ...paradas.map(p => p.coords)];
+        rotaCompletaLayer = L.polyline(pts, {
+            color: '#ff4757', weight: 2, opacity: 0.3, dashArray: '8 6'
+        }).addTo(mapaObj);
     }
-
+    // Garante que a moto fique por cima
     if (motoMarker) motoMarker.bringToFront();
 }
 
-// Desenha trecho azul com setas da posição atual até a próxima parada
+// Desenha trecho azul da posição atual até a próxima parada
 async function desenharRotaProxima(posAtual, proxima) {
     if (!posAtual || !proxima?.coords) {
         if (rotaProximaLayer) { try { mapaObj.removeLayer(rotaProximaLayer); } catch(e){} rotaProximaLayer = null; }
@@ -1163,77 +973,30 @@ async function desenharRotaProxima(posAtual, proxima) {
         return;
     }
 
-    if (ultimaProximaId === proxima.id && rotaProximaLayer) return;
+    // Só redesenha se a próxima parada mudou
+    if (ultimaProximaId === proxima.id) {
+        // Só atualiza o ponto de origem (posição do entregador mudou)
+        // Para não ficar chamando OSRM a cada 4s, redesenha só quando próxima muda
+        // ou quando ainda não tem layer
+        if (rotaProximaLayer) return;
+    }
     ultimaProximaId = proxima.id;
 
     const coords = await buscarRotaOSRM([posAtual, proxima.coords]);
 
     if (rotaProximaLayer) { try { mapaObj.removeLayer(rotaProximaLayer); } catch(e){} rotaProximaLayer = null; }
 
-    const pontos = coords || [posAtual, proxima.coords];
-
-    // Linha azul principal
-    rotaProximaLayer = L.polyline(pontos, {
-        color: '#3d9cff',
-        weight: 5,
-        opacity: 0.95,
-        lineJoin: 'round',
-        lineCap: 'round'
-    }).addTo(mapaObj);
-
-    // Setas ao longo do trecho azul
-    _desenharSetasNaRota(pontos, '#3d9cff');
-
-    if (motoMarker) motoMarker.bringToFront();
-}
-
-// Adiciona marcadores de seta ao longo de uma polyline
-function _desenharSetasNaRota(pontos, cor) {
-    if (pontos.length < 2) return;
-
-    // Calcula o comprimento total
-    let comprimentoTotal = 0;
-    const segmentos = [];
-    for (let i = 0; i < pontos.length - 1; i++) {
-        const d = calcDistM(pontos[i][0], pontos[i][1], pontos[i+1][0], pontos[i+1][1]);
-        segmentos.push({ inicio: pontos[i], fim: pontos[i+1], dist: d });
-        comprimentoTotal += d;
+    if (coords) {
+        rotaProximaLayer = L.polyline(coords, {
+            color: '#3d9cff', weight: 5, opacity: 0.9
+        }).addTo(mapaObj);
+    } else {
+        // Fallback linha reta
+        rotaProximaLayer = L.polyline([posAtual, proxima.coords], {
+            color: '#3d9cff', weight: 4, opacity: 0.85
+        }).addTo(mapaObj);
     }
-
-    // Coloca uma seta a cada ~80m
-    const intervalo = 80;
-    let acumulado = 0;
-    let proxSeta = intervalo / 2; // começa na metade do primeiro intervalo
-
-    segmentos.forEach(seg => {
-        while (proxSeta <= acumulado + seg.dist) {
-            const t = (proxSeta - acumulado) / seg.dist;
-            const lat = seg.inicio[0] + (seg.fim[0] - seg.inicio[0]) * t;
-            const lon = seg.inicio[1] + (seg.fim[1] - seg.inicio[1]) * t;
-            const angulo = calcBearing(seg.inicio, seg.fim);
-
-            const setaIcon = L.divIcon({
-                html: `<div style="
-                    width:0; height:0;
-                    border-left: 5px solid transparent;
-                    border-right: 5px solid transparent;
-                    border-bottom: 11px solid ${cor};
-                    transform: rotate(${angulo}deg);
-                    transform-origin: center;
-                    filter: drop-shadow(0 1px 3px rgba(0,0,0,0.5));
-                    opacity: 0.9;
-                "></div>`,
-                className: '',
-                iconSize: [10, 11],
-                iconAnchor: [5, 5]
-            });
-
-            const m = L.marker([lat, lon], { icon: setaIcon, interactive: false, zIndexOffset: 500 }).addTo(mapaObj);
-            rotaSegmentosLayers.push(m); // add to cleanup list
-            proxSeta += intervalo;
-        }
-        acumulado += seg.dist;
-    });
+    if (motoMarker) motoMarker.bringToFront();
 }
 
 // ===== MAPA =====
@@ -1287,7 +1050,6 @@ function limparLayersEstaticos() {
 
 function limparTodasRotasVisuais() {
     limparLayersEstaticos();
-    limparSegmentosRota();
     if (rotaCompletaLayer) { try { mapaObj.removeLayer(rotaCompletaLayer); } catch(e){} rotaCompletaLayer = null; }
     if (rotaProximaLayer) { try { mapaObj.removeLayer(rotaProximaLayer); } catch(e){} rotaProximaLayer = null; }
     cacheRotaCompleta = null;
@@ -1319,131 +1081,56 @@ async function renderizarMapaCompleto() {
     }).addTo(mapaObj).bindPopup('<b>🏭 Fábrica</b>');
     layersEstaticos.push(fabMarker);
 
-    // === ROTA ATIVA ===
-    if (rotaAtual && paradas.length >= 1) {
-        // Rota completa pelas ruas (vermelho tracejado) — async, não bloqueia
-        desenharRotaCompleta(paradas);
-        // Rota até a próxima parada (azul)
-        desenharRotaProxima(posAtual, proxima);
-
-        // Marcadores das paradas
-        paradas.forEach((p, i) => {
-            const entregue = p.status === 'entregue';
-            const isProx = proxima && p.id === proxima.id;
-            const bg = entregue ? '#4ade80' : isProx ? '#f5a623' : '#ff4757';
-            const pulse = isProx ? 'animation:paradaPulse 1.5s ease-in-out infinite;' : '';
-            const lbl = entregue ? '✓' : String(i + 1);
-
-            const icon = L.divIcon({
-                html: `<div style="width:34px;height:34px;border-radius:50%;
-                    background:${bg};display:flex;align-items:center;justify-content:center;
-                    font-size:13px;font-weight:900;color:${entregue?'#000':'white'};
-                    border:3px solid rgba(255,255,255,0.3);
-                    box-shadow:0 3px 12px rgba(0,0,0,0.5);
-                    opacity:${entregue?0.6:1};
-                    ${pulse}
-                ">${lbl}</div>
-                <style>@keyframes paradaPulse{0%,100%{box-shadow:0 0 0 0 rgba(245,166,35,0.7)}70%{box-shadow:0 0 0 12px rgba(245,166,35,0)}}</style>`,
-                className: '', iconSize: [34, 34], iconAnchor: [17, 17]
-            });
-
-            const statusLabel = entregue ? '✅ Entregue' : isProx ? '▶ Próxima parada' : '⏳ Pendente';
-            const statusCor = entregue ? '#4ade80' : isProx ? '#f5a623' : '#ff4757';
-            const m = L.marker(p.coords, { icon }).addTo(mapaObj)
-                .bindPopup(`<div style="min-width:140px;">
-                    <div style="font-weight:800;font-size:14px;">${p.nome}</div>
-                    <div style="font-size:11px;color:rgba(240,240,248,0.55);margin-top:3px;">📍 ${p.endereco}</div>
-                    <div style="margin-top:6px;font-size:12px;font-weight:700;color:${statusCor};">${statusLabel}</div>
-                    <div style="font-size:11px;color:rgba(240,240,248,0.4);">⏱️ ~${p.eta_min}min</div>
-                </div>`);
-            layersEstaticos.push(m);
-        });
-
-    } else if (!rotaAtual) {
-        // === SEM ROTA ATIVA: mostra preview das rotas pendentes/futuras ===
-        // Limpa linhas anteriores
+    // Rota completa pelas ruas (vermelho tracejado) — async, não bloqueia
+    if (paradas.length >= 1) {
+        desenharRotaCompleta(paradas); // não aguarda — atualiza quando chegar
+    } else {
+        // Sem paradas: limpa layer de rota completa
         if (rotaCompletaLayer) { try { mapaObj.removeLayer(rotaCompletaLayer); } catch(e){} rotaCompletaLayer = null; }
-        if (rotaProximaLayer) { try { mapaObj.removeLayer(rotaProximaLayer); } catch(e){} rotaProximaLayer = null; }
-
-        const dia = diaHoje();
-        const agora = horaAtual();
-        const rotasDodia = todasAsRotas.filter(r =>
-            (r.status === 'criada' || r.status === 'aguardando') &&
-            (r.dias_semana || []).includes(dia)
-        );
-
-        // Pega a primeira rota do dia para mostrar no mapa (preview)
-        const rotaPreview = rotasDodia.find(r =>
-            (r.paradas || []).filter(p => p.coords).length > 0
-        );
-
-        if (rotaPreview) {
-            const paradasPreview = (rotaPreview.paradas || []).filter(p => p.coords);
-
-            // Rota completa em vermelho tracejado (preview)
-            const pontos = [FABRICA, ...paradasPreview.map(p => p.coords)];
-            buscarRotaOSRM(pontos).then(coords => {
-                if (rotaCompletaLayer) { try { mapaObj.removeLayer(rotaCompletaLayer); } catch(e){} }
-                if (coords) {
-                    rotaCompletaLayer = L.polyline(coords, {
-                        color: '#ff4757', weight: 3, opacity: 0.35, dashArray: '10 7'
-                    }).addTo(mapaObj);
-                } else {
-                    rotaCompletaLayer = L.polyline(pontos, {
-                        color: '#ff4757', weight: 2, opacity: 0.25, dashArray: '8 6'
-                    }).addTo(mapaObj);
-                }
-                if (motoMarker) motoMarker.bringToFront();
-            });
-
-            // Rota do ponto atual até a 1ª parada em azul
-            if (posAtual && paradasPreview.length > 0) {
-                desenharRotaProxima(posAtual, paradasPreview[0]);
-            }
-
-            // Marcadores das paradas (preview — mais transparentes)
-            paradasPreview.forEach((p, i) => {
-                const icon = L.divIcon({
-                    html: `<div style="width:30px;height:30px;border-radius:50%;
-                        background:rgba(245,166,35,0.3);
-                        display:flex;align-items:center;justify-content:center;
-                        font-size:12px;font-weight:900;color:rgba(245,166,35,0.8);
-                        border:2px dashed rgba(245,166,35,0.5);
-                        box-shadow:0 2px 8px rgba(0,0,0,0.4);
-                    ">${i + 1}</div>`,
-                    className: '', iconSize: [30, 30], iconAnchor: [15, 15]
-                });
-                const noHorario = rotaPreview.hora_saida <= agora;
-                const m = L.marker(p.coords, { icon }).addTo(mapaObj)
-                    .bindPopup(`<div style="min-width:130px;">
-                        <div style="font-weight:800;font-size:13px;">${p.nome}</div>
-                        <div style="font-size:11px;color:rgba(240,240,248,0.5);margin-top:2px;">📍 ${p.endereco}</div>
-                        <div style="margin-top:5px;font-size:11px;font-weight:700;color:#f5a623;">
-                            ${noHorario ? '🏭 Aguardando saída da fábrica' : `⏰ Prevista às ${rotaPreview.hora_saida}`}
-                        </div>
-                    </div>`);
-                layersEstaticos.push(m);
-            });
-
-            // Ajusta zoom para mostrar a rota toda
-            if (!posAtual) {
-                const pts = [FABRICA, ...paradasPreview.map(p => p.coords)];
-                if (pts.length >= 2) {
-                    mapaObj.fitBounds(L.latLngBounds(pts), { padding: [50, 50], maxZoom: 15 });
-                }
-            }
-        }
     }
 
-    // Posiciona moto por cima de tudo
+    // Rota até a próxima parada (azul) — só redesenha quando a parada muda
+    desenharRotaProxima(posAtual, proxima); // também async
+
+    // Marcadores das paradas
+    paradas.forEach((p, i) => {
+        const entregue = p.status === 'entregue';
+        const isProx = proxima && p.id === proxima.id;
+        const bg = entregue ? '#00e87a' : isProx ? '#f5a623' : '#3d9cff';
+        const pulse = isProx ? 'animation:paradaPulse 1.5s ease-in-out infinite;' : '';
+        const lbl = entregue ? '✓' : String(i + 1);
+
+        const icon = L.divIcon({
+            html: `<div style="width:34px;height:34px;border-radius:50%;
+                background:${bg};display:flex;align-items:center;justify-content:center;
+                font-size:13px;font-weight:900;color:${entregue?'#000':'white'};
+                border:3px solid rgba(255,255,255,0.3);
+                box-shadow:0 3px 12px rgba(0,0,0,0.5);
+                opacity:${entregue?0.45:1};
+                ${pulse}
+            ">${lbl}</div>
+            <style>@keyframes paradaPulse{0%,100%{box-shadow:0 0 0 0 rgba(245,166,35,0.7)}70%{box-shadow:0 0 0 12px rgba(245,166,35,0)}}</style>`,
+            className: '', iconSize: [34, 34], iconAnchor: [17, 17]
+        });
+
+        const status = entregue ? '✅ Entregue' : isProx ? '▶ Próxima parada' : '⏳ Pendente';
+        const m = L.marker(p.coords, { icon }).addTo(mapaObj)
+            .bindPopup(`<div style="min-width:140px;">
+                <div style="font-weight:800;font-size:14px;color:var(--text);">${p.nome}</div>
+                <div style="font-size:11px;color:rgba(240,240,248,0.55);margin-top:3px;">📍 ${p.endereco}</div>
+                <div style="margin-top:6px;font-size:12px;font-weight:700;color:${entregue?'#00e87a':isProx?'#f5a623':'#3d9cff'};">${status}</div>
+                <div style="font-size:11px;color:rgba(240,240,248,0.4);">⏱️ ~${p.eta_min}min</div>
+            </div>`);
+        layersEstaticos.push(m);
+    });
+
+    // Posiciona moto por cima de tudo (zIndexOffset alto)
     if (posAtual) posicionarMoto(posAtual);
 
-    // Ajusta zoom na primeira carga com rota ativa
-    if (rotaAtual) {
-        const pts = [FABRICA, ...paradas.map(p => p.coords)];
-        if (pts.length >= 2 && !posAtual) {
-            mapaObj.fitBounds(L.latLngBounds(pts), { padding: [50, 50], maxZoom: 16 });
-        }
+    // Ajusta zoom só na primeira carga (sem posição GPS ainda)
+    const pts = [FABRICA, ...paradas.map(p => p.coords)];
+    if (pts.length >= 2 && !posAtual) {
+        mapaObj.fitBounds(L.latLngBounds(pts), { padding: [50, 50], maxZoom: 16 });
     }
 }
 
@@ -1464,88 +1151,12 @@ function renderRotaAtiva() {
     const el = document.getElementById('rotaAtivaContent');
 
     if (!rotaAtual) {
-        const dia = diaHoje();
-        const agora = horaAtual();
-        const rotasDodia = todasAsRotas.filter(r =>
-            (r.status === 'criada' || r.status === 'aguardando') &&
-            (r.dias_semana || []).includes(dia)
-        );
-        const proxima = rotasDodia.find(r => (r.hora_saida || '00:00') <= agora);
-        const futuras = rotasDodia.filter(r => (r.hora_saida || '00:00') > agora);
-
-        if (proxima) {
-            // Há uma rota no horário aguardando saída
-            const naFabrica = estavaNaFabrica === true;
-            el.innerHTML = `
-            <div style="background:linear-gradient(135deg,rgba(61,156,255,0.12),rgba(61,156,255,0.05));
-                border:1px solid rgba(61,156,255,0.3);border-radius:18px;padding:16px;margin-bottom:12px;">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-                    <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:900;color:#3d9cff;">
-                        🏭 ${proxima.nome}
-                    </div>
-                    <div style="font-size:10px;font-weight:700;padding:4px 10px;border-radius:20px;
-                        background:rgba(61,156,255,0.15);color:#3d9cff;border:1px solid rgba(61,156,255,0.3);
-                        animation:chipPulse 1.2s ease-in-out infinite;">
-                        ${naFabrica ? '🏭 Aguardando saída' : '⚠️ Vá à fábrica'}
-                    </div>
-                </div>
-                <div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">
-                    ⏰ Horário: <strong style="color:var(--text);">${proxima.hora_saida}</strong>
-                    &nbsp;·&nbsp; 📦 ${(proxima.paradas||[]).length} paradas
-                </div>
-                <div style="font-size:12px;padding:10px;background:rgba(255,255,255,0.04);border-radius:12px;color:var(--text-dim);">
-                    ${naFabrica
-                        ? '✅ Você está na fábrica! <strong style="color:#3d9cff;">Saia para iniciar a rota automaticamente.</strong>'
-                        : '📍 Vá até a fábrica e saia dela para iniciar a rota automaticamente.'
-                    }
-                </div>
-            </div>
-            ${futuras.length > 0 ? `
-            <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;padding:0 2px;">
-                Próximas rotas de hoje
-            </div>
-            ${futuras.map(r => `
-            <div style="background:var(--surface2);border-radius:14px;padding:12px 14px;margin-bottom:8px;
-                border-left:3px solid rgba(245,166,35,0.4);">
-                <div style="font-weight:700;font-size:13px;">${r.nome}</div>
-                <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">
-                    ⏰ ${r.hora_saida} · 📦 ${(r.paradas||[]).length} paradas
-                </div>
-            </div>`).join('')}` : ''}`;
-        } else if (futuras.length > 0) {
-            // Só rotas futuras
-            el.innerHTML = `
-            <div style="text-align:center;padding:16px 0 8px;">
-                <div style="font-size:36px;">🏭</div>
-                <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:800;color:var(--text-dim);margin:8px 0 4px;">
-                    Aguardando horário
-                </div>
-            </div>
-            ${futuras.map(r => `
-            <div style="background:linear-gradient(135deg,rgba(245,166,35,0.08),rgba(245,166,35,0.03));
-                border:1px solid rgba(245,166,35,0.2);border-radius:16px;padding:14px;margin-bottom:10px;">
-                <div style="display:flex;align-items:center;justify-content:space-between;">
-                    <div>
-                        <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:800;">${r.nome}</div>
-                        <div style="font-size:12px;color:var(--text-muted);margin-top:3px;">
-                            ⏰ Saída às <strong style="color:var(--primary);">${r.hora_saida}</strong>
-                            &nbsp;·&nbsp; 📦 ${(r.paradas||[]).length} paradas
-                        </div>
-                    </div>
-                    <div style="font-size:10px;font-weight:700;padding:4px 10px;border-radius:20px;
-                        background:rgba(245,166,35,0.12);color:var(--primary);">
-                        ⏳ Aguardando
-                    </div>
-                </div>
-            </div>`).join('')}`;
-        } else {
-            el.innerHTML = `
-            <div class="empty-state">
-                <div class="empty-icon">🏭</div>
-                <div class="empty-title">Nenhuma rota para hoje</div>
-                <div class="empty-sub">Quando o admin criar uma rota, ela aparecerá aqui automaticamente.</div>
-            </div>`;
-        }
+        el.innerHTML = `
+        <div class="empty-state">
+            <div class="empty-icon">🏭</div>
+            <div class="empty-title">Nenhuma rota ativa</div>
+            <div class="empty-sub">Quando uma rota for iniciada pelo admin, ela aparecerá aqui automaticamente.</div>
+        </div>`;
         return;
     }
 
