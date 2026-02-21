@@ -639,6 +639,9 @@ function iniciarRealtimeRotas() {
 }
 
 // ===== GPS =====
+let ultimoEnvioGPS = 0; // controle de throttle
+const THROTTLE_GPS_MS = 3000; // envia pro Supabase no máximo a cada 3s
+
 function iniciarGPS() {
     if (!navigator.geolocation) {
         setBadge(false, 'Sem suporte');
@@ -646,16 +649,12 @@ function iniciarGPS() {
     }
     setBadge(true, 'Conectando...');
 
+    // maximumAge: 3000 evita leituras duplicadas em menos de 3s
     watchId = navigator.geolocation.watchPosition(
         pos => processarPosicao(pos),
         err => setBadge(false, 'GPS erro'),
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 2000 }
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 3000 }
     );
-
-    // Fallback: envia posição a cada INTERVALO_GPS mesmo parado
-    gpsInterval = setInterval(() => {
-        if (posAtual) enviarPosicaoSupabase(posAtual[0], posAtual[1]);
-    }, INTERVALO_GPS);
 }
 
 async function processarPosicao(pos) {
@@ -673,11 +672,15 @@ async function processarPosicao(pos) {
     }
     posAtual = [lat, lon];
 
-    // Atualiza marcador no mapa
+    // Atualiza marcador no mapa sempre (visual fluido)
     posicionarMoto([lat, lon]);
 
-    // Envia para Supabase
-    await enviarPosicaoSupabase(lat, lon, acc);
+    // Envia pro Supabase no máximo a cada 3s (throttle)
+    const agora = Date.now();
+    if (agora - ultimoEnvioGPS >= THROTTLE_GPS_MS) {
+        ultimoEnvioGPS = agora;
+        await enviarPosicaoSupabase(lat, lon, acc);
+    }
 
     // Verifica proximidade com paradas
     if (rotaAtual && paradasList.length) verificarProximidade(lat, lon);
@@ -905,19 +908,26 @@ function posicionarMoto(pos) {
     }
 }
 
+// Layers estáticos do mapa (paradas, linhas, fábrica) — separados da moto
+let layersEstaticos = [];
+
+function limparLayersEstaticos() {
+    layersEstaticos.forEach(l => { try { mapaObj.removeLayer(l); } catch(e){} });
+    layersEstaticos = [];
+}
+
 function renderizarMapaCompleto() {
     if (!mapaObj || !window.L) return;
 
-    // Limpa tudo exceto tiles
-    mapaObj.eachLayer(l => { if (!(l instanceof L.TileLayer)) mapaObj.removeLayer(l); });
-    motoMarker = null;
+    // Remove apenas layers estáticos (paradas, linhas) — preserva motoMarker
+    limparLayersEstaticos();
 
     const paradas = paradasList.filter(p => p.coords);
     const pendentes = paradas.filter(p => p.status !== 'entregue');
     const proxima = pendentes[0] || null;
 
     // Marcador fábrica
-    L.marker(FABRICA, {
+    const fabMarker = L.marker(FABRICA, {
         icon: L.divIcon({
             html: `<div style="width:40px;height:40px;border-radius:12px;
                 background:linear-gradient(135deg,#f5a623,#e67e22);
@@ -928,16 +938,19 @@ function renderizarMapaCompleto() {
             className: '', iconSize: [40, 40], iconAnchor: [20, 20]
         })
     }).addTo(mapaObj).bindPopup('<b>🏭 Fábrica</b>');
+    layersEstaticos.push(fabMarker);
 
     // Linha tracejada rota completa
     if (paradas.length >= 1) {
         const pts = [FABRICA, ...paradas.map(p => p.coords)];
-        L.polyline(pts, { color: '#ff4757', weight: 2, opacity: 0.3, dashArray: '8 6' }).addTo(mapaObj);
+        const linha = L.polyline(pts, { color: '#ff4757', weight: 2, opacity: 0.3, dashArray: '8 6' }).addTo(mapaObj);
+        layersEstaticos.push(linha);
     }
 
     // Linha azul para próxima
     if (posAtual && proxima?.coords) {
-        L.polyline([posAtual, proxima.coords], { color: '#3d9cff', weight: 4, opacity: 0.85 }).addTo(mapaObj);
+        const linhaAzul = L.polyline([posAtual, proxima.coords], { color: '#3d9cff', weight: 4, opacity: 0.85 }).addTo(mapaObj);
+        layersEstaticos.push(linhaAzul);
     }
 
     // Marcadores das paradas
@@ -962,26 +975,23 @@ function renderizarMapaCompleto() {
         });
 
         const status = entregue ? '✅ Entregue' : isProx ? '▶ Próxima parada' : '⏳ Pendente';
-        L.marker(p.coords, { icon }).addTo(mapaObj)
+        const m = L.marker(p.coords, { icon }).addTo(mapaObj)
             .bindPopup(`<div style="min-width:140px;">
                 <div style="font-weight:800;font-size:14px;color:var(--text);">${p.nome}</div>
                 <div style="font-size:11px;color:rgba(240,240,248,0.55);margin-top:3px;">📍 ${p.endereco}</div>
                 <div style="margin-top:6px;font-size:12px;font-weight:700;color:${entregue?'#00e87a':isProx?'#f5a623':'#3d9cff'};">${status}</div>
                 <div style="font-size:11px;color:rgba(240,240,248,0.4);">⏱️ ~${p.eta_min}min</div>
             </div>`);
+        layersEstaticos.push(m);
     });
 
-    // Posiciona moto
+    // Posiciona moto por cima de tudo (zIndexOffset alto)
     if (posAtual) posicionarMoto(posAtual);
 
-    // Ajusta zoom
+    // Ajusta zoom só na primeira carga (sem posição GPS ainda)
     const pts = [FABRICA, ...paradas.map(p => p.coords)];
     if (pts.length >= 2 && !posAtual) {
         mapaObj.fitBounds(L.latLngBounds(pts), { padding: [50, 50], maxZoom: 16 });
-    }
-    if (posAtual) {
-        mapaObj.setView(posAtual, 15);
-        seguindoMoto = true;
     }
 }
 
