@@ -6,6 +6,8 @@
     <title>🛵 Entregador — O Rei da Coxinha</title>
     <link rel="icon" href="icone.png">
     <meta name="theme-color" content="#0a0a0f">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800;900&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
@@ -108,7 +110,7 @@
         @keyframes gpsDot { 0%,100%{opacity:1;transform:scale(1);} 50%{opacity:0.4;transform:scale(0.7);} }
 
         /* ===== MAIN LAYOUT ===== */
-        #mainApp { display: none; flex-direction: column; min-height: 100vh; }
+        #mainApp { display: flex; flex-direction: column; min-height: 100vh; }
 
         /* ===== MAPA ===== */
         #mapaWrapper {
@@ -437,12 +439,7 @@
 <body>
 
 <!-- LOADING -->
-<div id="loadingScreen">
-    <div class="load-logo">🛵</div>
-    <div class="load-title">Painel do Entregador</div>
-    <div class="load-sub">Carregando rotas...</div>
-    <div class="load-bar-wrap"><div class="load-bar"></div></div>
-</div>
+<div id="loadingScreen" style="display:none;"></div>
 
 <!-- TOAST -->
 <div id="toast"></div>
@@ -555,56 +552,41 @@ const PE_SW = [-9.48, -41.37]; // sudoeste PE
 const PE_NE = [-7.15, -34.79]; // nordeste PE
 
 // ===== INIT =====
-window.onload = async () => {
-    await carregarLeaflet();
-    inicializarMapa();
-    await carregarDados();
-    iniciarGPS();
-    iniciarRealtimeRotas();
-    document.getElementById('loadingScreen').style.display = 'none';
+// Inicia imediatamente assim que o DOM estiver pronto — sem esperar nada
+document.addEventListener('DOMContentLoaded', () => {
+    // Mostra o app na hora
     document.getElementById('mainApp').style.display = 'flex';
     document.getElementById('mainApp').style.flexDirection = 'column';
-};
 
-// ===== LEAFLET =====
-async function carregarLeaflet() {
-    return new Promise((resolve, reject) => {
-        const link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
-        document.head.appendChild(link);
-        const script = document.createElement('script');
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
-        script.onload = resolve; script.onerror = reject;
-        document.head.appendChild(script);
-    });
-}
+    // Inicia mapa (Leaflet já carregado no <head>)
+    try { inicializarMapa(); } catch(e) { console.warn('Mapa err:', e); }
+
+    // Dados e GPS em segundo plano
+    carregarDados().catch(e => console.warn('Dados err:', e));
+    iniciarGPS();
+    iniciarRealtimeRotas();
+});
+
+window.onload = () => {}; // mantido por compatibilidade
+
+// Leaflet carregado diretamente no <head>
 
 function inicializarMapa() {
-    const peBounds = L.latLngBounds(PE_SW, PE_NE);
-
     mapaObj = L.map('mapaDiv', {
         zoomControl: false,
         attributionControl: false,
-        maxBounds: peBounds,
-        maxBoundsViscosity: 1.0,  // impede arrastar para fora de PE
-        minZoom: 9,               // não deixa zoom muito afastado
+        minZoom: 5,
         maxZoom: 20
     }).setView(FABRICA, 14);
 
-    // Força mapa a ficar dentro de PE
-    mapaObj.setMaxBounds(peBounds);
-
     // Tiles escuros
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 20,
-        bounds: peBounds
+        maxZoom: 20
     }).addTo(mapaObj);
 
     // Labels
     L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', {
-        maxZoom: 20, opacity: 0.6,
-        bounds: peBounds
+        maxZoom: 20, opacity: 0.6
     }).addTo(mapaObj);
 
     L.control.zoom({ position: 'topright' }).addTo(mapaObj);
