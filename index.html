@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>🛵 Entregador — O Rei da Coxinha</title>
-    <link rel="icon" href="ícone.png">
-    <link rel="apple-touch-icon" href="ícone.png">
+    <link rel="icon" href="icone.png">
+    <link rel="apple-touch-icon" href="icone.png">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0a0a0f">
     <meta name="mobile-web-app-capable" content="yes">
@@ -1453,6 +1453,28 @@ function calcDistM(lat1, lon1, lat2, lon2) {
         .catch(err => console.warn('[PWA] Falha ao registrar SW:', err));
     });
   }
+</script>
+<script>
+  // ===== WAKE LOCK — Mantém a tela acesa =====
+  let wakeLock = null;
+
+  async function ativarWakeLock() {
+    if (!('wakeLock' in navigator)) return;
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      console.log('[WakeLock] Tela mantida acesa ✅');
+    } catch (err) {
+      console.warn('[WakeLock] Não foi possível ativar:', err);
+    }
+  }
+
+  // Reativa ao voltar para a aba (ex: usuário minimizou e voltou)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') ativarWakeLock();
+  });
+
+  // Ativa assim que a página carrega
+  window.addEventListener('load', ativarWakeLock);
 </script>
 </body>
 </html>
