@@ -1,53 +1,83 @@
-const CACHE_NAME = 'rei-coxinha-entregador-v1';
+const CACHE_NAME = 'rei-entregas-v2';
 
-const ASSETS = [
+// Assets do app
+const APP_ASSETS = [
   './',
   './index.html',
   './icone.png',
-  './manifest.json',
-  'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',
-  'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
-  'https://fonts.googleapis.com/css2?family=Syne:wght@700;800;900&family=DM+Sans:wght@400;500;700&display=swap'
+  './manifest.json'
 ];
 
-// Instala e faz cache dos assets estáticos
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => {
-      return cache.addAll(ASSETS).catch(() => {});
-    })
+// ===== INSTALL: cacheia assets do app =====
+self.addEventListener('install', e => {
+  e.waitUntil(
+    caches.open(CACHE_NAME).then(cache => cache.addAll(APP_ASSETS))
   );
   self.skipWaiting();
 });
 
-// Limpa caches antigos
-self.addEventListener('activate', event => {
-  event.waitUntil(
+// ===== ACTIVATE: limpa caches antigos =====
+self.addEventListener('activate', e => {
+  e.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(
-        keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
-      )
+      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
     )
   );
   self.clients.claim();
 });
 
-// Estratégia: Network First, fallback para cache
-self.addEventListener('fetch', event => {
-  // Ignora requisições não-GET e chamadas Supabase (sempre online)
-  if (event.request.method !== 'GET') return;
-  if (event.request.url.includes('supabase.co')) return;
+// ===== FETCH: estratégia inteligente =====
+self.addEventListener('fetch', e => {
+  const url = e.request.url;
 
-  event.respondWith(
-    fetch(event.request)
-      .then(response => {
-        // Atualiza o cache com a resposta mais recente
-        if (response && response.status === 200 && response.type !== 'opaque') {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-        }
-        return response;
+  // 1. TILES DO MAPA LOCAL — sempre serve do cache (offline first)
+  if (url.includes('/tiles/')) {
+    e.respondWith(
+      caches.match(e.request).then(cached => {
+        if (cached) return cached;
+        // Se não tem no cache, tenta buscar online e salva
+        return fetch(e.request).then(res => {
+          const clone = res.clone();
+          caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+          return res;
+        }).catch(() => new Response('', { status: 404 }));
       })
-      .catch(() => caches.match(event.request))
-  );
+    );
+    return;
+  }
+
+  // 2. TILES EXTERNOS (CartoCDN) — tenta cache primeiro, fallback online
+  if (url.includes('cartocdn') || url.includes('openstreetmap') || url.includes('tile.')) {
+    e.respondWith(
+      caches.match(e.request).then(cached => {
+        if (cached) return cached;
+        return fetch(e.request).then(res => {
+          const clone = res.clone();
+          caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+          return res;
+        }).catch(() => new Response('', { status: 408 }));
+      })
+    );
+    return;
+  }
+
+  // 3. SUPABASE / OSRM / APIs externas — sempre online, sem cache
+  if (url.includes('supabase') || url.includes('osrm') || url.includes('fonts.')) {
+    e.respondWith(fetch(e.request).catch(() => new Response('', { status: 503 })));
+    return;
+  }
+
+  // 4. ASSETS DO APP — cache first
+  if (url.startsWith(self.location.origin)) {
+    e.respondWith(
+      caches.match(e.request).then(cached => {
+        if (cached) return cached;
+        return fetch(e.request).then(res => {
+          const clone = res.clone();
+          caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+          return res;
+        });
+      })
+    );
+  }
 });
