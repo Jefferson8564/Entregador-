@@ -680,6 +680,25 @@ async function verificarRotasNoHorario() {
     }
 }
 
+// Encerra a rota atual ao voltar para a fábrica com tudo entregue
+async function encerrarRota() {
+    if (!rotaAtual) return;
+    await sb.from("delivery_routes").update({
+        status: 'concluido',
+        fim_em: new Date().toISOString()
+    }).eq("id", rotaAtual.id);
+    await sb.from("config").upsert(
+        { key: "admin_gps", value: JSON.stringify({ lat: null, lon: null, ts: null }) },
+        { onConflict: 'key' }
+    );
+    const nome = rotaAtual.nome;
+    rotaAtual = null;
+    paradasList = [];
+    limparTodasRotasVisuais();
+    showToast(`✅ ${nome} concluída! Voltou à fábrica.`, 'success');
+    await carregarDados();
+}
+
 // Inicia a próxima rota ao sair da fábrica
 async function iniciarProximaRota() {
     const proxima = getProximaRotaPendente();
@@ -795,14 +814,20 @@ async function processarPosicao(pos) {
         // Entrou na fábrica
         if (!estavaNaFabrica && naFabrica) {
             estavaNaFabrica = true;
-            await verificarRotasNoHorario();
+            // Só encerra rota se todas as paradas foram entregues
+            const todasEntregues = paradasList.length > 0 && paradasList.every(p => p.status === 'entregue');
+            if (rotaAtual && todasEntregues) {
+                await encerrarRota();
+            } else {
+                await verificarRotasNoHorario();
+            }
             atualizarBannerFabrica(true, distFabrica);
         }
-        // Saiu da fábrica → tenta iniciar rota
+        // Saiu da fábrica → só inicia rota se não tem rota ativa
         else if (estavaNaFabrica && !naFabrica) {
             estavaNaFabrica = false;
             atualizarBannerFabrica(false, distFabrica);
-            await iniciarProximaRota();
+            if (!rotaAtual) await iniciarProximaRota();
         } else {
             atualizarBannerFabrica(naFabrica, distFabrica);
         }
@@ -1045,13 +1070,7 @@ async function executarMarcarEntregue(paradaId, nome) {
     // Verifica se todas as paradas foram entregues
     const todasEntregues = paradasList.every(p => p.status === 'entregue');
     if (todasEntregues) {
-        await sb.from("delivery_routes")
-            .update({ status: 'concluido', fim_em: new Date().toISOString() })
-            .eq("id", rotaAtual.id);
-        await sb.from("config").upsert({ key: "admin_gps", value: JSON.stringify({ lat: null, lon: null, ts: null }) }, { onConflict: 'key' });
-        showToast('🏁 Todas as entregas concluídas!', 'success');
-        rotaAtual = null;
-        limparTodasRotasVisuais();
+        showToast('🏁 Todas entregues! Volte à fábrica para encerrar a rota.', 'success');
     }
 
     renderTudo();
@@ -1063,7 +1082,6 @@ async function executarMarcarEntregue(paradaId, nome) {
 // Busca rota no OSRM e retorna array de [lat, lon]
 async function buscarRotaOSRM(pontos) {
     if (pontos.length < 2) return null;
-    // OSRM recebe lon,lat
     const coords = pontos.map(p => `${p[1]},${p[0]}`).join(';');
     const url = `${OSRM_BASE}${coords}?overview=full&geometries=geojson&steps=false`;
     try {
@@ -1071,7 +1089,6 @@ async function buscarRotaOSRM(pontos) {
         if (!resp.ok) return null;
         const json = await resp.json();
         if (json.code !== 'Ok' || !json.routes?.length) return null;
-        // GeoJSON vem como [lon, lat] → inverter para Leaflet [lat, lon]
         return json.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
     } catch(e) {
         console.warn('OSRM err:', e);
@@ -1079,42 +1096,66 @@ async function buscarRotaOSRM(pontos) {
     }
 }
 
-// Desenha a rota completa (fábrica → todas as paradas) em vermelho tracejado
-async function desenharRotaCompleta(paradas) {
-    // Monta chave de cache com os IDs das paradas
-    const key = paradas.map(p => p.id + p.status).join('|');
-    let coords;
+// ===== LAYERS DE ROTA POR SEGMENTO =====
+let rotaSegmentosLayers = []; // layers individuais de cada trecho pendente/entregue
 
+function limparSegmentosRota() {
+    rotaSegmentosLayers.forEach(l => { try { mapaObj.removeLayer(l); } catch(e){} });
+    rotaSegmentosLayers = [];
+}
+
+// Desenha a rota completa separando trechos entregues (verde) e pendentes (vermelho)
+async function desenharRotaCompleta(paradas) {
+    // Remove layers anteriores
+    if (rotaCompletaLayer) { try { mapaObj.removeLayer(rotaCompletaLayer); } catch(e){} rotaCompletaLayer = null; }
+    limparSegmentosRota();
+
+    if (!paradas || paradas.length === 0) return;
+
+    // Monta pontos completos: fábrica → todas as paradas
+    const todosOsPontos = [FABRICA, ...paradas.map(p => p.coords)];
+
+    // Tenta buscar rota completa pelo OSRM para usar como base
+    const key = paradas.map(p => p.id + p.status).join('|');
+    let coordsCompletas;
     if (cacheRotaCompletaKey === key && cacheRotaCompleta) {
-        coords = cacheRotaCompleta;
+        coordsCompletas = cacheRotaCompleta;
     } else {
-        const pontos = [FABRICA, ...paradas.map(p => p.coords)];
-        coords = await buscarRotaOSRM(pontos);
-        if (coords) {
-            cacheRotaCompleta = coords;
+        coordsCompletas = await buscarRotaOSRM(todosOsPontos);
+        if (coordsCompletas) {
+            cacheRotaCompleta = coordsCompletas;
             cacheRotaCompletaKey = key;
         }
     }
 
-    // Remove layer anterior
-    if (rotaCompletaLayer) { try { mapaObj.removeLayer(rotaCompletaLayer); } catch(e){} rotaCompletaLayer = null; }
+    // Para cada segmento fábrica→p1, p1→p2, etc., desenha com cor certa
+    for (let i = 0; i < paradas.length; i++) {
+        const origem = i === 0 ? FABRICA : paradas[i - 1].coords;
+        const destino = paradas[i].coords;
+        const entregue = paradas[i].status === 'entregue';
+        const cor = entregue ? '#4ade80' : '#ff4757'; // verde claro : vermelho
+        const opacidade = entregue ? 0.5 : 0.75;
+        const espessura = entregue ? 3 : 3.5;
 
-    if (coords) {
-        rotaCompletaLayer = L.polyline(coords, {
-            color: '#ff4757', weight: 3, opacity: 0.45, dashArray: '10 7'
+        // Tenta extrair o trecho do OSRM completo (aproximação pelo índice de pontos)
+        let segCoords = await buscarRotaOSRM([origem, destino]);
+        if (!segCoords) segCoords = [origem, destino]; // fallback linha reta
+
+        const layer = L.polyline(segCoords, {
+            color: cor,
+            weight: espessura,
+            opacity: opacidade,
+            dashArray: entregue ? '6 5' : null,
+            lineJoin: 'round',
+            lineCap: 'round'
         }).addTo(mapaObj);
-    } else {
-        // Fallback: linha reta se OSRM falhar
-        const pts = [FABRICA, ...paradas.map(p => p.coords)];
-        rotaCompletaLayer = L.polyline(pts, {
-            color: '#ff4757', weight: 2, opacity: 0.3, dashArray: '8 6'
-        }).addTo(mapaObj);
+        rotaSegmentosLayers.push(layer);
     }
-    // Garante que a moto fique por cima
+
     if (motoMarker) motoMarker.bringToFront();
 }
 
-// Desenha trecho azul da posição atual até a próxima parada
+// Desenha trecho azul com setas da posição atual até a próxima parada
 async function desenharRotaProxima(posAtual, proxima) {
     if (!posAtual || !proxima?.coords) {
         if (rotaProximaLayer) { try { mapaObj.removeLayer(rotaProximaLayer); } catch(e){} rotaProximaLayer = null; }
@@ -1122,30 +1163,77 @@ async function desenharRotaProxima(posAtual, proxima) {
         return;
     }
 
-    // Só redesenha se a próxima parada mudou
-    if (ultimaProximaId === proxima.id) {
-        // Só atualiza o ponto de origem (posição do entregador mudou)
-        // Para não ficar chamando OSRM a cada 4s, redesenha só quando próxima muda
-        // ou quando ainda não tem layer
-        if (rotaProximaLayer) return;
-    }
+    if (ultimaProximaId === proxima.id && rotaProximaLayer) return;
     ultimaProximaId = proxima.id;
 
     const coords = await buscarRotaOSRM([posAtual, proxima.coords]);
 
     if (rotaProximaLayer) { try { mapaObj.removeLayer(rotaProximaLayer); } catch(e){} rotaProximaLayer = null; }
 
-    if (coords) {
-        rotaProximaLayer = L.polyline(coords, {
-            color: '#3d9cff', weight: 5, opacity: 0.9
-        }).addTo(mapaObj);
-    } else {
-        // Fallback linha reta
-        rotaProximaLayer = L.polyline([posAtual, proxima.coords], {
-            color: '#3d9cff', weight: 4, opacity: 0.85
-        }).addTo(mapaObj);
-    }
+    const pontos = coords || [posAtual, proxima.coords];
+
+    // Linha azul principal
+    rotaProximaLayer = L.polyline(pontos, {
+        color: '#3d9cff',
+        weight: 5,
+        opacity: 0.95,
+        lineJoin: 'round',
+        lineCap: 'round'
+    }).addTo(mapaObj);
+
+    // Setas ao longo do trecho azul
+    _desenharSetasNaRota(pontos, '#3d9cff');
+
     if (motoMarker) motoMarker.bringToFront();
+}
+
+// Adiciona marcadores de seta ao longo de uma polyline
+function _desenharSetasNaRota(pontos, cor) {
+    if (pontos.length < 2) return;
+
+    // Calcula o comprimento total
+    let comprimentoTotal = 0;
+    const segmentos = [];
+    for (let i = 0; i < pontos.length - 1; i++) {
+        const d = calcDistM(pontos[i][0], pontos[i][1], pontos[i+1][0], pontos[i+1][1]);
+        segmentos.push({ inicio: pontos[i], fim: pontos[i+1], dist: d });
+        comprimentoTotal += d;
+    }
+
+    // Coloca uma seta a cada ~80m
+    const intervalo = 80;
+    let acumulado = 0;
+    let proxSeta = intervalo / 2; // começa na metade do primeiro intervalo
+
+    segmentos.forEach(seg => {
+        while (proxSeta <= acumulado + seg.dist) {
+            const t = (proxSeta - acumulado) / seg.dist;
+            const lat = seg.inicio[0] + (seg.fim[0] - seg.inicio[0]) * t;
+            const lon = seg.inicio[1] + (seg.fim[1] - seg.inicio[1]) * t;
+            const angulo = calcBearing(seg.inicio, seg.fim);
+
+            const setaIcon = L.divIcon({
+                html: `<div style="
+                    width:0; height:0;
+                    border-left: 5px solid transparent;
+                    border-right: 5px solid transparent;
+                    border-bottom: 11px solid ${cor};
+                    transform: rotate(${angulo}deg);
+                    transform-origin: center;
+                    filter: drop-shadow(0 1px 3px rgba(0,0,0,0.5));
+                    opacity: 0.9;
+                "></div>`,
+                className: '',
+                iconSize: [10, 11],
+                iconAnchor: [5, 5]
+            });
+
+            const m = L.marker([lat, lon], { icon: setaIcon, interactive: false, zIndexOffset: 500 }).addTo(mapaObj);
+            rotaSegmentosLayers.push(m); // add to cleanup list
+            proxSeta += intervalo;
+        }
+        acumulado += seg.dist;
+    });
 }
 
 // ===== MAPA =====
@@ -1199,6 +1287,7 @@ function limparLayersEstaticos() {
 
 function limparTodasRotasVisuais() {
     limparLayersEstaticos();
+    limparSegmentosRota();
     if (rotaCompletaLayer) { try { mapaObj.removeLayer(rotaCompletaLayer); } catch(e){} rotaCompletaLayer = null; }
     if (rotaProximaLayer) { try { mapaObj.removeLayer(rotaProximaLayer); } catch(e){} rotaProximaLayer = null; }
     cacheRotaCompleta = null;
@@ -1241,7 +1330,7 @@ async function renderizarMapaCompleto() {
         paradas.forEach((p, i) => {
             const entregue = p.status === 'entregue';
             const isProx = proxima && p.id === proxima.id;
-            const bg = entregue ? '#00e87a' : isProx ? '#f5a623' : '#3d9cff';
+            const bg = entregue ? '#4ade80' : isProx ? '#f5a623' : '#ff4757';
             const pulse = isProx ? 'animation:paradaPulse 1.5s ease-in-out infinite;' : '';
             const lbl = entregue ? '✓' : String(i + 1);
 
@@ -1251,19 +1340,20 @@ async function renderizarMapaCompleto() {
                     font-size:13px;font-weight:900;color:${entregue?'#000':'white'};
                     border:3px solid rgba(255,255,255,0.3);
                     box-shadow:0 3px 12px rgba(0,0,0,0.5);
-                    opacity:${entregue?0.45:1};
+                    opacity:${entregue?0.6:1};
                     ${pulse}
                 ">${lbl}</div>
                 <style>@keyframes paradaPulse{0%,100%{box-shadow:0 0 0 0 rgba(245,166,35,0.7)}70%{box-shadow:0 0 0 12px rgba(245,166,35,0)}}</style>`,
                 className: '', iconSize: [34, 34], iconAnchor: [17, 17]
             });
 
-            const status = entregue ? '✅ Entregue' : isProx ? '▶ Próxima parada' : '⏳ Pendente';
+            const statusLabel = entregue ? '✅ Entregue' : isProx ? '▶ Próxima parada' : '⏳ Pendente';
+            const statusCor = entregue ? '#4ade80' : isProx ? '#f5a623' : '#ff4757';
             const m = L.marker(p.coords, { icon }).addTo(mapaObj)
                 .bindPopup(`<div style="min-width:140px;">
                     <div style="font-weight:800;font-size:14px;">${p.nome}</div>
                     <div style="font-size:11px;color:rgba(240,240,248,0.55);margin-top:3px;">📍 ${p.endereco}</div>
-                    <div style="margin-top:6px;font-size:12px;font-weight:700;color:${entregue?'#00e87a':isProx?'#f5a623':'#3d9cff'};">${status}</div>
+                    <div style="margin-top:6px;font-size:12px;font-weight:700;color:${statusCor};">${statusLabel}</div>
                     <div style="font-size:11px;color:rgba(240,240,248,0.4);">⏱️ ~${p.eta_min}min</div>
                 </div>`);
             layersEstaticos.push(m);
