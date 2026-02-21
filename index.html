@@ -540,6 +540,7 @@ let estavaNaParada = false;
 let paradaAtualId = null;
 let realtimeCh = null;
 let todasAsRotas = [];
+let todosOsClientes = []; // todos os clientes únicos de todas as rotas históricas
 let mediaMinPorParada = 12;
 let toastTimer = null;
 let paradaPagamentoPendente = null; // parada aguardando resposta de pagamento
@@ -604,13 +605,23 @@ function inicializarMapa() {
 // ===== DADOS =====
 async function carregarDados() {
     await calcularMediaEta();
-    const { data: rotas } = await sb.from("delivery_routes")
-        .select("*").order("hora_saida", { ascending: true });
 
     const hoje = new Date().toISOString().split('T')[0];
-    const dia = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][new Date().getDay()];
 
-    // Aplica a mesma lógica de data do Admin: status calculado por data, não salvo
+    // Busca rotas, clientes e pedidos de hoje em paralelo
+    const [{ data: rotas }, { data: clientesCadastrados }, { data: pedidosHoje }] = await Promise.all([
+        sb.from("delivery_routes").select("*").order("hora_saida", { ascending: true }),
+        sb.from("clients").select("*"),
+        sb.from("orders")
+            .select("customer_phone")
+            .gte("created_at", hoje + 'T00:00:00')
+            .lte("created_at", hoje + 'T23:59:59')
+    ]);
+
+    // Phones que fizeram pedido hoje
+    const phonesComPedido = new Set((pedidosHoje || []).map(p => p.customer_phone));
+
+    // Aplica lógica de status por data
     todasAsRotas = (rotas || []).map(r => {
         const concluidoHoje = r.fim_em && r.fim_em.startsWith(hoje);
         const emAndamentoHoje = r.saida_em && r.saida_em.startsWith(hoje);
@@ -618,6 +629,44 @@ async function carregarDados() {
         if (r.status === 'em_andamento' && !emAndamentoHoje) return { ...r, status: 'criada' };
         return r;
     });
+
+    // Para cada rota com status "criada", regenera as paradas ativas
+    // baseado no paradas_template × quem pediu hoje — sem precisar abrir o ADM
+    for (const rota of todasAsRotas) {
+        const template = rota.paradas_template || [];
+        if (template.length === 0) continue;
+
+        const paradasAtivas = template
+            .filter(p => p.cliente_phone && phonesComPedido.has(p.cliente_phone))
+            .map((p, i) => ({
+                ...p,
+                status: rota.status === 'em_andamento'
+                    ? (rota.paradas?.find(a => a.cliente_phone === p.cliente_phone)?.status || 'pendente')
+                    : 'pendente',
+                eta_min: Math.round((i + 1) * mediaMinPorParada)
+            }));
+
+        // Só atualiza no banco se a rota ainda não começou (criada) e as paradas mudaram
+        if (rota.status === 'criada') {
+            const ativasAntes = JSON.stringify(rota.paradas || []);
+            const ativasAgora = JSON.stringify(paradasAtivas);
+            if (ativasAntes !== ativasAgora) {
+                await sb.from("delivery_routes")
+                    .update({ paradas: paradasAtivas })
+                    .eq("id", rota.id);
+            }
+            rota.paradas = paradasAtivas;
+        }
+    }
+
+    // Clientes no mapa (todos os cadastrados com coordenadas)
+    todosOsClientes = (clientesCadastrados || []).map(c => {
+        let coords = null;
+        if (c.delivery_lat && c.delivery_lon) {
+            coords = [parseFloat(c.delivery_lat), parseFloat(c.delivery_lon)];
+        }
+        return { ...c, nome: c.name, coords };
+    }).filter(c => c.coords);
 
     const emAndamento = todasAsRotas.find(r => r.status === 'em_andamento');
     if (emAndamento) {
@@ -1063,9 +1112,13 @@ async function renderizarMapaCompleto() {
     // Remove apenas layers estáticos (paradas, marcadores) — linhas de rota gerenciadas separadamente
     limparLayersEstaticos();
 
+    // Paradas da rota ativa (para lógica de rota e próxima parada)
     const paradas = paradasList.filter(p => p.coords);
     const pendentes = paradas.filter(p => p.status !== 'entregue');
     const proxima = pendentes[0] || null;
+
+    // TODOS os clientes históricos (já extraídos em carregarDados)
+    const todasParadas = todosOsClientes;
 
     // Marcador fábrica
     const fabMarker = L.marker(FABRICA, {
@@ -1092,35 +1145,105 @@ async function renderizarMapaCompleto() {
     // Rota até a próxima parada (azul) — só redesenha quando a parada muda
     desenharRotaProxima(posAtual, proxima); // também async
 
-    // Marcadores das paradas
-    paradas.forEach((p, i) => {
-        const entregue = p.status === 'entregue';
-        const isProx = proxima && p.id === proxima.id;
-        const bg = entregue ? '#00e87a' : isProx ? '#f5a623' : '#3d9cff';
-        const pulse = isProx ? 'animation:paradaPulse 1.5s ease-in-out infinite;' : '';
-        const lbl = entregue ? '✓' : String(i + 1);
+    // Agrupa clientes próximos (raio ~30m) para exibir lado a lado
+    const RAIO_GRUPO = 0.00027; // ~30 metros em graus
+    const grupos = [];
+    const usados = new Set();
 
+    todasParadas.forEach((p, i) => {
+        if (usados.has(i)) return;
+        const grupo = [p];
+        usados.add(i);
+        todasParadas.forEach((q, j) => {
+            if (usados.has(j)) return;
+            const dlat = Math.abs(p.coords[0] - q.coords[0]);
+            const dlon = Math.abs(p.coords[1] - q.coords[1]);
+            if (dlat < RAIO_GRUPO && dlon < RAIO_GRUPO) {
+                grupo.push(q);
+                usados.add(j);
+            }
+        });
+        grupos.push({ coords: p.coords, clientes: grupo });
+    });
+
+    // Renderiza cada grupo — se tiver mais de um cliente, coloca lado a lado num único marker
+    grupos.forEach(grupo => {
+        const { coords, clientes } = grupo;
+
+        // Monta HTML de cada cliente no grupo
+        const clientesHTML = clientes.map(p => {
+            const paradaAtiva = paradasList.find(pa => pa.coords && pa.coords[0] === p.coords[0] && pa.coords[1] === p.coords[1] && pa.nome === (p.name || p.nome));
+            const entregue = paradaAtiva ? paradaAtiva.status === 'entregue' : false;
+            const isProx = proxima && paradaAtiva && paradaAtiva.id === proxima.id;
+            const isRotaAtiva = !!paradaAtiva;
+
+            let bg, borderColor, labelBg, labelColor;
+            if (entregue) {
+                bg = '#00e87a'; borderColor = 'rgba(0,232,122,0.4)'; labelBg = 'rgba(0,0,0,0.65)'; labelColor = '#aaa';
+            } else if (isProx) {
+                bg = '#f5a623'; borderColor = 'rgba(245,166,35,0.6)'; labelBg = 'rgba(245,166,35,0.92)'; labelColor = '#000';
+            } else if (isRotaAtiva) {
+                bg = '#3d9cff'; borderColor = 'rgba(61,156,255,0.4)'; labelBg = 'rgba(10,10,15,0.85)'; labelColor = '#f0f0f8';
+            } else {
+                bg = '#7c5cbf'; borderColor = 'rgba(124,92,191,0.4)'; labelBg = 'rgba(20,10,40,0.85)'; labelColor = 'rgba(240,240,248,0.7)';
+            }
+
+            const pulse = isProx ? 'animation:paradaPulse 1.5s ease-in-out infinite;' : '';
+            const nome = p.name || p.nome;
+
+            return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
+                <div style="
+                    background:${labelBg};color:${labelColor};
+                    font-size:10px;font-weight:800;
+                    padding:2px 7px;border-radius:10px;
+                    white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis;
+                    border:1px solid ${borderColor};
+                    box-shadow:0 2px 8px rgba(0,0,0,0.6);
+                    backdrop-filter:blur(6px);
+                    pointer-events:none;
+                ">${nome}</div>
+                <div style="width:36px;height:36px;border-radius:50%;
+                    background:${bg};display:flex;align-items:center;justify-content:center;
+                    font-size:19px;
+                    border:3px solid rgba(255,255,255,0.3);
+                    box-shadow:0 3px 12px rgba(0,0,0,0.5);
+                    opacity:${entregue ? 0.5 : 1};
+                    ${pulse}
+                ">👤</div>
+            </div>`;
+        }).join('');
+
+        const largura = clientes.length * 50 + (clientes.length - 1) * 4;
         const icon = L.divIcon({
-            html: `<div style="width:34px;height:34px;border-radius:50%;
-                background:${bg};display:flex;align-items:center;justify-content:center;
-                font-size:13px;font-weight:900;color:${entregue?'#000':'white'};
-                border:3px solid rgba(255,255,255,0.3);
-                box-shadow:0 3px 12px rgba(0,0,0,0.5);
-                opacity:${entregue?0.45:1};
-                ${pulse}
-            ">${lbl}</div>
+            html: `<div style="display:flex;flex-direction:row;align-items:flex-end;gap:4px;">
+                ${clientesHTML}
+            </div>
             <style>@keyframes paradaPulse{0%,100%{box-shadow:0 0 0 0 rgba(245,166,35,0.7)}70%{box-shadow:0 0 0 12px rgba(245,166,35,0)}}</style>`,
-            className: '', iconSize: [34, 34], iconAnchor: [17, 17]
+            className: '',
+            iconSize: [largura, 62],
+            iconAnchor: [largura / 2, 62]
         });
 
-        const status = entregue ? '✅ Entregue' : isProx ? '▶ Próxima parada' : '⏳ Pendente';
-        const m = L.marker(p.coords, { icon }).addTo(mapaObj)
-            .bindPopup(`<div style="min-width:140px;">
-                <div style="font-weight:800;font-size:14px;color:var(--text);">${p.nome}</div>
-                <div style="font-size:11px;color:rgba(240,240,248,0.55);margin-top:3px;">📍 ${p.endereco}</div>
-                <div style="margin-top:6px;font-size:12px;font-weight:700;color:${entregue?'#00e87a':isProx?'#f5a623':'#3d9cff'};">${status}</div>
-                <div style="font-size:11px;color:rgba(240,240,248,0.4);">⏱️ ~${p.eta_min}min</div>
-            </div>`);
+        // Popup com todos os clientes do grupo
+        const popupHTML = clientes.map(p => {
+            const paradaAtiva = paradasList.find(pa => pa.coords && pa.coords[0] === p.coords[0] && pa.coords[1] === p.coords[1] && pa.nome === (p.name || p.nome));
+            const entregue = paradaAtiva ? paradaAtiva.status === 'entregue' : false;
+            const isProx = proxima && paradaAtiva && paradaAtiva.id === proxima.id;
+            const isRotaAtiva = !!paradaAtiva;
+            const statusLabel = entregue ? '✅ Entregue hoje' : isProx ? '▶ Próxima parada' : isRotaAtiva ? '⏳ Pendente' : '📍 Cliente cadastrado';
+            const statusColor = entregue ? '#00e87a' : isProx ? '#f5a623' : isRotaAtiva ? '#3d9cff' : '#7c5cbf';
+            const debtInfo = p.debt > 0 ? `<div style="font-size:11px;font-weight:700;color:#ff4757;margin-top:2px;">💳 Fiado: R$ ${Number(p.debt).toFixed(2).replace('.',',')}</div>` : '';
+            const phoneInfo = p.phone ? `<div style="font-size:11px;color:rgba(240,240,248,0.45);">📞 ${p.phone}</div>` : '';
+            return `<div style="padding:6px 0;${clientes.length > 1 ? 'border-bottom:1px solid rgba(255,255,255,0.08);' : ''}">
+                <div style="font-weight:800;font-size:13px;color:#f0f0f8;">${p.name || p.nome}</div>
+                <div style="font-size:11px;color:rgba(240,240,248,0.55);">📍 ${p.delivery_address || p.endereco || ''}</div>
+                ${phoneInfo}${debtInfo}
+                <div style="font-size:11px;font-weight:700;color:${statusColor};margin-top:2px;">${statusLabel}</div>
+            </div>`;
+        }).join('');
+
+        const m = L.marker(coords, { icon }).addTo(mapaObj)
+            .bindPopup(`<div style="min-width:160px;max-width:220px;">${popupHTML}</div>`);
         layersEstaticos.push(m);
     });
 
@@ -1128,7 +1251,7 @@ async function renderizarMapaCompleto() {
     if (posAtual) posicionarMoto(posAtual);
 
     // Ajusta zoom só na primeira carga (sem posição GPS ainda)
-    const pts = [FABRICA, ...paradas.map(p => p.coords)];
+    const pts = [FABRICA, ...todasParadas.map(p => p.coords)];
     if (pts.length >= 2 && !posAtual) {
         mapaObj.fitBounds(L.latLngBounds(pts), { padding: [50, 50], maxZoom: 16 });
     }
@@ -1239,7 +1362,7 @@ function renderParadas() {
         <div class="parada-item ${entregue ? 'entregue' : ''}">
             <div class="parada-num ${numClass}">${lbl}</div>
             <div class="parada-info">
-                <div class="parada-nome">${p.nome}</div>
+                <div class="parada-nome">${p.name || p.nome}</div>
                 <div class="parada-end">📍 ${p.endereco}</div>
             </div>
             <div class="parada-eta">⏱️ ${p.eta_min}min</div>
