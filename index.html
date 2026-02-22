@@ -545,7 +545,29 @@
             transform-origin: center center;
         }
 
-        /* ===== CONFIRMAR ENTREGA MODAL ===== */
+        /* ===== LONG PRESS ROTA ===== */
+        #longPressRing {
+            position: fixed; z-index: 3000;
+            pointer-events: none;
+            display: none;
+        }
+        #longPressRing svg circle {
+            transition: stroke-dashoffset 2s linear;
+        }
+        #longPressToast {
+            position: fixed; bottom: 120px; left: 50%;
+            transform: translateX(-50%);
+            z-index: 3000; pointer-events: none;
+            background: rgba(61,156,255,0.92);
+            color: #fff; font-family: 'Syne', sans-serif;
+            font-size: 13px; font-weight: 800;
+            padding: 10px 20px; border-radius: 24px;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 4px 20px rgba(61,156,255,0.4);
+            opacity: 0; transition: opacity 0.2s;
+            white-space: nowrap;
+        }
+        #longPressToast.show { opacity: 1; }
         #confirmModal {
             position: fixed; inset: 0; z-index: 8000;
             background: rgba(0,0,0,0.7); backdrop-filter: blur(8px);
@@ -702,6 +724,19 @@
         </div>
     </div>
 </div>
+
+<!-- LONG PRESS RING -->
+<div id="longPressRing">
+    <svg width="72" height="72" viewBox="0 0 72 72">
+        <circle cx="36" cy="36" r="30" fill="rgba(61,156,255,0.15)" stroke="rgba(61,156,255,0.3)" stroke-width="2"/>
+        <circle id="longPressArc" cx="36" cy="36" r="30"
+            fill="none" stroke="#3d9cff" stroke-width="4"
+            stroke-linecap="round"
+            stroke-dasharray="188.5" stroke-dashoffset="188.5"
+            transform="rotate(-90 36 36)"/>
+    </svg>
+</div>
+<div id="longPressToast">🗺️ Recalculando rota...</div>
 
 <!-- CONFIRM MODAL -->
 <div id="confirmModal">
@@ -1580,6 +1615,10 @@ async function renderizarMapaCompleto() {
         const m = L.marker(coords, { icon }).addTo(mapaObj)
             .bindPopup(`<div style="min-width:160px;max-width:220px;">${popupHTML}</div>`);
         layersEstaticos.push(m);
+
+        // Long press — recalcula rota para o cliente (usa o primeiro do grupo com coords)
+        const clienteAlvo = clientes.find(c => c.coords) || clientes[0];
+        m.on('add', () => attachLongPress(m, clienteAlvo));
     });
 
     // Posiciona moto por cima de tudo (zIndexOffset alto)
@@ -1590,6 +1629,129 @@ async function renderizarMapaCompleto() {
     if (pts.length >= 2 && !posAtual) {
         mapaObj.fitBounds(L.latLngBounds(pts), { padding: [50, 50], maxZoom: 16 });
     }
+}
+
+// ===== LONG PRESS — RECALCULAR ROTA =====
+let lpTimer = null;
+let lpCliente = null;
+let lpCancelado = false;
+
+function iniciarLongPress(e, cliente) {
+    lpCancelado = false;
+    lpCliente = cliente;
+
+    // Posição do toque na tela
+    const toque = e.touches ? e.touches[0] : e;
+    const x = toque.clientX, y = toque.clientY;
+
+    // Mostra o anel de progresso centrado no toque
+    const ring = document.getElementById('longPressRing');
+    ring.style.display = 'block';
+    ring.style.left = (x - 36) + 'px';
+    ring.style.top  = (y - 36) + 'px';
+
+    // Anima o arco (stroke-dashoffset de 188.5 → 0 em 2s)
+    const arc = document.getElementById('longPressArc');
+    arc.style.transition = 'none';
+    arc.style.strokeDashoffset = '188.5';
+    // Força reflow para reiniciar animação
+    arc.getBoundingClientRect();
+    arc.style.transition = 'stroke-dashoffset 2s linear';
+    arc.style.strokeDashoffset = '0';
+
+    // Feedback tátil ao começar
+    if (navigator.vibrate) navigator.vibrate(30);
+
+    lpTimer = setTimeout(() => {
+        if (lpCancelado) return;
+        confirmarRotaParaCliente(cliente);
+    }, 2000);
+}
+
+function cancelarLongPress() {
+    lpCancelado = true;
+    clearTimeout(lpTimer);
+    lpTimer = null;
+    // Para o anel no estado atual
+    const arc = document.getElementById('longPressArc');
+    const curr = arc.style.strokeDashoffset;
+    arc.style.transition = 'none';
+    arc.style.strokeDashoffset = curr;
+    // Esconde com fade
+    document.getElementById('longPressRing').style.display = 'none';
+}
+
+async function confirmarRotaParaCliente(cliente) {
+    // Esconde anel
+    document.getElementById('longPressRing').style.display = 'none';
+
+    // Vibra para confirmar
+    if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
+
+    const nome = cliente.name || cliente.nome;
+    const toast = document.getElementById('longPressToast');
+    toast.textContent = `🗺️ Rota para ${nome}...`;
+    toast.classList.add('show');
+
+    if (!posAtual) {
+        toast.textContent = '⚠️ GPS não disponível';
+        setTimeout(() => toast.classList.remove('show'), 2500);
+        return;
+    }
+
+    // Busca rota OSRM até o cliente
+    const resultado = await buscarRotaComSteps(posAtual, cliente.coords);
+
+    setTimeout(() => toast.classList.remove('show'), 2200);
+
+    if (!resultado) {
+        showToast(`⚠️ Sem rota para ${nome}`, 'warn');
+        return;
+    }
+
+    // Se nav não estava ativa, abre
+    if (!navAtiva) await abrirNavegacao();
+
+    // Injeta a rota direto, ignorando a fila de paradas
+    navGeomFull = resultado.geometry;
+    navSteps = mapearStepsNaPolilinha(resultado.steps, navGeomFull);
+    navStepIdx = 0;
+    navGeomSegIdx = 0;
+    navRotaParadaId = '__manual__' + nome; // id fictício
+    navDuracao = resultado.duracao;
+    navUltimaFalaKey = '';
+
+    // Desenha rota azul no mapa
+    if (rotaProximaLayer) { try { mapaObj.removeLayer(rotaProximaLayer); } catch(e){} rotaProximaLayer = null; }
+    rotaProximaLayer = L.polyline(resultado.geometry, {
+        color: '#3d9cff', weight: 5, opacity: 0.9
+    }).addTo(mapaObj);
+    if (motoMarker) motoMarker.bringToFront();
+
+    showToast(`✅ Rota para ${nome} — ${formatarDistNav(resultado.distancia)}`, 'success');
+    navFalar(`Rota calculada para ${nome}. ${formatarDistNav(resultado.distancia)}.`, 'manual-route');
+
+    atualizarNavBanner();
+}
+
+function attachLongPress(marker, cliente) {
+    const el = marker.getElement();
+    if (!el) return;
+
+    // Touch (mobile)
+    el.addEventListener('touchstart', e => {
+        e.stopPropagation();
+        iniciarLongPress(e, cliente);
+    }, { passive: true });
+
+    el.addEventListener('touchend',   () => cancelarLongPress(), { passive: true });
+    el.addEventListener('touchmove',  () => cancelarLongPress(), { passive: true });
+    el.addEventListener('touchcancel',() => cancelarLongPress(), { passive: true });
+
+    // Mouse (desktop fallback)
+    el.addEventListener('mousedown', e => iniciarLongPress(e, cliente));
+    el.addEventListener('mouseup',   () => cancelarLongPress());
+    el.addEventListener('mouseleave',() => cancelarLongPress());
 }
 
 function recentrarMapa() {
