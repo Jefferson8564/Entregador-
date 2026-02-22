@@ -704,8 +704,7 @@ function initMap() {
       }
     });
 
-    // Clientes sempre aparecem ao carregar o mapa
-    renderMarcadoresClientes();
+    // Clientes são renderizados por carregarClientes() após os dados chegarem do Supabase
   });
 
   // GPS
@@ -1111,11 +1110,18 @@ async function carregarClientes() {
   if (error) { console.warn("Erro ao carregar clientes:", error); return; }
   todosClientes = data || [];
 
-  // Renderiza assim que o mapa estiver pronto
+  // Aguarda o mapa estar totalmente pronto antes de adicionar marcadores
+  const _render = () => renderMarcadoresClientes();
+
   if (map.isStyleLoaded()) {
-    renderMarcadoresClientes();
+    _render();
   } else {
-    map.once('load', () => renderMarcadoresClientes());
+    // map.once garante que chama só após o load completo
+    map.once('style.load', _render);
+    // fallback caso o evento já tenha disparado antes deste código rodar
+    setTimeout(() => {
+      if (marcadoresClientes.length === 0 && todosClientes.length > 0) _render();
+    }, 2000);
   }
 }
 
