@@ -333,7 +333,100 @@
   .marker-client-wrap {
     display:flex; flex-direction:column; align-items:center;
     cursor:pointer; user-select:none;
+    -webkit-user-select:none;
+    touch-action:none;
+    position:relative;
   }
+
+  /* ANEL DE PROGRESSO — long-press 2s */
+  .lp-ring {
+    position:absolute;
+    width:58px; height:58px;
+    top:calc(100% - 51px); left:50%;
+    transform:translateX(-50%) rotate(-90deg);
+    pointer-events:none;
+    opacity:0;
+    transition:opacity 0.15s;
+  }
+  .lp-ring circle {
+    fill:none;
+    stroke:var(--green);
+    stroke-width:3.5;
+    stroke-linecap:round;
+    r:26; cx:29; cy:29;
+    stroke-dasharray:163.4;
+    stroke-dashoffset:163.4;
+    filter:drop-shadow(0 0 5px var(--green));
+  }
+  .pressing .lp-ring { opacity:1; }
+  .pressing .lp-ring circle {
+    animation:lpFill 2s linear forwards;
+  }
+  @keyframes lpFill {
+    from { stroke-dashoffset:163.4; }
+    to   { stroke-dashoffset:0; }
+  }
+  .pressing .marker-avatar {
+    animation:avatarPress 0.4s ease-in-out infinite alternate;
+  }
+  @keyframes avatarPress {
+    from { transform:scale(1); }
+    to   { transform:scale(1.14); box-shadow:0 0 0 8px rgba(0,232,122,0.22), 0 3px 14px rgba(0,0,0,0.55); }
+  }
+
+  /* CHIP DE NAVEGAÇÃO AVULSA */
+  #navAvulsaChip {
+    position:fixed;
+    bottom:84px; left:50%;
+    transform:translateX(-50%) translateY(20px);
+    z-index:600;
+    display:none; align-items:center; gap:10px;
+    padding:11px 12px 11px 16px;
+    border-radius:28px;
+    background:rgba(10,10,15,0.95);
+    border:1.5px solid rgba(0,232,122,0.55);
+    box-shadow:0 4px 28px rgba(0,232,122,0.18), 0 2px 10px rgba(0,0,0,0.6);
+    backdrop-filter:blur(18px);
+    -webkit-backdrop-filter:blur(18px);
+    white-space:nowrap;
+    opacity:0;
+    transition:opacity 0.3s, transform 0.35s cubic-bezier(0.34,1.56,0.64,1);
+    pointer-events:none;
+  }
+  #navAvulsaChip.visivel {
+    display:flex;
+    opacity:1;
+    transform:translateX(-50%) translateY(0);
+    pointer-events:all;
+  }
+  .nac-dot {
+    width:9px; height:9px; border-radius:50%;
+    background:var(--green); flex-shrink:0;
+    animation:navDotPulse 1s ease-in-out infinite;
+  }
+  @keyframes navDotPulse { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(0.55);opacity:0.35} }
+  .nac-info { display:flex; flex-direction:column; gap:1px; }
+  .nac-nome { font-family:'Syne',sans-serif; font-size:13px; font-weight:900; color:var(--green); }
+  .nac-dist { font-size:11px; color:var(--text-dim); }
+  .nac-btns { display:flex; gap:6px; margin-left:4px; }
+  .nac-btn {
+    padding:6px 11px; border-radius:20px;
+    font-size:11px; font-weight:800; cursor:pointer;
+    font-family:'DM Sans',sans-serif; border:none;
+    transition:transform 0.15s;
+  }
+  .nac-btn:active { transform:scale(0.92); }
+  .nac-btn-maps { background:rgba(61,156,255,0.22); color:var(--blue); border:1px solid rgba(61,156,255,0.4); }
+  .nac-btn-waze { background:rgba(0,232,122,0.15); color:var(--green); border:1px solid rgba(0,232,122,0.35); }
+  .nac-btn-fechar {
+    width:30px; height:30px; border-radius:50%; padding:0;
+    background:rgba(255,71,87,0.15); color:var(--red);
+    border:1px solid rgba(255,71,87,0.4);
+    display:flex; align-items:center; justify-content:center;
+    font-size:15px; cursor:pointer;
+    transition:transform 0.15s;
+  }
+  .nac-btn-fechar:active { transform:scale(0.9); }
 
   /* POPUP MapLibre */
   .maplibregl-popup-content {
@@ -408,6 +501,20 @@
   </div>
 </div>
 
+
+<!-- CHIP NAVEGAÇÃO AVULSA (long-press em cliente) -->
+<div id="navAvulsaChip">
+  <div class="nac-dot"></div>
+  <div class="nac-info">
+    <div class="nac-nome" id="nacNome">Cliente</div>
+    <div class="nac-dist" id="nacDist">Calculando...</div>
+  </div>
+  <div class="nac-btns">
+    <button class="nac-btn nac-btn-maps" id="nacBtnMaps">🗺️</button>
+    <button class="nac-btn nac-btn-waze" id="nacBtnWaze">🚗</button>
+    <button class="nac-btn-fechar" onclick="cancelarNavAvulsa()">✕</button>
+  </div>
+</div>
 
 <div class="toast-msg" id="toastMsg"></div>
 
@@ -552,6 +659,36 @@ function initMap() {
         'line-width': 3,
         'line-opacity': 0.6,
         'line-dasharray': [3, 3]
+      }
+    });
+
+    // Source + layers da navegação avulsa (long-press em cliente)
+    map.addSource('nav-avulsa-line', {
+      type: 'geojson',
+      data: { type:'FeatureCollection', features:[] }
+    });
+    // Glow (camada de baixo)
+    map.addLayer({
+      id: 'nav-avulsa-glow',
+      type: 'line',
+      source: 'nav-avulsa-line',
+      paint: {
+        'line-color': '#00e87a',
+        'line-width': 14,
+        'line-opacity': 0.12,
+        'line-blur': 5
+      }
+    });
+    // Linha principal animada
+    map.addLayer({
+      id: 'nav-avulsa-layer',
+      type: 'line',
+      source: 'nav-avulsa-line',
+      paint: {
+        'line-color': '#00e87a',
+        'line-width': 4,
+        'line-opacity': 0.9,
+        'line-dasharray': [2, 2.5]
       }
     });
 
@@ -978,39 +1115,72 @@ function limparMarcadoresClientes() {
 /**
  * renderMarcadoresClientes()
  * Clientes SEMPRE aparecem no mapa — independente de ter rota ativa ou não.
- * Apenas oculta clientes que já têm marcador de parada na rota ativa
- * para evitar duplicação visual no mesmo ponto.
+ * Long-press de 2s inicia navegação avulsa até o cliente.
  */
 function renderMarcadoresClientes() {
   limparMarcadoresClientes();
 
-  // Exclui apenas quem já aparece como parada na rota atual (evita sobreposição)
   const idsNaRota = new Set(paradasAtuais.map(p => p.client_id).filter(Boolean));
 
   todosClientes.forEach(c => {
     const lat = c.delivery_lat;
     const lng = c.delivery_lon;
     if (!lat || !lng) return;
-    if (idsNaRota.has(c.id)) return; // já tem marcador de parada no mesmo ponto
+    if (idsNaRota.has(c.id)) return;
 
     const el = document.createElement('div');
     el.className = 'marker-client-wrap';
     el.innerHTML = `
       <div class="marker-name">${c.name || 'Cliente'}</div>
       <div class="marker-avatar pendente">${avatarSVG()}</div>
+      <svg class="lp-ring" viewBox="0 0 58 58"><circle/></svg>
     `;
+
+    // ── Long-press: 2 segundos para iniciar navegação ──
+    let pressTimer = null;
+    let pressing   = false;
+
+    const startPress = (e) => {
+      e.preventDefault();
+      pressing = true;
+      el.classList.add('pressing');
+      pressTimer = setTimeout(() => {
+        if (!pressing) return;
+        el.classList.remove('pressing');
+        // Vibração háptica (se disponível)
+        if (navigator.vibrate) navigator.vibrate([40, 30, 60]);
+        iniciarNavAvulsa(c);
+      }, 2000);
+    };
+
+    const endPress = () => {
+      if (!pressing) return;
+      pressing = false;
+      clearTimeout(pressTimer);
+      el.classList.remove('pressing');
+    };
+
+    el.addEventListener('touchstart',  startPress, { passive: false });
+    el.addEventListener('touchend',    endPress);
+    el.addEventListener('touchmove',   endPress);
+    el.addEventListener('touchcancel', endPress);
+    // Suporte mouse (desktop)
+    el.addEventListener('mousedown',   startPress);
+    el.addEventListener('mouseup',     endPress);
+    el.addEventListener('mouseleave',  endPress);
 
     const enderecoStr = c.delivery_address
       ? `<span style="color:var(--text-dim);font-size:11px">📍 ${c.delivery_address}</span><br>` : '';
     const fiadoStr = c.fiado
       ? `<span style="color:var(--red);font-size:11px">⚠️ Fiado: R$ ${parseFloat(c.debt||0).toFixed(2)}</span><br>` : '';
     const telStr = c.phone
-      ? `<span style="color:var(--text-muted);font-size:11px">📞 ${c.phone}</span>` : '';
+      ? `<span style="color:var(--text-muted);font-size:11px">📞 ${c.phone}</span><br>` : '';
 
     const popup = new maplibregl.Popup({ offset:[0,-52], closeButton:true, maxWidth:'240px' })
       .setHTML(`
         <b style="color:var(--text);font-size:13px">${c.name || 'Cliente'}</b><br>
         ${enderecoStr}${fiadoStr}${telStr}
+        <span style="color:var(--text-muted);font-size:10px">Segure 2s para navegar 🛵</span>
       `);
 
     const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
@@ -1022,6 +1192,108 @@ function renderMarcadoresClientes() {
   });
 
   console.log(`[Clientes] ${marcadoresClientes.length} clientes visíveis no mapa`);
+}
+
+// ── NAVEGAÇÃO AVULSA ──
+let navAvulsaAtiva = null;   // { cliente, distTimer }
+let navDistTimer   = null;
+
+function iniciarNavAvulsa(cliente) {
+  // Cancela nav anterior se houver
+  cancelarNavAvulsa(true);
+
+  navAvulsaAtiva = cliente;
+
+  // Desenha linha verde no mapa
+  _desenharRotaNavAvulsa(cliente);
+
+  // Preenche e exibe o chip
+  const chip = document.getElementById('navAvulsaChip');
+  document.getElementById('nacNome').textContent = cliente.name || 'Cliente';
+  document.getElementById('nacDist').textContent = 'Calculando...';
+
+  document.getElementById('nacBtnMaps').onclick = () =>
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=${cliente.delivery_lat},${cliente.delivery_lon}&travelmode=driving`, '_blank');
+  document.getElementById('nacBtnWaze').onclick = () =>
+    window.open(`https://waze.com/ul?ll=${cliente.delivery_lat},${cliente.delivery_lon}&navigate=yes`, '_blank');
+
+  chip.classList.add('visivel');
+
+  // Atualiza distância a cada 3s
+  _atualizarDistanciaNavAvulsa();
+  navDistTimer = setInterval(_atualizarDistanciaNavAvulsa, 3000);
+
+  // Dá flyTo para mostrar origem (moto) + destino (cliente)
+  _centralizarRotaNavAvulsa(cliente);
+
+  toast(`🧭 Navegando até ${cliente.name || 'cliente'}!`);
+}
+
+function cancelarNavAvulsa(silencioso = false) {
+  if (!navAvulsaAtiva) return;
+  navAvulsaAtiva = null;
+  clearInterval(navDistTimer);
+
+  document.getElementById('navAvulsaChip').classList.remove('visivel');
+
+  // Remove linha de rota avulsa do mapa
+  try {
+    map.getSource('nav-avulsa-line').setData({ type:'FeatureCollection', features:[] });
+  } catch(e){}
+
+  if (!silencioso) toast('🛵 Navegação avulsa cancelada');
+}
+
+function _desenharRotaNavAvulsa(cliente) {
+  const destino = [cliente.delivery_lon, cliente.delivery_lat];
+  const origem  = minhaPosicao || destino;
+
+  try {
+    map.getSource('nav-avulsa-line').setData({
+      type: 'Feature',
+      geometry: { type:'LineString', coordinates: [origem, destino] }
+    });
+  } catch(e) {
+    console.warn('[NavAvulsa] Mapa ainda não pronto:', e);
+  }
+}
+
+function _centralizarRotaNavAvulsa(cliente) {
+  const dest = [cliente.delivery_lon, cliente.delivery_lat];
+  const orig = minhaPosicao || dest;
+
+  const bounds = new maplibregl.LngLatBounds(orig, orig);
+  bounds.extend(dest);
+  map.fitBounds(bounds, {
+    padding: { top:80, bottom:160, left:50, right:50 },
+    maxZoom: 17,
+    duration: 1000
+  });
+}
+
+function _atualizarDistanciaNavAvulsa() {
+  if (!navAvulsaAtiva || !minhaPosicao) return;
+
+  const [mLng, mLat] = minhaPosicao;
+  const dist = _calcDistM(mLat, mLng, navAvulsaAtiva.delivery_lat, navAvulsaAtiva.delivery_lon);
+
+  let label;
+  if (dist < 50)        label = '📍 Você chegou!';
+  else if (dist < 1000) label = `${Math.round(dist)} m de distância`;
+  else                  label = `${(dist / 1000).toFixed(1)} km de distância`;
+
+  document.getElementById('nacDist').textContent = label;
+
+  // Redesenha linha com posição atualizada
+  _desenharRotaNavAvulsa(navAvulsaAtiva);
+}
+
+function _calcDistM(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 // ── SYNC SUPABASE (polling 15s) ──
