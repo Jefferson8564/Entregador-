@@ -114,22 +114,10 @@
             overflow: hidden;   /* corta as bordas quando o container expande na rotação */
         }
 
-        /* O mapa é maior que a tela para cobrir os cantos durante a rotação.
-           √2 × maior dimensão garante cobertura em qualquer ângulo.
-           O overflow:hidden no wrapper corta o excesso. */
+        /* O mapa ocupa toda a tela normalmente */
         #mapaDiv {
             width: 100%;
             height: 100%;
-        }
-
-        /* Quando giroscópio ativo, o container do mapa fica expandido */
-        #mapaDiv.giro-ativo {
-            width: 200%;
-            height: 200%;
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
         }
 
         /* Moto fixa — posicionada no inferior da tela (25% do topo para o rodapé)
@@ -176,6 +164,7 @@
             position: relative; z-index: 2;
             filter: drop-shadow(0 3px 16px rgba(245,166,35,0.9));
             display: block;
+            transition: transform 0.4s ease;
         }
         @keyframes ondaMoto { 0%{transform:scale(0.5);opacity:0.8} 80%{transform:scale(2.6);opacity:0} 100%{transform:scale(0.5);opacity:0} }
         @keyframes anelMoto { 0%{transform:scale(0.6);opacity:1} 100%{transform:scale(2.8);opacity:0} }
@@ -716,11 +705,12 @@ let toastTimer = null;
 let paradaPagamentoPendente = null; // parada aguardando resposta de pagamento
 
 // ===== MODO GIROSCÓPIO =====
+// No modo giroscópio: mapa fixo no Norte, moto gira conforme o bearing.
+// O mapa segue o GPS com offset para manter a moto em 78% do topo.
+// SEM rotação CSS — totalmente estável.
 let giroAtivo = true;          // começa ativo
-let mapaRotacaoAtual = 0;      // rotação CSS atual do mapa (graus)
-let bearingAlvo = 0;           // bearing destino suavizado
+let bearingAlvo = 0;           // bearing suavizado atual
 let rafGiro = null;            // requestAnimationFrame do giro
-let mapaTilePane = null;       // referência ao pane que rotacionamos
 
 // ===== OSRM / ROTA REAL =====
 let rotaCompletaLayer = null;   // polyline vermelha tracejada (rota completa pelas ruas)
@@ -781,12 +771,12 @@ function inicializarMapa() {
 
     L.control.zoom({ position: 'topright' }).addTo(mapaObj);
 
-    // Só libera arrastar (e desativa seguimento) quando NÃO estiver em modo giroscópio
+    // No modo normal (sem giroscópio), arrastar desativa o seguimento
     mapaObj.on('dragstart', () => {
         if (!giroAtivo) seguindoMoto = false;
     });
 
-    // Começa com drag desativado pois giroAtivo = true por padrão
+    // Começa com drag desativado (giroAtivo = true por padrão)
     mapaObj.dragging.disable();
     mapaObj.touchZoom.disable();
     mapaObj.doubleClickZoom.disable();
@@ -795,22 +785,22 @@ function inicializarMapa() {
     mapaObj.keyboard.disable();
     if (mapaObj.tap) mapaObj.tap.disable();
 
-    // Expande o container já na inicialização (giroAtivo = true por padrão)
-    document.getElementById('mapaDiv').classList.add('giro-ativo');
-    setTimeout(() => { mapaObj.invalidateSize(); }, 100);
-
     iniciarLoopGiro();
 }
 
 // ===== LOOP GIROSCÓPIO =====
+// Suaviza o bearing e atualiza a rotação do ícone da moto a cada frame.
+// O mapa em si NÃO rotaciona — fica sempre fixo no Norte.
+let bearingAtual = 0; // bearing renderizado no momento
+
 function iniciarLoopGiro() {
     if (rafGiro) cancelAnimationFrame(rafGiro);
     function loop() {
-        if (giroAtivo && mapaObj) {
-            const diff = anguloMinimo(bearingAlvo - mapaRotacaoAtual);
-            if (Math.abs(diff) > 0.2) {
-                mapaRotacaoAtual += diff * 0.10;
-                aplicarRotacaoMapa(mapaRotacaoAtual);
+        if (mapaObj) {
+            const diff = anguloMinimo(bearingAlvo - bearingAtual);
+            if (Math.abs(diff) > 0.3) {
+                bearingAtual += diff * 0.12;
+                atualizarIconeMoto();
             }
         }
         rafGiro = requestAnimationFrame(loop);
@@ -824,37 +814,28 @@ function anguloMinimo(diff) {
     return diff;
 }
 
-// Rotaciona o container inteiro do Leaflet em torno da posição da moto na tela.
-// O container tem 200%×200% centralizado via CSS (.giro-ativo).
-// Rodando o container inteiro, o Leaflet carrega tiles para toda a área expandida
-// e não ficam bordas/cantos vazios em nenhum ângulo de rotação.
-function aplicarRotacaoMapa(graus) {
-    if (!mapaObj) return;
+// Atualiza apenas a rotação do ícone da moto (no modo giroscópio: overlay fixo)
+function atualizarIconeMoto() {
+    // Modo giroscópio: o overlay #motoFixa é uma imagem estática — giramos ela
+    const img = document.querySelector('#motoFixa .moto-emoji');
+    if (img) img.style.transform = `rotate(${bearingAtual}deg)`;
 
-    const container = mapaObj.getContainer();
-    const W = window.innerWidth;
-    const H = window.innerHeight;
-
-    // O container tem 200% da tela (2W × 2H), centrado via translate(-50%,-50%).
-    // O pivot na tela é: centro X = W/2, moto Y = H*0.78
-    // Em coordenadas do container (que começa em -W/2, -H/2 relativo à tela):
-    const pivotNoContainer_X = W / 2 + W / 2;   // = W  (dentro do container 2W)
-    const pivotNoContainer_Y = H * 0.78 + H / 2; // = H*1.28 (dentro do container 2H)
-
-    container.style.transformOrigin = `${pivotNoContainer_X}px ${pivotNoContainer_Y}px`;
-    container.style.transform       = `translate(-50%, -50%) rotate(${-graus}deg)`;
-    container.style.willChange      = 'transform';
-
-    // Agulha contra-rotaciona → sempre aponta Norte
+    // Agulha da bússola aponta Norte (contra-rotaciona com o bearing)
     const needle = document.getElementById('compassNeedle');
-    if (needle) needle.style.transform = `rotate(${graus}deg)`;
+    if (needle) needle.style.transform = `rotate(${-bearingAtual}deg)`;
+}
+
+// Rotação CSS foi REMOVIDA — o mapa sempre fica no Norte.
+// Esta função existe apenas para compatibilidade com chamadas antigas.
+function aplicarRotacaoMapa(graus) {
+    // Sem-op: não rotacionamos mais o mapa
 }
 
 // ===== TOGGLE GIROSCÓPIO =====
 function toggleGiroMode() {
     giroAtivo = !giroAtivo;
-    const btn       = document.getElementById('compassIndicator');
-    const needle    = document.getElementById('compassNeedle');
+    const btn        = document.getElementById('compassIndicator');
+    const needle     = document.getElementById('compassNeedle');
     const motoFixaEl = document.getElementById('motoFixa');
 
     if (giroAtivo) {
@@ -862,13 +843,10 @@ function toggleGiroMode() {
         btn.style.background  = 'rgba(61,156,255,0.15)';
         seguindoMoto = true;
         if (motoFixaEl) motoFixaEl.style.display = 'flex';
+        // Remove marcador Leaflet — usa overlay fixo #motoFixa
         if (motoMarker) { try { mapaObj.removeLayer(motoMarker); } catch(e){} motoMarker = null; }
 
-        // Expande o container para cobrir cantos na rotação
-        document.getElementById('mapaDiv').classList.add('giro-ativo');
-        setTimeout(() => { mapaObj.invalidateSize(); }, 50);
-
-        // Bloqueia interação manual — mapa só segue GPS e rotação automática
+        // Bloqueia interação manual
         mapaObj.dragging.disable();
         mapaObj.touchZoom.disable();
         mapaObj.doubleClickZoom.disable();
@@ -879,32 +857,16 @@ function toggleGiroMode() {
 
         showToast('🗺️ Mapa rotacional ativado', 'success');
     } else {
-        // Zera a rotação do container
-        const container = mapaObj.getContainer();
-        container.style.transform = 'translate(-50%, -50%)';
-        container.style.transformOrigin = '';
+        // Zera bearing e bússola
+        bearingAtual = 0;
+        bearingAlvo  = 0;
+        if (needle) needle.style.transform = 'rotate(0deg)';
 
-        // Zera os panes também (segurança)
-        const panes = ['tilePane','overlayPane','shadowPane','markerPane','tooltipPane','popupPane'];
-        panes.forEach(name => {
-            const pane = mapaObj.getPane(name);
-            if (pane) { pane.style.transform = ''; pane.style.transformOrigin = ''; }
-        });
-
-        mapaRotacaoAtual = 0;
-        bearingAlvo      = 0;
         btn.style.borderColor = 'var(--border)';
         btn.style.background  = 'rgba(10,10,15,0.85)';
-        if (needle)    needle.style.transform = 'rotate(0deg)';
         if (motoFixaEl) motoFixaEl.style.display = 'none';
 
-        // Volta ao tamanho normal
-        const mapaDiv = document.getElementById('mapaDiv');
-        mapaDiv.classList.remove('giro-ativo');
-        mapaDiv.style.transform = '';
-        setTimeout(() => { mapaObj.invalidateSize(); }, 50);
-
-        // Libera interação manual no modo normal
+        // Libera interação manual
         mapaObj.dragging.enable();
         mapaObj.touchZoom.enable();
         mapaObj.doubleClickZoom.enable();
@@ -1393,7 +1355,9 @@ function posicionarMoto(pos) {
     if (!mapaObj || !window.L) return;
 
     if (giroAtivo) {
-        // Remove marcador Leaflet — a moto é o overlay #motoFixa
+        // Modo giroscópio: overlay #motoFixa está fixo na tela (CSS position:fixed).
+        // O mapa segue o GPS com um offset para que o ponto GPS fique
+        // visualmente em 78% do topo (onde a moto aparece na tela).
         if (motoMarker) {
             try { mapaObj.removeLayer(motoMarker); } catch(e) {}
             motoMarker = null;
@@ -1401,31 +1365,23 @@ function posicionarMoto(pos) {
 
         if (!seguindoMoto) return;
 
-        // A moto aparece em bottom:22% da tela = 78% do topo.
-        // O Leaflet centraliza o mapa no centro (50%).
-        // Queremos que a coordenada GPS caia exatamente em 78% do topo da tela.
-        // Usamos a API nativa do Leaflet (CRS) para converter pixels → LatLng
-        // corretamente, sem fórmulas manuais que ignoram a curvatura por latitude.
         const zoom = mapaObj.getZoom() || 17;
-        const H = mapaObj.getContainer().clientHeight;
-        const W = mapaObj.getContainer().clientWidth;
+        const H    = mapaObj.getContainer().clientHeight;
+        const W    = mapaObj.getContainer().clientWidth;
 
-        // Onde a moto deve aparecer em pixels (centro X, 78% do topo)
-        const motoPx  = L.point(W / 2, H * 0.78);
-        // Centro da tela em pixels
-        const centroPx = L.point(W / 2, H / 2);
+        // Calcula o centro do mapa para que `pos` apareça em 78% do topo da tela,
+        // usando a projeção nativa do Leaflet (precisa de latitude correta).
+        const motoPx   = L.point(W / 2, H * 0.78);   // pixel alvo da moto
+        const centroPx = L.point(W / 2, H / 2);       // centro atual da tela
+        const delta    = motoPx.subtract(centroPx);    // deslocamento em px
 
-        // Projeção da posição GPS no espaço de pixels do zoom atual
-        const posLatLng  = L.latLng(pos[0], pos[1]);
-        const projecao   = mapaObj.options.crs.latLngToPoint(posLatLng, zoom);
-
-        // O centro do mapa deve ser deslocado para que `pos` apareça em `motoPx`.
-        // delta = motoPx - centroPx → quanto o GPS está abaixo do centro
-        const deltaPx    = motoPx.subtract(centroPx);          // [0, +H*0.28]
-        const centroProj = projecao.subtract(deltaPx);         // sobe o centro
+        const posProj      = mapaObj.options.crs.latLngToPoint(L.latLng(pos[0], pos[1]), zoom);
+        const centroProj   = posProj.subtract(delta);
         const centroLatLng = mapaObj.options.crs.pointToLatLng(centroProj, zoom);
 
-        mapaObj.setView(centroLatLng, zoom, { animate: true, duration: 0.4, easeLinearity: 0.5, noMoveStart: true });
+        mapaObj.setView(centroLatLng, zoom, {
+            animate: true, duration: 0.6, easeLinearity: 0.25, noMoveStart: true
+        });
 
     } else {
         // MODO NORMAL: marcador completo com imagem da moto
@@ -1630,21 +1586,23 @@ async function renderizarMapaCompleto() {
 
 function recentrarMapa() {
     seguindoMoto = true;
-    if (giroAtivo) {
-        if (posAtual) {
+    if (posAtual) {
+        if (giroAtivo) {
+            // Reposiciona com offset para moto ficar em 78% do topo
             const zoom = mapaObj.getZoom() || 17;
-            const H = mapaObj.getContainer().clientHeight;
-            const W = mapaObj.getContainer().clientWidth;
+            const H    = mapaObj.getContainer().clientHeight;
+            const W    = mapaObj.getContainer().clientWidth;
             const motoPx   = L.point(W / 2, H * 0.78);
             const centroPx = L.point(W / 2, H / 2);
-            const projecao = mapaObj.options.crs.latLngToPoint(L.latLng(posAtual[0], posAtual[1]), zoom);
-            const deltaPx  = motoPx.subtract(centroPx);
-            const centroLatLng = mapaObj.options.crs.pointToLatLng(projecao.subtract(deltaPx), zoom);
-            mapaObj.setView(centroLatLng, zoom, { animate: true, duration: 0.4 });
+            const delta    = motoPx.subtract(centroPx);
+            const posProj      = mapaObj.options.crs.latLngToPoint(L.latLng(posAtual[0], posAtual[1]), zoom);
+            const centroLatLng = mapaObj.options.crs.pointToLatLng(posProj.subtract(delta), zoom);
+            mapaObj.setView(centroLatLng, zoom, { animate: true, duration: 0.5 });
+        } else {
+            mapaObj.setView(posAtual, 16, { animate: true });
         }
     } else {
-        if (posAtual) mapaObj.setView(posAtual, 16, { animate: true });
-        else mapaObj.setView(FABRICA, 14, { animate: true });
+        mapaObj.setView(FABRICA, 14, { animate: true });
     }
 }
 
