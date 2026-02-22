@@ -421,14 +421,110 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 let map;
 let rotaAtual = null, paradasAtuais = [], rotasDisponiveis = [];
 let marcadoresMapLibre = [];
-let marcadoresClientes = [];   // marcadores de todos os clientes
-let todosClientes = [];        // cache dos clientes carregados
-let minhaPosicao = null;       // [lng, lat]
+let marcadoresClientes = [];
+let todosClientes = [];
+let minhaPosicao = null;         // [lng, lat]
 let meuMarcador = null, meuMarcadorEl = null;
 let paradaAtivIdx = -1;
 let tabAtual = 'rota';
-let ultimaPosicao = null;      // {lat, lng} para calcular ângulo
+let ultimaPosicao = null;        // {lat, lng}
 let ultimaDirecao = 0;
+
+// ── GERENCIAMENTO DE ESTADO DE CÂMERA ──
+// modoNavegacao = true  → 3D  (rota em_transito)
+// modoNavegacao = false → 2D  (exploração livre)
+let modoNavegacao = false;
+
+/**
+ * Ativa o modo Navegação 3D:
+ * - flyTo zoom 18, pitch 60, bearing da direção atual
+ * - offset [0,150] para moto na base da tela
+ * - Bloqueia dragPan e scrollZoom
+ */
+function ativarModo3D() {
+  if (modoNavegacao) return; // já ativo
+  modoNavegacao = true;
+
+  // Bloqueia interação manual do usuário
+  map.dragPan.disable();
+  map.scrollZoom.disable();
+  map.touchZoomRotate.disable();
+
+  const centro = minhaPosicao || [-34.9, -8.05];
+  map.flyTo({
+    center: centro,
+    zoom: 18,
+    pitch: 60,
+    bearing: ultimaDirecao,
+    offset: [0, 150],
+    duration: 1200,
+    essential: true
+  });
+
+  // Indicador visual no badge GPS
+  const badge = document.getElementById('gpsIndicator');
+  badge.dataset.modo = '3d';
+  _atualizarBadgeModo();
+
+  console.log('[Camera] Modo 3D (Navegação) ativado');
+}
+
+/**
+ * Ativa o modo Exploração 2D:
+ * - Reset pitch 0, bearing 0, zoom 14
+ * - offset [0,0]
+ * - Libera dragPan e scrollZoom
+ */
+function ativarModo2D() {
+  if (!modoNavegacao) return; // já ativo
+  modoNavegacao = false;
+
+  // Libera interação manual
+  map.dragPan.enable();
+  map.scrollZoom.enable();
+  map.touchZoomRotate.enable();
+
+  map.easeTo({
+    pitch: 0,
+    bearing: 0,
+    zoom: 14,
+    offset: [0, 0],
+    duration: 900,
+    essential: true
+  });
+
+  const badge = document.getElementById('gpsIndicator');
+  badge.dataset.modo = '2d';
+  _atualizarBadgeModo();
+
+  console.log('[Camera] Modo 2D (Exploração) ativado');
+}
+
+/** Atualiza texto do badge GPS com o modo atual */
+function _atualizarBadgeModo() {
+  const badge = document.getElementById('gpsIndicator');
+  const gpsOk = badge.classList.contains('ok');
+  const modo = badge.dataset.modo === '3d' ? ' · 3D' : '';
+  badge.innerHTML = `<div class="gps-dot"></div>GPS ${gpsOk ? 'ok' : 'erro'}${modo}`;
+}
+
+/**
+ * verificarEstadoDaEntrega(dados)
+ * Gatilho principal: recebe dados do Supabase e decide o modo de câmera.
+ * Se dados.em_transito === true → Modo 3D (Navegação)
+ * Se dados.em_transito === false/null → Modo 2D (Exploração)
+ */
+function verificarEstadoDaEntrega(dados) {
+  if (!dados) {
+    ativarModo2D();
+    return;
+  }
+  if (dados.em_transito === true) {
+    ativarModo3D();
+  } else {
+    ativarModo2D();
+  }
+}
 
 // ── MAPA ──
 function initMap() {
@@ -452,12 +548,15 @@ function initMap() {
       type: 'line',
       source: 'rota-line',
       paint: {
-        'line-color': '#c75b24',
-        'line-width': 2.5,
-        'line-opacity': 0.5,
+        'line-color': '#f5a623',
+        'line-width': 3,
+        'line-opacity': 0.6,
         'line-dasharray': [3, 3]
       }
     });
+
+    // Clientes sempre aparecem ao carregar o mapa
+    renderMarcadoresClientes();
   });
 
   // GPS
@@ -484,11 +583,15 @@ function initMap() {
 
 function setGpsStatus(ok) {
   const el = document.getElementById('gpsIndicator');
-  el.className = ok ? 'ok' : '';
-  el.innerHTML = `<div class="gps-dot"></div>GPS ${ok ? 'ok' : 'erro'}`;
+  if (ok) {
+    el.classList.add('ok');
+  } else {
+    el.classList.remove('ok');
+  }
+  _atualizarBadgeModo();
 }
 
-// ── CÁLCULO DE ÂNGULO (bearing entre dois pontos) ──
+// ── CÁLCULO DE ÂNGULO ──
 function calcularAngulo(lat1, lng1, lat2, lng2) {
   const toRad = d => d * Math.PI / 180;
   const dLng = toRad(lng2 - lng1);
@@ -528,22 +631,30 @@ function moverEntregador(novaLat, novaLng, headingGPS) {
     meuMarcador.setLngLat([novaLng, novaLat]);
   }
 
-  // MOVIMENTO SUAVE COM PITCH 3D + GIRO AUTOMÁTICO
-  map.easeTo({
-    center: [novaLng, novaLat],
-    bearing: angulo,
-    pitch: 60,
-    offset: [0, 150],
-    duration: 1500,
-    easing: t => t,
-    essential: true
-  });
+  // Só segue a moto com câmera se estiver no modo 3D
+  if (modoNavegacao) {
+    map.easeTo({
+      center: [novaLng, novaLat],
+      bearing: angulo,
+      pitch: 60,
+      zoom: 18,
+      offset: [0, 150],
+      duration: 1200,
+      essential: true
+    });
+  }
 
   ultimaPosicao = { lat: novaLat, lng: novaLng };
 }
 
 function resetNorth() {
-  map.easeTo({ bearing: 0, pitch: 0, duration: 600 });
+  // No modo 2D, permite resetar norte livremente
+  // No modo 3D, apenas reseta o bearing sem sair do modo
+  if (modoNavegacao) {
+    map.easeTo({ bearing: 0, duration: 500 });
+  } else {
+    map.easeTo({ bearing: 0, pitch: 0, duration: 600 });
+  }
 }
 
 // ── ABAS ──
@@ -580,6 +691,8 @@ async function carregarRotas() {
 
   if (rotasDisponiveis.length === 0) {
     document.getElementById('emptyState').style.display = 'flex';
+    // Sem rota → modo 2D para exploração
+    verificarEstadoDaEntrega(null);
     return;
   }
 
@@ -613,9 +726,17 @@ function selecionarRota(rotaId) {
 
   renderParadas();
   renderMarcadores();
+  // Clientes sempre visíveis — re-renderiza para excluir duplicatas da rota atual
   renderMarcadoresClientes();
   atualizarStatus();
-  ajustarMapaBounds();
+
+  // Verifica estado de câmera com base no campo em_transito da rota
+  verificarEstadoDaEntrega(rotaAtual);
+
+  // Só ajusta bounds se não estiver em modo navegação (3D já tem sua própria câmera)
+  if (!modoNavegacao) {
+    ajustarMapaBounds();
+  }
 }
 
 // ── RENDER PARADAS ──
@@ -626,7 +747,7 @@ function renderParadas() {
   list.innerHTML = '';
 
   if (exibir.length === 0) {
-    list.innerHTML = `<div style="text-align:center;padding:32px;color:rgba(255,255,255,0.28);font-size:13px">Nenhuma parada nesta aba</div>`;
+    list.innerHTML = `<div style="text-align:center;padding:32px;color:var(--text-muted);font-size:13px">Nenhuma parada nesta aba</div>`;
     return;
   }
 
@@ -646,7 +767,7 @@ function renderParadas() {
       <div class="parada-header">
         <div class="parada-num">${entregue ? '✓' : i + 1}</div>
         <div class="parada-nome">${p.nome}</div>
-        ${ativa ? '<span style="font-size:9px;font-weight:800;background:rgba(199,91,36,0.38);color:#ffaa66;padding:2px 7px;border-radius:20px">▶ ATUAL</span>' : ''}
+        ${ativa ? '<span style="font-size:9px;font-weight:800;background:rgba(245,166,35,0.25);color:var(--primary);padding:2px 7px;border-radius:20px">▶ ATUAL</span>' : ''}
       </div>
       <div class="parada-end">📍 ${endLabel}</div>
       <div class="parada-info">
@@ -657,7 +778,7 @@ function renderParadas() {
         ${temCoords ? `
           <button class="btn-nav btn-maps" onclick="navegarMaps(${lat},${lon})">🗺️ Maps</button>
           <button class="btn-nav btn-waze" onclick="navegarWaze(${lat},${lon})">🚗 Waze</button>
-        ` : '<span style="font-size:11px;color:#e74c3c">⚠️ Sem coordenadas</span>'}
+        ` : '<span style="font-size:11px;color:var(--red)">⚠️ Sem coordenadas</span>'}
         <button class="btn-nav btn-entregue" id="btn-e-${p.id}" onclick="marcarEntregue('${p.id}')" ${entregue?'disabled':''}>${entregue?'✅ Entregue':'✔ Marcar Entregue'}</button>
       </div>
     `;
@@ -703,9 +824,9 @@ function renderMarcadores() {
 
     const popup = new maplibregl.Popup({ offset:[0,-52], closeButton:true, maxWidth:'230px' })
       .setHTML(`
-        <b style="color:white">${p.nome}</b><br>
-        <span style="color:rgba(255,255,255,0.55);font-size:11px">${p.endereco || ''}</span><br>
-        <span style="color:${entregue?'#2ecc71':'#e67e22'};font-size:12px">${entregue?'✅ Entregue':'📦 Pendente'}</span>
+        <b style="color:var(--text)">${p.nome}</b><br>
+        <span style="color:var(--text-dim);font-size:11px">${p.endereco || ''}</span><br>
+        <span style="color:${entregue?'var(--green)':'var(--primary)'};font-size:12px">${entregue?'✅ Entregue':'📦 Pendente'}</span>
       `);
 
     const marker = new maplibregl.Marker({ element:el, anchor:'bottom' })
@@ -790,13 +911,28 @@ async function marcarEntregue(paradaId) {
   renderMarcadores();
   atualizarStatus();
 
+  // No modo 3D, avança câmera para próxima parada
   if (paradaAtivIdx >= 0) {
     const next = document.getElementById(`parada-card-${paradasAtuais[paradaAtivIdx].id}`);
     if (next) setTimeout(() => next.scrollIntoView({ behavior:'smooth', block:'center' }), 200);
-    const coords = paradasAtuais[paradaAtivIdx].coords;
-    if (coords?.[0]) map.easeTo({ center:[coords[1],coords[0]], zoom:15, duration:700 });
+    if (!modoNavegacao) {
+      const coords = paradasAtuais[paradaAtivIdx].coords;
+      if (coords?.[0]) map.easeTo({ center:[coords[1],coords[0]], zoom:15, duration:700 });
+    }
   }
-  toast(`✅ ${p.nome} marcado como entregue!`);
+
+  // Verifica se todas foram entregues → volta ao modo 2D
+  const todasEntregues = paradasAtuais.every(p2 => p2.status === 'entregue');
+  if (todasEntregues && rotaAtual) {
+    await sb.from("delivery_routes")
+      .update({ em_transito: false })
+      .eq("id", rotaAtual.id);
+    rotaAtual.em_transito = false;
+    verificarEstadoDaEntrega(rotaAtual);
+    toast('🎉 Todas as entregas concluídas!');
+  } else {
+    toast(`✅ ${p.nome} marcado como entregue!`);
+  }
 }
 
 function navegarMaps(lat, lon) {
@@ -816,7 +952,7 @@ function toast(msg) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
 }
 
-// ── CLIENTES ──
+// ── CLIENTES — sempre visíveis, independente de rotas ──
 async function carregarClientes() {
   const { data, error } = await sb.from("clients")
     .select("id,name,delivery_lat,delivery_lon,delivery_address,phone,fiado,debt")
@@ -826,6 +962,7 @@ async function carregarClientes() {
   if (error) { console.warn("Erro ao carregar clientes:", error); return; }
   todosClientes = data || [];
 
+  // Renderiza assim que o mapa estiver pronto
   if (map.isStyleLoaded()) {
     renderMarcadoresClientes();
   } else {
@@ -838,19 +975,24 @@ function limparMarcadoresClientes() {
   marcadoresClientes = [];
 }
 
+/**
+ * renderMarcadoresClientes()
+ * Clientes SEMPRE aparecem no mapa — independente de ter rota ativa ou não.
+ * Apenas oculta clientes que já têm marcador de parada na rota ativa
+ * para evitar duplicação visual no mesmo ponto.
+ */
 function renderMarcadoresClientes() {
   limparMarcadoresClientes();
 
-  // IDs que já estão nas paradas da rota (evita duplicar marcador)
+  // Exclui apenas quem já aparece como parada na rota atual (evita sobreposição)
   const idsNaRota = new Set(paradasAtuais.map(p => p.client_id).filter(Boolean));
 
   todosClientes.forEach(c => {
     const lat = c.delivery_lat;
     const lng = c.delivery_lon;
     if (!lat || !lng) return;
-    if (idsNaRota.has(c.id)) return;
+    if (idsNaRota.has(c.id)) return; // já tem marcador de parada no mesmo ponto
 
-    // Mesmo markup dos avatares de parada
     const el = document.createElement('div');
     el.className = 'marker-client-wrap';
     el.innerHTML = `
@@ -859,15 +1001,15 @@ function renderMarcadoresClientes() {
     `;
 
     const enderecoStr = c.delivery_address
-      ? `<span style="color:rgba(255,255,255,0.5);font-size:11px">📍 ${c.delivery_address}</span><br>` : '';
+      ? `<span style="color:var(--text-dim);font-size:11px">📍 ${c.delivery_address}</span><br>` : '';
     const fiadoStr = c.fiado
-      ? `<span style="color:#e74c3c;font-size:11px">⚠️ Fiado: R$ ${parseFloat(c.debt||0).toFixed(2)}</span><br>` : '';
+      ? `<span style="color:var(--red);font-size:11px">⚠️ Fiado: R$ ${parseFloat(c.debt||0).toFixed(2)}</span><br>` : '';
     const telStr = c.phone
-      ? `<span style="color:rgba(255,255,255,0.45);font-size:11px">📞 ${c.phone}</span>` : '';
+      ? `<span style="color:var(--text-muted);font-size:11px">📞 ${c.phone}</span>` : '';
 
     const popup = new maplibregl.Popup({ offset:[0,-52], closeButton:true, maxWidth:'240px' })
       .setHTML(`
-        <b style="color:white;font-size:13px">${c.name || 'Cliente'}</b><br>
+        <b style="color:var(--text);font-size:13px">${c.name || 'Cliente'}</b><br>
         ${enderecoStr}${fiadoStr}${telStr}
       `);
 
@@ -878,38 +1020,55 @@ function renderMarcadoresClientes() {
 
     marcadoresClientes.push(marker);
   });
+
+  console.log(`[Clientes] ${marcadoresClientes.length} clientes visíveis no mapa`);
+}
+
+// ── SYNC SUPABASE (polling 15s) ──
+async function syncSupabase() {
+  if (!rotaAtual) return;
+
+  const { data } = await sb.from("delivery_routes")
+    .select("paradas,entregador_lat,entregador_lng,em_transito")
+    .eq("id", rotaAtual.id).single();
+  if (!data) return;
+
+  // ── Gerenciamento de câmera via campo em_transito ──
+  const eraNavegacao = modoNavegacao;
+  verificarEstadoDaEntrega(data);
+
+  // Posição do entregador vinda do admin/backend
+  if (data.entregador_lat && data.entregador_lng) {
+    moverEntregador(data.entregador_lat, data.entregador_lng, null);
+  }
+
+  // Sync status paradas
+  (data.paradas || []).forEach(np => {
+    const local = paradasAtuais.find(p => p.id === np.id);
+    if (local && local.status !== np.status && local.status !== 'entregue') {
+      local.status = np.status;
+    }
+  });
+
+  // Atualiza em_transito localmente
+  rotaAtual.em_transito = data.em_transito;
+
+  paradaAtivIdx = paradasAtuais.findIndex(p => p.status !== 'entregue');
+  atualizarStatus();
+  renderMarcadores();
+
+  if (document.getElementById('paradasPanel').classList.contains('show')) renderParadas();
 }
 
 // ── INIT ──
 window.onload = async () => {
   initMap();
+
+  // Clientes carregam em paralelo com as rotas — sempre presentes no mapa
   await Promise.all([carregarRotas(), carregarClientes()]);
 
-  // Sync Supabase a cada 30s
-  setInterval(async () => {
-    if (!rotaAtual) return;
-    const { data } = await sb.from("delivery_routes")
-      .select("paradas,entregador_lat,entregador_lng")
-      .eq("id", rotaAtual.id).single();
-    if (!data) return;
-
-    // Posição do entregador vinda do admin
-    if (data.entregador_lat && data.entregador_lng) {
-      moverEntregador(data.entregador_lat, data.entregador_lng, null);
-    }
-
-    // Sync status paradas
-    (data.paradas || []).forEach(np => {
-      const local = paradasAtuais.find(p => p.id === np.id);
-      if (local && local.status !== np.status && local.status !== 'entregue') {
-        local.status = np.status;
-      }
-    });
-    paradaAtivIdx = paradasAtuais.findIndex(p => p.status !== 'entregue');
-    atualizarStatus();
-    renderMarcadores();
-    if (document.getElementById('paradasPanel').classList.contains('show')) renderParadas();
-  }, 30000);
+  // Polling a cada 15s (mais rápido que os 30s anteriores para câmera reagir rápido)
+  setInterval(syncSupabase, 15000);
 };
 </script>
 </body>
