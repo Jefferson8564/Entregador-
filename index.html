@@ -535,15 +535,10 @@
             transform: rotateX(30deg) scale(1.18);
         }
 
-        /* Mapa rotacionado (heading-up) — gira o container interno do Leaflet */
-        #mapaDiv.heading-up .leaflet-map-pane {
-            transform-origin: center center;
-            transition: transform 0.35s cubic-bezier(0.25,0.46,0.45,0.94);
-        }
-        /* Compensação: mantém labels/controles sem rotação */
-        #mapaDiv.heading-up .leaflet-control-container {
-            transform-origin: center center;
-        }
+        /* Heading-up: o #mapaWrapper inteiro é rotacionado via JS (rAF).
+           O Leaflet NÃO é notificado da rotação (fica no sistema de coord original),
+           então panTo/setView continuam funcionando normalmente.
+           Os botões precisam de counter-rotate para ficarem sempre upright — feito via JS. */
 
         /* ===== LONG PRESS ROTA ===== */
         #longPressRing {
@@ -2314,27 +2309,35 @@ let bearingBuffer = [];      // buffer para suavizar bearing
 function toggleHeadingUp() {
     headingUp = !headingUp;
     const btn = document.getElementById('btnBussola');
-    const mapaEl = document.getElementById('mapaDiv');
 
     if (headingUp) {
         btn.classList.add('heading-up');
-        mapaEl.classList.add('heading-up');
         seguindoMoto = true;
         showToast('🧭 Heading-up ativado', 'success');
+        // Aplica rotação atual imediatamente
+        if (ultimoBearingValido) aplicarRotacaoMapa(ultimoBearingValido);
     } else {
         btn.classList.remove('heading-up');
-        mapaEl.classList.remove('heading-up');
         // Para qualquer animação em andamento
         if (rafRotacao) { cancelAnimationFrame(rafRotacao); rafRotacao = null; }
-        // Reseta rotação do pane imediatamente
-        const pane = mapaObj?.getPanes()?.mapPane;
-        if (pane) {
-            pane.style.transition = 'transform 0.4s ease';
-            pane.style.transform = 'rotate(0deg)';
+        // Reseta rotação do wrapper visual
+        const wrapper = document.getElementById('mapaWrapper');
+        if (wrapper) {
+            wrapper.style.transition = 'transform 0.4s ease';
+            wrapper.style.transform = 'rotate(0deg)';
+            wrapper.style.transformOrigin = '50% 80%';
         }
         mapRotacaoAtual = 0;
+        bearingBuffer = [];
         const agulha = document.getElementById('bussolaAgulha');
         if (agulha) agulha.style.transform = 'rotate(0deg)';
+        // Reseta contra-rotação dos botões
+        const btnR = document.getElementById('btnRecentrar');
+        const btnB = document.getElementById('btnBussola');
+        const chip = document.getElementById('proximidadeChip');
+        if (btnR) { btnR.style.transform = ''; btnR.style.transition = ''; }
+        if (btnB) { btnB.style.transform = ''; btnB.style.transition = ''; }
+        if (chip) chip.style.transform = 'translateX(-50%)';
         showToast('🧭 Norte fixo', '');
     }
 }
@@ -2344,20 +2347,20 @@ function aplicarRotacaoMapa(bearing) {
 
     // Bearing suavizado via buffer de médias — evita jitter do GPS
     bearingBuffer.push(bearing);
-    if (bearingBuffer.length > 5) bearingBuffer.shift();
+    if (bearingBuffer.length > 6) bearingBuffer.shift();
     // Média circular
     let sinSum = 0, cosSum = 0;
     bearingBuffer.forEach(b => {
         sinSum += Math.sin(b * Math.PI / 180);
         cosSum += Math.cos(b * Math.PI / 180);
     });
-    const bearingMedio = Math.atan2(sinSum, cosSum) * 180 / Math.PI;
+    const bearingMedio = (Math.atan2(sinSum, cosSum) * 180 / Math.PI + 360) % 360;
 
     // Só anima se a diferença for significativa (> 2°)
     const diff = ((bearingMedio - mapRotacaoAtual + 540) % 360) - 180;
     if (Math.abs(diff) < 2) return;
 
-    // Interpolação suave via rAF — sem CSS transition no pane (causa piscar)
+    // Interpolação suave via rAF
     const alvo = mapRotacaoAtual + diff;
 
     if (rafRotacao) cancelAnimationFrame(rafRotacao);
@@ -2368,16 +2371,28 @@ function aplicarRotacaoMapa(bearing) {
         if (Math.abs(d) < 0.3) {
             mapRotacaoAtual = alvo % 360;
         } else {
-            mapRotacaoAtual += d * 0.12; // interpolação lenta e suave
+            mapRotacaoAtual += d * 0.12;
             rafRotacao = requestAnimationFrame(animar);
         }
 
-        const pane = mapaObj?.getPanes()?.mapPane;
-        if (pane) {
-            pane.style.transition = 'none'; // SEM transition CSS — rAF cuida disso
-            pane.style.transformOrigin = 'center center';
-            pane.style.transform = `rotate(${-mapRotacaoAtual}deg)`;
+        // ✅ Rotaciona o WRAPPER visual (não o pane interno do Leaflet)
+        // Assim o Leaflet não fica "perdido" e panTo/setView continuam funcionando
+        const wrapper = document.getElementById('mapaWrapper');
+        if (wrapper) {
+            wrapper.style.transition = 'none';
+            // Ancora na parte inferior central (onde a moto fica)
+            wrapper.style.transformOrigin = '50% 80%';
+            wrapper.style.transform = `rotate(${-mapRotacaoAtual}deg)`;
         }
+
+        // Contra-rotação dos botões flutuantes — ficam sempre upright
+        const counterRot = `rotate(${mapRotacaoAtual}deg)`;
+        const btnR = document.getElementById('btnRecentrar');
+        const btnB = document.getElementById('btnBussola');
+        const chip = document.getElementById('proximidadeChip');
+        if (btnR) btnR.style.transform = counterRot;
+        if (btnB) btnB.style.transform = counterRot;
+        if (chip) chip.style.transform = `translateX(-50%) rotate(${mapRotacaoAtual}deg)`;
 
         // Agulha da bússola aponta para o norte
         const agulha = document.getElementById('bussolaAgulha');
