@@ -274,6 +274,9 @@ const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const FABRICA = [-8.1837523, -34.9383004]; // [lat, lng]
 const RAIO_ENTREGA = 40; // metros
+const RAIO_AUTO_ENTREGA = 30;   // metros — entrega automática qualquer cliente
+const RAIO_RECALCULO = 40;      // metros — recalcula se saiu da rota
+const RAIO_AUTO_INICIO = 25;    // metros — auto-inicia ao sair da fábrica
 const OSRM_BASE = 'https://router.project-osrm.org/route/v1/driving/';
 
 // ===== ESTADO =====
@@ -292,6 +295,7 @@ let paradaPagamentoPendente = null;
 
 let marcadoresMapLibre = [];
 let cacheRotaCompleta = null, cacheRotaCompletaKey = '';
+let ultimoRecalculo = 0, entregasAutoFeitas = new Set();
 let ultimaProximaId = null;
 
 let navAvulsaDestino = null, navAvulsaInterval = null, navAvulsaMarcador = null;
@@ -372,7 +376,7 @@ function moverEntregador(novaLat, novaLng, headingGPS) {
     meuMarcadorEl = el;
     meuMarcador = new maplibregl.Marker({ element: el, anchor: 'center' })
       .setLngLat([novaLng, novaLat]).addTo(map);
-    map.setPitch(65);
+    map.setPitch(70);
   } else {
     meuMarcador.setLngLat([novaLng, novaLat]);
   }
@@ -383,7 +387,7 @@ function moverEntregador(novaLat, novaLng, headingGPS) {
   if (badge) { badge.textContent = `${Math.round(((angulo%360)+360)%360)}°`; badge.style.display = modo3DAtivo ? 'block' : 'none'; }
 
   if (seguindoMoto && modo3DAtivo) {
-    map.easeTo({ center:[novaLng,novaLat], bearing:angulo, pitch:65, zoom:17, offset:[0,130], duration:800, easing:t=>t, essential:true });
+    map.easeTo({ center:[novaLng,novaLat], bearing:angulo, pitch:70, zoom:17, offset:[0,120], duration:700, easing:t=>t, essential:true });
   } else if (seguindoMoto) {
     map.easeTo({ center:[novaLng,novaLat], pitch:0, bearing:0, zoom:17, duration:1000 });
   }
@@ -394,7 +398,7 @@ function toggle3D() {
   modo3DAtivo = !modo3DAtivo;
   document.getElementById('btnToggle3D').classList.toggle('ativo', modo3DAtivo);
   if (!modo3DAtivo) {
-    map.easeTo({ pitch:0, bearing:0, duration:600 });
+    map.easeTo({ pitch:0, bearing:0, duration:500 });
     document.getElementById('headingBadge').style.display = 'none';
   } else {
     seguindoMoto = true;
@@ -403,7 +407,7 @@ function toggle3D() {
 }
 function resetarRotacao() {
   ultimaDirecao = 0; bearingHistorico = [];
-  map.easeTo({ bearing:0, pitch:modo3DAtivo?65:0, duration:600 });
+  map.easeTo({ bearing:0, pitch:modo3DAtivo?70:0, duration:600 });
   document.getElementById('setaNorte').style.transform = 'rotate(0deg)';
   document.getElementById('headingBadge').textContent = '0°';
   seguindoMoto = true;
@@ -433,6 +437,7 @@ async function processarPosicao(pos) {
   let distMovida = 999;
   if (posAtual) distMovida = calcDistM(posAtual[0],posAtual[1],lat,lon);
 
+  // ── Navegação 3D Suave (pitch 70, bearing acompanha direção)
   moverEntregador(lat, lon, heading);
   _onMoveNavAvulsa();
 
@@ -441,11 +446,121 @@ async function processarPosicao(pos) {
     ultimoEnvioGPS = agora;
     await enviarPosicaoSupabase(lat, lon, acc);
   }
-  if (rotaAtual && paradasList.length) await verificarProximidade(lat, lon);
-  if (rotaAtual && distMovida > 50) {
-    const prox = paradasList.find(p => p.status==='pendente' && p.coords);
-    if (prox) { ultimaProximaId = null; desenharRotaProxima([lat,lon], prox); }
+
+  // ── Auto-Início da Rota
+  await verificarAutoInicio(lat, lon);
+
+  if (rotaAtual && paradasList.length) {
+    // ── Auto-Entrega por Proximidade (todas as paradas)
+    await verificarProximidadeTodas(lat, lon);
+
+    // ── Recálculo Dinâmico (saiu da rota)
+    if (distMovida > 5 && agora - ultimoRecalculo > 8000) {
+      await verificarRecalculoRota(lat, lon);
+    }
   }
+}
+
+// ── AUTO-INÍCIO: sai da fábrica com rota 'criada' → inicia
+async function verificarAutoInicio(lat, lon) {
+  if (rotaAtual) return;
+  const distFab = calcDistM(lat, lon, FABRICA[0], FABRICA[1]);
+  if (distFab <= RAIO_AUTO_INICIO) return;
+  const candidata = todasAsRotas.find(r =>
+    r.status === 'criada' && r.paradas?.some(p => p.status === 'pendente')
+  );
+  if (!candidata) return;
+  await iniciarRota(candidata);
+  mostrarFeedbackEntrega(`🛵 Rota "${candidata.nome}" iniciada!`, '#f5a623');
+}
+
+// ── AUTO-ENTREGA: percorre TODAS as paradas, entrega quem estiver no raio
+async function verificarProximidadeTodas(lat, lon) {
+  const chip = document.getElementById('proximidadeChip');
+  const pendentes = paradasList.filter(p => p.status === 'pendente' && p.coords);
+  if (!pendentes.length) { chip.style.display = 'none'; return; }
+
+  for (const parada of pendentes) {
+    const dist = calcDistM(lat, lon, parada.coords[0], parada.coords[1]);
+    if (dist <= RAIO_AUTO_ENTREGA && !entregasAutoFeitas.has(parada.id)) {
+      entregasAutoFeitas.add(parada.id);
+      chip.style.display = 'block';
+      chip.className = 'proximidadeChip chegando';
+      chip.textContent = `✅ Entregando ${parada.nome}...`;
+      mostrarFeedbackEntrega(`📦 Entregue: ${parada.nome}`, '#00e87a');
+      verificarPagamentoEntrega(parada);
+      await executarMarcarEntregue(parada.id, parada.nome);
+      ultimaProximaId = null;
+      ultimoRecalculo = 0;
+    }
+  }
+
+  // Chip de proximidade para a parada mais próxima
+  const proxInfo = pendentes.reduce((best, p) => {
+    const d = calcDistM(lat, lon, p.coords[0], p.coords[1]);
+    return (!best || d < best.dist) ? { p, dist: d } : best;
+  }, null);
+
+  if (proxInfo && proxInfo.dist > RAIO_AUTO_ENTREGA) {
+    chip.style.display = 'block';
+    chip.className = 'proximidadeChip longe';
+    chip.textContent = proxInfo.dist <= 200
+      ? `🛵 ${Math.round(proxInfo.dist)}m de ${proxInfo.p.nome}`
+      : `🏁 ${Math.round(proxInfo.dist)}m — ${proxInfo.p.nome}`;
+    renderProximaCard(proxInfo.p, proxInfo.dist);
+
+    // Desenha rota ao próximo pendente
+    const proxPendente = paradasList.find(p => p.status === 'pendente' && p.coords);
+    if (proxPendente && ultimaProximaId !== proxPendente.id) {
+      desenharRotaProxima([lat, lon], proxPendente);
+    }
+  }
+}
+
+// ── RECÁLCULO DINÂMICO: se saiu >40m da linha da rota, recalcula
+async function verificarRecalculoRota(lat, lon) {
+  const prox = paradasList.find(p => p.status === 'pendente' && p.coords);
+  if (!prox) return;
+  if (cacheRotaCompleta && cacheRotaCompleta.length > 1) {
+    const distRota = cacheRotaCompleta.reduce((min, pt) => {
+      const d = calcDistM(lat, lon, pt[1], pt[0]);
+      return d < min ? d : min;
+    }, Infinity);
+    if (distRota > RAIO_RECALCULO) {
+      ultimoRecalculo = Date.now();
+      ultimaProximaId = null;
+      await desenharRotaProxima([lat, lon], prox);
+    }
+  }
+}
+
+// ── FEEDBACK VISUAL de entrega automática
+function mostrarFeedbackEntrega(msg, cor = '#00e87a') {
+  let el = document.getElementById('feedbackEntrega');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'feedbackEntrega';
+    el.style.cssText = [
+      'position:fixed','top:50%','left:50%',
+      'transform:translate(-50%,-50%) scale(0)',
+      'background:rgba(10,10,15,0.96)',
+      'border-radius:22px','padding:20px 32px',
+      'font-family:Syne,sans-serif','font-size:20px','font-weight:900',
+      'z-index:9999','text-align:center','pointer-events:none',
+      'box-shadow:0 8px 40px rgba(0,0,0,0.7)',
+      'transition:all 0.35s cubic-bezier(0.34,1.56,0.64,1)'
+    ].join(';');
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.color = cor;
+  el.style.border = `2px solid ${cor}`;
+  el.style.boxShadow = `0 8px 40px rgba(0,0,0,0.7), 0 0 30px ${cor}55`;
+  el.style.transform = 'translate(-50%,-50%) scale(1)';
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => {
+    el.style.transform = 'translate(-50%,-50%) scale(0)';
+  }, 2500);
 }
 async function enviarPosicaoSupabase(lat, lon, acc=0) {
   try {
