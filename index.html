@@ -1082,21 +1082,22 @@ async function processarPosicao(pos) {
 
     setBadge(true, `±${Math.round(acc)}m`);
 
-    // Calcula direção e distância movida
-    let distMovida = 999;
+    // Só atualiza bearing se o movimento for real (> 8m) — evita jitter GPS
     if (posAtual) {
-        const dx = Math.abs(lat - posAtual[0]);
-        const dy = Math.abs(lon - posAtual[1]);
-        if (dx > 0.000005 || dy > 0.000005) motoBearing = calcBearing(posAtual, [lat, lon]);
-        distMovida = calcDistM(posAtual[0], posAtual[1], lat, lon);
+        const distMovida = calcDistM(posAtual[0], posAtual[1], lat, lon);
+        if (distMovida > 8) {
+            motoBearing = calcBearing(posAtual, [lat, lon]);
+            ultimoBearingValido = motoBearing;
+        }
+        // se moveu pouco, mantém o último bearing válido
     }
     posAtual = [lat, lon];
 
-    // Atualiza marcador no mapa sempre (visual fluido)
+    // Atualiza marcador
     posicionarMoto([lat, lon]);
 
-    // Heading-up — rotaciona mapa com a direção
-    if (headingUp) aplicarRotacaoMapa(motoBearing);
+    // Heading-up — só rotaciona se tiver bearing válido
+    if (headingUp) aplicarRotacaoMapa(ultimoBearingValido);
 
     // Envia pro Supabase no máximo a cada 3s (throttle)
     const agora = Date.now();
@@ -1447,14 +1448,15 @@ function posicionarMoto(pos) {
 
     if (seguindoMoto) {
         const offset = getNavOffset();
-        if (navAtiva && (offset[0] !== 0 || offset[1] !== 0)) {
-            // Converte posição GPS para pixel, aplica offset, converte de volta
+        if (navAtiva && offset[1] !== 0) {
+            // Calcula o centro deslocado (moto em 78% da tela)
             const ponto = mapaObj.latLngToContainerPoint(pos);
-            const pontoCentro = L.point(ponto.x - offset[0], ponto.y - offset[1]);
+            const pontoCentro = L.point(ponto.x, ponto.y - offset[1]);
             const latLngCentro = mapaObj.containerPointToLatLng(pontoCentro);
-            mapaObj.setView(latLngCentro, mapaObj.getZoom() || 17, { animate: true, duration: 0.5, easeLinearity: 0.5, noMoveStart: true });
+            // panTo é mais leve que setView — não reinicia o viewport inteiro
+            mapaObj.panTo(latLngCentro, { animate: true, duration: 0.5, easeLinearity: 0.5, noMoveStart: true });
         } else {
-            mapaObj.setView(pos, mapaObj.getZoom() || 16, { animate: true, duration: 0.4 });
+            mapaObj.panTo(pos, { animate: true, duration: 0.4, noMoveStart: true });
         }
     }
 }
@@ -2304,7 +2306,10 @@ function atualizarNavBanner() {
 
 // ===== HEADING-UP (mapa rotaciona com a direção) =====
 let headingUp = false;
-let mapRotacaoAtual = 0; // graus atuais de rotação do mapa
+let mapRotacaoAtual = 0;
+let rafRotacao = null;       // requestAnimationFrame para rotação suave
+let ultimoBearingValido = 0; // último bearing com movimento real
+let bearingBuffer = [];      // buffer para suavizar bearing
 
 function toggleHeadingUp() {
     headingUp = !headingUp;
@@ -2316,40 +2321,70 @@ function toggleHeadingUp() {
         mapaEl.classList.add('heading-up');
         seguindoMoto = true;
         showToast('🧭 Heading-up ativado', 'success');
-        aplicarRotacaoMapa(motoBearing);
     } else {
         btn.classList.remove('heading-up');
         mapaEl.classList.remove('heading-up');
-        // Volta ao norte — anima suavemente de volta a 0°
-        animarRotacaoParaNorte();
+        // Para qualquer animação em andamento
+        if (rafRotacao) { cancelAnimationFrame(rafRotacao); rafRotacao = null; }
+        // Reseta rotação do pane imediatamente
+        const pane = mapaObj?.getPanes()?.mapPane;
+        if (pane) {
+            pane.style.transition = 'transform 0.4s ease';
+            pane.style.transform = 'rotate(0deg)';
+        }
+        mapRotacaoAtual = 0;
+        const agulha = document.getElementById('bussolaAgulha');
+        if (agulha) agulha.style.transform = 'rotate(0deg)';
         showToast('🧭 Norte fixo', '');
     }
 }
 
-function aplicarTransformMapa() {
-    const pane = mapaObj?.getPanes()?.mapPane;
-    if (!pane) return;
-
-    const rot = headingUp ? -mapRotacaoAtual : 0;
-    pane.style.transition = 'transform 0.35s cubic-bezier(0.25,0.46,0.45,0.94)';
-    pane.style.transformOrigin = 'center center';
-    pane.style.transform = `rotate(${rot}deg)`;
-
-    // Agulha da bússola sempre aponta para o norte
-    const agulha = document.getElementById('bussolaAgulha');
-    if (agulha) agulha.style.transform = `rotate(${mapRotacaoAtual}deg)`;
-}
-
 function aplicarRotacaoMapa(bearing) {
     if (!mapaObj || !headingUp) return;
-    const diff = ((bearing - mapRotacaoAtual + 540) % 360) - 180;
-    mapRotacaoAtual = mapRotacaoAtual + diff * 0.25;
-    aplicarTransformMapa();
-}
 
-function animarRotacaoParaNorte() {
-    mapRotacaoAtual = 0;
-    aplicarTransformMapa();
+    // Bearing suavizado via buffer de médias — evita jitter do GPS
+    bearingBuffer.push(bearing);
+    if (bearingBuffer.length > 5) bearingBuffer.shift();
+    // Média circular
+    let sinSum = 0, cosSum = 0;
+    bearingBuffer.forEach(b => {
+        sinSum += Math.sin(b * Math.PI / 180);
+        cosSum += Math.cos(b * Math.PI / 180);
+    });
+    const bearingMedio = Math.atan2(sinSum, cosSum) * 180 / Math.PI;
+
+    // Só anima se a diferença for significativa (> 2°)
+    const diff = ((bearingMedio - mapRotacaoAtual + 540) % 360) - 180;
+    if (Math.abs(diff) < 2) return;
+
+    // Interpolação suave via rAF — sem CSS transition no pane (causa piscar)
+    const alvo = mapRotacaoAtual + diff;
+
+    if (rafRotacao) cancelAnimationFrame(rafRotacao);
+
+    const animar = () => {
+        if (!headingUp) return;
+        const d = ((alvo - mapRotacaoAtual + 540) % 360) - 180;
+        if (Math.abs(d) < 0.3) {
+            mapRotacaoAtual = alvo % 360;
+        } else {
+            mapRotacaoAtual += d * 0.12; // interpolação lenta e suave
+            rafRotacao = requestAnimationFrame(animar);
+        }
+
+        const pane = mapaObj?.getPanes()?.mapPane;
+        if (pane) {
+            pane.style.transition = 'none'; // SEM transition CSS — rAF cuida disso
+            pane.style.transformOrigin = 'center center';
+            pane.style.transform = `rotate(${-mapRotacaoAtual}deg)`;
+        }
+
+        // Agulha da bússola aponta para o norte
+        const agulha = document.getElementById('bussolaAgulha');
+        if (agulha) agulha.style.transform = `rotate(${mapRotacaoAtual}deg)`;
+    };
+
+    rafRotacao = requestAnimationFrame(animar);
 }
 
 function atualizarNavVelocidade(lat, lon, ts) {
