@@ -292,44 +292,11 @@
   }
   .toast-msg.show { opacity:1; }
 
-  /* MARCADORES CLIENTES (pontinhos discretos com nome) */
+  /* MARCADORES CLIENTES — mesmo estilo avatar das paradas */
   .marker-client-wrap {
     display:flex; flex-direction:column; align-items:center;
     cursor:pointer; user-select:none;
   }
-  .marker-client-name {
-    background:rgba(20,20,45,0.88);
-    color:rgba(255,255,255,0.75);
-    font-size:10px; font-weight:600;
-    padding:1px 7px;
-    border-radius:6px;
-    margin-bottom:3px;
-    white-space:nowrap;
-    backdrop-filter:blur(4px);
-    border:1px solid rgba(255,255,255,0.08);
-    max-width:90px;
-    overflow:hidden;
-    text-overflow:ellipsis;
-  }
-  .marker-client-dot {
-    width:10px; height:10px; border-radius:50%;
-    background:rgba(120,110,220,0.7);
-    border:2px solid rgba(160,150,255,0.5);
-    box-shadow:0 0 6px rgba(120,110,220,0.4);
-  }
-  /* Legenda no mapa */
-  #legenda {
-    position:fixed; bottom:100px; left:12px;
-    background:rgba(14,14,30,0.88);
-    backdrop-filter:blur(10px);
-    border:1px solid rgba(255,255,255,0.08);
-    border-radius:12px;
-    padding:8px 12px;
-    z-index:200;
-    display:flex; flex-direction:column; gap:5px;
-  }
-  .legenda-item { display:flex; align-items:center; gap:7px; font-size:11px; color:rgba(255,255,255,0.65); font-weight:600; }
-  .legenda-dot  { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
 
   /* POPUP MapLibre */
   .maplibregl-popup-content {
@@ -356,19 +323,6 @@
 
 <!-- GPS -->
 <div id="gpsIndicator"><div class="gps-dot"></div>GPS<br>erro</div>
-
-<!-- TOGGLE CLIENTES -->
-<div id="btnToggleClientes" onclick="toggleClientes()" title="Ocultar clientes" style="
-  position:fixed; bottom:152px; right:22px;
-  width:44px; height:44px; border-radius:50%;
-  background:rgba(18,18,40,0.85);
-  border:1.5px solid rgba(160,150,255,0.35);
-  backdrop-filter:blur(8px);
-  display:flex; align-items:center; justify-content:center;
-  font-size:20px; cursor:pointer; z-index:200;
-  box-shadow:0 2px 12px rgba(0,0,0,0.45);
-  transition:0.18s; user-select:none;
-">👥</div>
 
 <!-- BÚSSOLA -->
 <div id="compass" onclick="resetNorth()">🧭</div>
@@ -416,12 +370,6 @@
   </div>
 </div>
 
-<!-- LEGENDA -->
-<div id="legenda">
-  <div class="legenda-item"><div class="legenda-dot" style="background:rgba(120,110,220,0.8);border:2px solid rgba(160,150,255,0.5)"></div>Cliente cadastrado</div>
-  <div class="legenda-item"><div class="legenda-dot" style="background:#8878e8;border:2px solid rgba(255,255,255,0.3)"></div>Entrega pendente</div>
-  <div class="legenda-item"><div class="legenda-dot" style="background:#40b870;border:2px solid rgba(102,255,170,0.4)"></div>Entrega concluída</div>
-</div>
 
 <div class="toast-msg" id="toastMsg"></div>
 
@@ -443,7 +391,6 @@ let paradaAtivIdx = -1;
 let tabAtual = 'rota';
 let ultimaPosicao = null;      // {lat, lng} para calcular ângulo
 let ultimaDirecao = 0;
-let mostrarClientes = true;    // toggle visibilidade dos clientes
 
 // ── MAPA ──
 function initMap() {
@@ -841,7 +788,6 @@ async function carregarClientes() {
   if (error) { console.warn("Erro ao carregar clientes:", error); return; }
   todosClientes = data || [];
 
-  // Aguarda mapa carregar antes de renderizar
   if (map.isStyleLoaded()) {
     renderMarcadoresClientes();
   } else {
@@ -856,31 +802,32 @@ function limparMarcadoresClientes() {
 
 function renderMarcadoresClientes() {
   limparMarcadoresClientes();
-  if (!mostrarClientes) return;
 
-  // IDs de clientes que já estão nas paradas da rota atual (para não duplicar marcador)
+  // IDs que já estão nas paradas da rota (evita duplicar marcador)
   const idsNaRota = new Set(paradasAtuais.map(p => p.client_id).filter(Boolean));
 
   todosClientes.forEach(c => {
     const lat = c.delivery_lat;
     const lng = c.delivery_lon;
     if (!lat || !lng) return;
-
-    // Se já aparece como parada de entrega, não duplica
     if (idsNaRota.has(c.id)) return;
 
+    // Mesmo markup dos avatares de parada
     const el = document.createElement('div');
     el.className = 'marker-client-wrap';
     el.innerHTML = `
-      <div class="marker-client-name">${c.name || 'Cliente'}</div>
-      <div class="marker-client-dot"></div>
+      <div class="marker-name">${c.name || 'Cliente'}</div>
+      <div class="marker-avatar pendente">${avatarSVG()}</div>
     `;
 
-    const enderecoStr = c.delivery_address ? `<span style="color:rgba(255,255,255,0.5);font-size:11px">📍 ${c.delivery_address}</span><br>` : '';
-    const fiadoStr    = c.fiado ? `<span style="color:#e74c3c;font-size:11px">⚠️ Fiado: R$ ${parseFloat(c.debt||0).toFixed(2)}</span><br>` : '';
-    const telStr      = c.phone ? `<span style="color:rgba(255,255,255,0.45);font-size:11px">📞 ${c.phone}</span>` : '';
+    const enderecoStr = c.delivery_address
+      ? `<span style="color:rgba(255,255,255,0.5);font-size:11px">📍 ${c.delivery_address}</span><br>` : '';
+    const fiadoStr = c.fiado
+      ? `<span style="color:#e74c3c;font-size:11px">⚠️ Fiado: R$ ${parseFloat(c.debt||0).toFixed(2)}</span><br>` : '';
+    const telStr = c.phone
+      ? `<span style="color:rgba(255,255,255,0.45);font-size:11px">📞 ${c.phone}</span>` : '';
 
-    const popup = new maplibregl.Popup({ offset:[0,-18], closeButton:true, maxWidth:'240px' })
+    const popup = new maplibregl.Popup({ offset:[0,-52], closeButton:true, maxWidth:'240px' })
       .setHTML(`
         <b style="color:white;font-size:13px">${c.name || 'Cliente'}</b><br>
         ${enderecoStr}${fiadoStr}${telStr}
@@ -893,20 +840,6 @@ function renderMarcadoresClientes() {
 
     marcadoresClientes.push(marker);
   });
-}
-
-function toggleClientes() {
-  mostrarClientes = !mostrarClientes;
-  const btn = document.getElementById('btnToggleClientes');
-  if (mostrarClientes) {
-    renderMarcadoresClientes();
-    btn.style.opacity = '1';
-    btn.title = 'Ocultar clientes';
-  } else {
-    limparMarcadoresClientes();
-    btn.style.opacity = '0.45';
-    btn.title = 'Mostrar clientes';
-  }
 }
 
 // ── INIT ──
