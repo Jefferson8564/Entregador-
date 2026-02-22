@@ -1363,19 +1363,31 @@ function posicionarMoto(pos) {
 
         if (!seguindoMoto) return;
 
-        // A moto fica em position:fixed, bottom:22%, center X.
-        // O Leaflet tem um método nativo para centralizar com padding:
-        // flyTo/panTo com paddingTopLeft/paddingBottomRight faz exatamente isso.
-        // paddingBottomRight=[0, alturaAbaixoDaMoto] empurra o centro para cima.
-        const H = window.innerHeight;
-        const offsetAbaixo = Math.round(H * 0.22); // 22% abaixo da moto
+        // A moto está fixada em CSS: left:50%, bottom:22% → Y = 78% do topo.
+        // O centro do mapa (Leaflet) é sempre Y = 50% do topo.
+        // Diferença: a moto está 28% abaixo do centro → precisamos deslocar
+        // o centro do mapa 28% da altura para CIMA da posição GPS.
+        //
+        // Fazemos isso convertendo o offset de pixels para LatLng usando
+        // mapaObj.layerPointToLatLng, que respeita zoom e projeção atual.
+        const zoom = mapaObj.getZoom() || 17;
+        const size = mapaObj.getSize(); // tamanho real do container em px
 
-        mapaObj.panTo(L.latLng(pos[0], pos[1]), {
+        // Ponto em pixels da posição GPS no sistema de coordenadas do mapa atual
+        const gpsPx = mapaObj.project(L.latLng(pos[0], pos[1]), zoom);
+
+        // Offset: moto está em 78% do topo, centro está em 50% → offset = 28% da altura
+        const offsetY = size.y * 0.28; // pixels para subir o centro
+
+        // Novo centro = GPS subiu offsetY pixels
+        const centroPx = L.point(gpsPx.x, gpsPx.y - offsetY);
+        const centroLatLng = mapaObj.unproject(centroPx, zoom);
+
+        mapaObj.setView(centroLatLng, zoom, {
             animate: true,
             duration: 0.5,
             easeLinearity: 0.3,
-            paddingTopLeft:     [0, 0],
-            paddingBottomRight: [0, offsetAbaixo * 2]
+            noMoveStart: true
         });
 
     } else {
@@ -1583,13 +1595,12 @@ function recentrarMapa() {
     seguindoMoto = true;
     if (posAtual) {
         if (giroAtivo) {
-            const H = window.innerHeight;
-            const offsetAbaixo = Math.round(H * 0.22);
-            mapaObj.panTo(L.latLng(posAtual[0], posAtual[1]), {
-                animate: true, duration: 0.5,
-                paddingTopLeft: [0, 0],
-                paddingBottomRight: [0, offsetAbaixo * 2]
-            });
+            const zoom = mapaObj.getZoom() || 17;
+            const size = mapaObj.getSize();
+            const gpsPx = mapaObj.project(L.latLng(posAtual[0], posAtual[1]), zoom);
+            const offsetY = size.y * 0.28;
+            const centroLatLng = mapaObj.unproject(L.point(gpsPx.x, gpsPx.y - offsetY), zoom);
+            mapaObj.setView(centroLatLng, zoom, { animate: true, duration: 0.5 });
         } else {
             mapaObj.setView(posAtual, 16, { animate: true });
         }
