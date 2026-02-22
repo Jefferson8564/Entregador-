@@ -494,7 +494,10 @@ async function verificarProximidade(lat, lon) {
   }
 }
 
-// ===== PAGAMENTO NA ENTREGA =====
+// ===== PAGAMENTO NA ENTREGA (FILA) =====
+let filaPagamentos = [];
+let pagamentoEmAndamento = false;
+
 async function verificarPagamentoEntrega(parada) {
   if (!parada.cliente_phone) return;
   const hoje = new Date().toISOString().split('T')[0];
@@ -506,19 +509,33 @@ async function verificarPagamentoEntrega(parada) {
   if (!pedidos?.length) return;
   const pedido = pedidos[0];
   if ((pedido.payment_method||'').toUpperCase() !== 'PAGA NA ENTREGA') return;
+  // Adiciona na fila em vez de sobrescrever
+  filaPagamentos.push({ parada, pedido });
+  processarFilaPagamentos();
+}
+
+function processarFilaPagamentos() {
+  if (pagamentoEmAndamento || filaPagamentos.length === 0) return;
+  pagamentoEmAndamento = true;
+  const { parada, pedido } = filaPagamentos[0];
   paradaPagamentoPendente = { parada, pedido };
+  const total = filaPagamentos.length;
   document.getElementById('pagNome').textContent = `${parada.nome} pagou?`;
-  document.getElementById('pagSub').textContent = `Pagamento: ${pedido.payment_method} · Pedido de hoje`;
+  document.getElementById('pagSub').textContent = `Pagamento: ${pedido.payment_method} · Pedido de hoje${total > 1 ? ` · (${filaPagamentos.indexOf(filaPagamentos[0])+1}/${total} pendentes)` : ''}`;
   document.getElementById('pagValor').textContent = `R$ ${Number(pedido.total).toFixed(2).replace('.',',')}`;
   setTimeout(() => {
     document.getElementById('confirmModal').classList.remove('show');
     document.getElementById('pagamentoModal').classList.add('show');
-  }, 800);
+  }, 400);
 }
+
 async function responderPagamento(pagou) {
   document.getElementById('pagamentoModal').classList.remove('show');
   if (!paradaPagamentoPendente) return;
-  const { parada, pedido } = paradaPagamentoPendente; paradaPagamentoPendente = null;
+  const { parada, pedido } = paradaPagamentoPendente;
+  paradaPagamentoPendente = null;
+  pagamentoEmAndamento = false;
+  filaPagamentos.shift(); // remove o primeiro da fila
   if (pagou) {
     await sb.from("orders").update({ payment_method: pedido.payment_method+' ✓' }).eq("id", pedido.id);
     showToast(`✅ Pagamento de ${parada.nome} confirmado!`, 'success');
@@ -527,6 +544,10 @@ async function responderPagamento(pagou) {
     const { data: cli } = await sb.from("clients").select("debt").eq("phone", parada.cliente_phone).maybeSingle();
     await sb.from("clients").update({ debt:(cli?.debt||0)+Number(pedido.total) }).eq("phone", parada.cliente_phone);
     showToast(`⚠️ ${parada.nome} lançado no fiado — R$ ${Number(pedido.total).toFixed(2).replace('.',',')}`, 'warn');
+  }
+  // Processa o próximo da fila se houver
+  if (filaPagamentos.length > 0) {
+    setTimeout(() => processarFilaPagamentos(), 600);
   }
 }
 
