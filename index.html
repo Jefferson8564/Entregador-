@@ -1369,12 +1369,12 @@ async function desenharRotaProxima(posAtual, proxima) {
 }
 
 // ===== MAPA =====
-// Offset vertical quando em modo navegação — ancora moto no 1/4 inferior
+// Offset vertical — ancora moto em 78% da tela durante navegação
 function getNavOffset() {
     if (!navAtiva) return [0, 0];
     const h = document.getElementById('mapaDiv').clientHeight;
-    // Desloca o centro do mapa para cima (pane do leaflet) deixando moto embaixo
-    return [0, Math.round(h * 0.28)]; // 28% da altura para cima = moto fica ~72% para baixo
+    // Moto em 78% da tela: deslocamos o centro 28% para cima (78% - 50% = 28%)
+    return [0, Math.round(h * 0.28)];
 }
 
 function posicionarMoto(pos) {
