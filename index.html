@@ -1,2244 +1,721 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>🛵 Entregador — O Rei da Coxinha</title>
-    <link rel="icon" href="icone.png">
-    <link rel="apple-touch-icon" href="icone.png">
-    <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#0a0a0f">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Rei Entregas">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800;900&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --bg: #0a0a0f;
-            --surface: #12121a;
-            --surface2: #1a1a26;
-            --border: rgba(255,255,255,0.07);
-            --primary: #f5a623;
-            --primary-glow: rgba(245,166,35,0.3);
-            --green: #00e87a;
-            --green-glow: rgba(0,232,122,0.25);
-            --blue: #3d9cff;
-            --red: #ff4757;
-            --text: #f0f0f8;
-            --text-dim: rgba(240,240,248,0.5);
-            --text-muted: rgba(240,240,248,0.28);
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>🛵 Mapa do Entregador — O Rei da Coxinha</title>
+<meta name="theme-color" content="#0d0d1a">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI',Roboto,Arial,sans-serif; -webkit-tap-highlight-color:transparent; }
 
-        * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { width:100vw; height:100vh; overflow:hidden; background:#0d0d1a; position:relative; }
 
-        body {
-            background: var(--bg);
-            color: var(--text);
-            font-family: 'DM Sans', sans-serif;
-            min-height: 100vh;
-            overflow-x: hidden;
-        }
+  /* MAPA TELA CHEIA */
+  #map { position:absolute; inset:0; width:100%; height:100%; z-index:1; }
 
-        /* ===== LOADING ===== */
-        #loadingScreen {
-            position: fixed; inset: 0; z-index: 9999;
-            background: var(--bg);
-            display: flex; flex-direction: column;
-            align-items: center; justify-content: center; gap: 20px;
-        }
-        .load-logo {
-            font-size: 56px;
-            animation: logoPulse 1.4s ease-in-out infinite;
-            filter: drop-shadow(0 0 24px var(--primary-glow));
-        }
-        @keyframes logoPulse { 0%,100%{transform:scale(1);} 50%{transform:scale(1.1);} }
-        .load-title {
-            font-family: 'Syne', sans-serif;
-            font-size: 22px; font-weight: 900;
-            letter-spacing: -0.5px;
-            color: var(--text);
-        }
-        .load-sub { font-size: 13px; color: var(--text-muted); }
-        .load-bar-wrap {
-            width: 160px; height: 3px;
-            background: rgba(255,255,255,0.08);
-            border-radius: 10px; overflow: hidden;
-        }
-        .load-bar {
-            height: 100%; width: 0%;
-            background: linear-gradient(90deg, var(--primary), #ff8c00);
-            border-radius: 10px;
-            animation: loadBar 1.8s ease forwards;
-        }
-        @keyframes loadBar { to { width: 100%; } }
+  .leaflet-control-attribution { display:none !important; }
+  .leaflet-control-zoom { display:none !important; }
 
-        /* ===== HEADER FLUTUANTE ===== */
-        #appHeader {
-            position: fixed; top: 0; left: 0; right: 0; z-index: 400;
-            background: rgba(10,10,15,0.0);
-            backdrop-filter: none;
-            -webkit-backdrop-filter: none;
-            border-bottom: none;
-            padding: 14px 12px;
-            display: flex; align-items: center; justify-content: space-between;
-            pointer-events: none;
-        }
-        #appHeader > * { pointer-events: all; }
-        .header-brand { display: none; }
-        .gps-badge {
-            display: flex; align-items: center; gap: 6px;
-            padding: 7px 13px; border-radius: 22px;
-            font-size: 11px; font-weight: 700;
-            background: rgba(0,232,122,0.15);
-            border: 1px solid rgba(0,232,122,0.35);
-            color: var(--green);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            white-space: nowrap;
-            transition: all 0.3s;
-        }            border: 1px solid rgba(0,232,122,0.25);
-            color: var(--green);
-            transition: all 0.3s;
-        }
-        .gps-badge.off {
-            background: rgba(255,71,87,0.1);
-            border-color: rgba(255,71,87,0.25);
-            color: var(--red);
-        }
-        .gps-dot {
-            width: 7px; height: 7px; border-radius: 50%;
-            background: var(--green);
-            animation: gpsDot 1.2s ease-in-out infinite;
-        }
-        .gps-badge.off .gps-dot { background: var(--red); animation: none; }
-        @keyframes gpsDot { 0%,100%{opacity:1;transform:scale(1);} 50%{opacity:0.4;transform:scale(0.7);} }
+  /* ===== BARRA TOPO FLUTUANTE ===== */
+  #topBar {
+    position:absolute;
+    top:14px; left:12px; right:12px;
+    z-index:500;
+    display:flex;
+    gap:8px;
+    align-items:center;
+    pointer-events:none;
+  }
+  #topBar > * { pointer-events:auto; }
 
-        /* ===== MAIN LAYOUT ===== */
-        html, body { height: 100%; overflow: hidden; }
-        #mainApp { display: block; }
+  .pill {
+    background:rgba(18,14,40,0.88);
+    backdrop-filter:blur(16px);
+    -webkit-backdrop-filter:blur(16px);
+    border:1px solid rgba(255,255,255,0.13);
+    border-radius:30px;
+    color:white;
+    font-weight:700;
+    font-size:13px;
+    padding:10px 16px;
+    display:flex;
+    align-items:center;
+    gap:7px;
+    white-space:nowrap;
+    box-shadow:0 4px 20px rgba(0,0,0,0.55);
+    cursor:pointer;
+    user-select:none;
+  }
 
-        /* ===== MAPA TELA CHEIA ===== */
-        #mapaWrapper {
-            position: fixed;
-            inset: 0;
-            z-index: 0;
-            background: #111620;
-            overflow: hidden;
-        }
+  #pillRota {
+    background:rgba(140,85,10,0.88);
+    border-color:rgba(255,180,50,0.35);
+    cursor:default;
+  }
 
-        /* Scene: cobre diagonal total da tela para rotação sem bordas */
-        /* sqrt(2) * 100vw ≈ 141vw → usamos 160vmax com margem */
-        #mapaScene {
-            position: absolute;
-            width:  160vmax;
-            height: 160vmax;
-            top:  50%;
-            left: 50%;
-            margin-top:  -80vmax;
-            margin-left: -80vmax;
-            transform-origin: center center;
-            will-change: transform;
-            transform: rotateZ(0deg);
-            transition: transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-        }
+  #pillGps {
+    background:rgba(8,105,50,0.9);
+    border-color:rgba(46,204,113,0.35);
+    cursor:default;
+    margin-left:auto;
+  }
+  .gps-dot {
+    width:9px; height:9px;
+    background:#2ecc71;
+    border-radius:50%;
+    flex-shrink:0;
+    animation:blink 1.6s infinite;
+  }
+  .gps-dot.erro { background:#e74c3c; animation:none; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
-        /* Perspectiva 3D aplicada separadamente no wrapper — NÃO no scene */
-        /* Assim o Leaflet renderiza tiles num container normal (sem distorção) */
-        #mapaWrapper.perspectiva3d {
-            perspective: 600px;
-            perspective-origin: 50% 20%;
-        }
-        #mapaWrapper.perspectiva3d #mapaScene {
-            /* Leve inclinação tipo GPS — aplicada via inline style no JS */
-        }
+  .pill-filter { background:rgba(28,22,55,0.82); }
+  .pill-filter.ativo { background:rgba(155,89,182,0.55); border-color:rgba(155,89,182,0.5); }
 
-        #mapaDiv {
-            width: 100%;
-            height: 100%;
-        }
+  /* ===== BOTÃO NORTE ===== */
+  #btnNorte {
+    position:absolute;
+    top:72px; right:14px;
+    z-index:500;
+    width:46px; height:46px;
+    background:rgba(80,100,140,0.82);
+    backdrop-filter:blur(12px);
+    -webkit-backdrop-filter:blur(12px);
+    border:1px solid rgba(150,180,220,0.3);
+    border-radius:12px;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+    box-shadow:0 3px 14px rgba(0,0,0,0.5);
+    font-size:22px;
+    color:white;
+  }
 
-        /* Botão recentrar — canto inferior direito flutuante */
-        #btnRecentrar {
-            position: fixed; bottom: 16px; right: 16px; z-index: 500;
-            width: 52px; height: 52px; border-radius: 50%;
-            background: var(--primary);
-            border: none; cursor: pointer;
-            font-size: 24px;
-            display: flex; align-items: center; justify-content: center;
-            box-shadow: 0 4px 20px var(--primary-glow);
-            transition: transform 0.2s;
-        }
-        #btnRecentrar:active { transform: scale(0.9); }
+  /* ===== MOTOBOY FLUTUANTE ===== */
+  #motoBtn {
+    position:absolute;
+    bottom:24px; right:16px;
+    z-index:600;
+    width:60px; height:60px;
+    background:linear-gradient(135deg,#e67e22,#f39c12);
+    border:none;
+    border-radius:50%;
+    box-shadow:0 0 0 5px rgba(230,126,34,0.25), 0 6px 24px rgba(0,0,0,0.6);
+    display:flex; align-items:center; justify-content:center;
+    font-size:30px;
+    cursor:pointer;
+    transition:transform 0.15s;
+  }
+  #motoBtn:active { transform:scale(0.92); }
 
-        /* Chip de proximidade */
-        #proximidadeChip {
-            position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
-            z-index: 500; white-space: nowrap;
-            padding: 8px 16px; border-radius: 20px;
-            font-size: 12px; font-weight: 700;
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            display: none;
-        }
-        #proximidadeChip.chegando {
-            background: rgba(0,232,122,0.2);
-            border: 1px solid rgba(0,232,122,0.5);
-            color: var(--green);
-            animation: chipPulse 1s ease-in-out infinite;
-        }
-        #proximidadeChip.longe {
-            background: rgba(61,156,255,0.15);
-            border: 1px solid rgba(61,156,255,0.35);
-            color: var(--blue);
-        }
-        @keyframes chipPulse { 0%,100%{opacity:1;} 50%{opacity:0.6;} }
+  /* ===== CHIPS DE ROTA ===== */
+  #chipBar {
+    position:absolute;
+    top:68px; left:12px; right:12px;
+    z-index:490;
+    display:none;
+    gap:7px;
+    overflow-x:auto;
+    scrollbar-width:none;
+    pointer-events:none;
+  }
+  #chipBar::-webkit-scrollbar { display:none; }
+  #chipBar > * { pointer-events:auto; }
+  .rota-chip {
+    background:rgba(20,15,45,0.82); backdrop-filter:blur(10px);
+    border:1.5px solid rgba(155,89,182,0.35); border-radius:20px;
+    color:rgba(255,255,255,0.65); font-size:12px; font-weight:700;
+    padding:7px 14px; cursor:pointer; white-space:nowrap; transition:0.15s; flex-shrink:0;
+  }
+  .rota-chip.active { background:rgba(155,89,182,0.7); border-color:#9b59b6; color:white; }
 
-        /* ===== PAINEL INFERIOR DESLIZANTE ===== */
-        #painelInferior {
-            position: fixed; left: 0; right: 0; bottom: 0;
-            z-index: 700;
-            background: var(--surface);
-            border-radius: 24px 24px 0 0;
-            border-top: 1px solid var(--border);
-            max-height: 75vh;
-            overflow-y: auto;
-            transform: translateY(100%);
-            transition: transform 0.38s cubic-bezier(0.32, 0.72, 0, 1);
-            padding-bottom: 32px;
-        }
-        #painelInferior.aberto { transform: translateY(0); }
+  /* ===== PAINEL INFERIOR DESLIZÁVEL ===== */
+  #painel {
+    position:absolute;
+    bottom:0; left:0; right:0;
+    z-index:600;
+    background:rgba(10,8,28,0.97);
+    backdrop-filter:blur(22px);
+    -webkit-backdrop-filter:blur(22px);
+    border-top:1px solid rgba(155,89,182,0.28);
+    border-radius:22px 22px 0 0;
+    transition:transform 0.35s cubic-bezier(0.4,0,0.2,1);
+    max-height:85vh;
+    display:flex;
+    flex-direction:column;
+  }
+  #painel.fechado { transform:translateY(calc(100% - 72px)); }
+  #painel.aberto  { transform:translateY(0); }
 
-        /* Overlay escuro quando painel aberto */
-        #overlayPainel {
-            position: fixed; inset: 0; z-index: 690;
-            background: rgba(0,0,0,0.5);
-            backdrop-filter: blur(3px);
-            display: none;
-        }
-        #overlayPainel.visivel { display: block; }
+  #painelHandle {
+    padding:10px 16px 8px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:10px;
+    cursor:pointer;
+    flex-shrink:0;
+    user-select:none;
+  }
+  .handle-bar { width:40px; height:4px; background:rgba(155,89,182,0.45); border-radius:4px; }
 
-        /* Alça */
-        .drag-handle {
-            width: 40px; height: 4px;
-            background: rgba(255,255,255,0.15);
-            border-radius: 2px;
-            margin: 12px auto 0;
-        }
+  #painelHeaderRow {
+    display:flex; align-items:center; justify-content:space-between;
+    width:100%;
+  }
+  .painel-title { font-size:15px; font-weight:900; color:white; }
+  #painelMeta { font-size:12px; color:rgba(255,255,255,0.38); font-weight:700; }
+  #painelSeta { font-size:16px; color:rgba(155,89,182,0.75); }
 
-        /* Tabs — flutuantes no header */
-        .tabs {
-            display: flex; gap: 6px;
-        }
-        .tab-btn {
-            padding: 8px 14px;
-            border: 1px solid var(--border); border-radius: 22px;
-            font-size: 12px; font-weight: 700;
-            cursor: pointer;
-            background: rgba(10,10,15,0.82);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            color: var(--text-dim);
-            transition: all 0.2s;
-            font-family: 'DM Sans', sans-serif;
-        }
-        .tab-btn:active { transform: scale(0.94); }
-        .tab-btn.active {
-            background: rgba(245,166,35,0.18);
-            border-color: rgba(245,166,35,0.45);
-            color: var(--primary);
-        }
+  .stats-row {
+    display:flex; gap:7px; flex-shrink:0;
+    padding:0 14px 10px;
+  }
+  .stat-b {
+    flex:1; background:rgba(255,255,255,0.05);
+    border:1px solid rgba(255,255,255,0.09);
+    border-radius:12px; padding:8px 4px; text-align:center;
+  }
+  .stat-num { font-size:21px; font-weight:900; color:white; line-height:1; }
+  .stat-lbl { font-size:10px; color:rgba(255,255,255,0.38); font-weight:700; text-transform:uppercase; letter-spacing:0.4px; margin-top:2px; }
 
-        /* Tab content */
-        .tab-content { display: none; padding: 14px; }
-        .tab-content.active { display: block; }
+  #progWrap { height:3px; background:rgba(255,255,255,0.08); margin:0 14px 12px; border-radius:3px; flex-shrink:0; }
+  #progFill  { height:100%; background:linear-gradient(90deg,#9b59b6,#27ae60); border-radius:3px; transition:width 0.5s; width:0%; }
 
-        /* ===== OLD BUSSOLA (replaced by indicadorRotacao) ===== */
+  #paradasList {
+    flex:1; overflow-y:auto; padding:0 12px 110px;
+    -webkit-overflow-scrolling:touch; scrollbar-width:none;
+  }
+  #paradasList::-webkit-scrollbar { display:none; }
 
-        /* ===== ROTA ATIVA CARD ===== */
-        .rota-ativa-card {
-            background: linear-gradient(135deg, rgba(245,166,35,0.12), rgba(255,140,0,0.06));
-            border: 1px solid rgba(245,166,35,0.25);
-            border-radius: 18px; padding: 14px 16px;
-            margin-bottom: 12px;
-        }
-        .rota-ativa-header {
-            display: flex; align-items: center;
-            justify-content: space-between; margin-bottom: 10px;
-        }
-        .rota-nome {
-            font-family: 'Syne', sans-serif;
-            font-size: 16px; font-weight: 900;
-            color: var(--primary);
-        }
-        .rota-status-badge {
-            font-size: 10px; font-weight: 700;
-            padding: 4px 10px; border-radius: 20px;
-            background: rgba(0,232,122,0.15);
-            color: var(--green);
-            border: 1px solid rgba(0,232,122,0.3);
-        }
-        .rota-stats {
-            display: grid; grid-template-columns: 1fr 1fr 1fr;
-            gap: 8px;
-        }
-        .rota-stat {
-            background: rgba(255,255,255,0.04);
-            border-radius: 12px; padding: 10px 8px;
-            text-align: center;
-        }
-        .rota-stat-val {
-            font-family: 'Syne', sans-serif;
-            font-size: 20px; font-weight: 900;
-        }
-        .rota-stat-lbl {
-            font-size: 10px; color: var(--text-muted);
-            margin-top: 2px;
-        }
+  .parada-card {
+    background:rgba(255,255,255,0.05);
+    border:1px solid rgba(255,255,255,0.09);
+    border-radius:16px; padding:13px 14px; margin-bottom:9px;
+    border-left:4px solid #f1c40f; transition:0.2s;
+  }
+  .parada-card.entregue { border-left-color:#27ae60; opacity:0.58; }
+  .parada-card.ativa    { border-left-color:#9b59b6; background:rgba(155,89,182,0.1); }
+  .parada-card.semped   { border-left-color:#44445a; }
 
-        /* ===== PRÓXIMA PARADA ===== */
-        .proxima-card {
-            background: var(--surface2);
-            border-radius: 18px; padding: 14px 16px;
-            margin-bottom: 12px;
-            border: 1px solid var(--border);
-            position: relative; overflow: hidden;
-        }
-        .proxima-card::before {
-            content: '';
-            position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
-            background: var(--blue);
-            border-radius: 2px 0 0 2px;
-        }
-        .proxima-card.chegando::before { background: var(--green); }
-        .proxima-lbl {
-            font-size: 10px; font-weight: 700;
-            color: var(--text-muted); text-transform: uppercase;
-            letter-spacing: 1px; margin-bottom: 6px;
-        }
-        .proxima-nome {
-            font-family: 'Syne', sans-serif;
-            font-size: 17px; font-weight: 800;
-        }
-        .proxima-end {
-            font-size: 12px; color: var(--text-dim);
-            margin-top: 4px;
-        }
-        .proxima-dist {
-            display: flex; align-items: center; gap: 8px;
-            margin-top: 10px;
-        }
-        .dist-badge {
-            padding: 5px 12px; border-radius: 20px;
-            font-size: 12px; font-weight: 700;
-            background: rgba(61,156,255,0.15);
-            color: var(--blue);
-            border: 1px solid rgba(61,156,255,0.3);
-        }
-        .eta-badge {
-            padding: 5px 12px; border-radius: 20px;
-            font-size: 12px; font-weight: 700;
-            background: rgba(245,166,35,0.12);
-            color: var(--primary);
-            border: 1px solid rgba(245,166,35,0.25);
-        }
+  .parada-header { display:flex; align-items:center; gap:10px; margin-bottom:6px; }
+  .parada-num {
+    width:30px; height:30px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-weight:900; font-size:13px; flex-shrink:0;
+    background:#f1c40f; color:#333;
+  }
+  .parada-card.entregue .parada-num { background:#27ae60; color:white; }
+  .parada-card.ativa    .parada-num { background:#9b59b6; color:white; }
+  .parada-card.semped   .parada-num { background:#383848; color:#888; }
 
-        /* ===== LISTA DE PARADAS ===== */
-        .parada-item {
-            display: flex; align-items: center; gap: 12px;
-            padding: 12px 14px; border-radius: 16px;
-            margin-bottom: 8px;
-            background: var(--surface2);
-            border: 1px solid var(--border);
-            transition: opacity 0.3s;
-        }
-        .parada-item.entregue { opacity: 0.4; }
-        .parada-num {
-            width: 34px; height: 34px; border-radius: 50%;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 13px; font-weight: 900;
-            flex-shrink: 0;
-        }
-        .parada-num.pendente { background: rgba(61,156,255,0.2); color: var(--blue); border: 1.5px solid rgba(61,156,255,0.4); }
-        .parada-num.proxima { background: rgba(245,166,35,0.2); color: var(--primary); border: 1.5px solid rgba(245,166,35,0.4); animation: gpsDot 1.2s infinite; }
-        .parada-num.entregue { background: rgba(0,232,122,0.15); color: var(--green); border: 1.5px solid rgba(0,232,122,0.3); }
-        .parada-info { flex: 1; min-width: 0; }
-        .parada-nome { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .parada-end { font-size: 11px; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .parada-eta { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+  .parada-nome { font-size:15px; font-weight:800; color:white; flex:1; }
+  .parada-end  { font-size:12px; color:rgba(255,255,255,0.38); margin-bottom:8px; line-height:1.4; }
+  .parada-info { display:flex; gap:7px; margin-bottom:9px; flex-wrap:wrap; }
+  .badge { font-size:11px; font-weight:700; padding:3px 9px; border-radius:20px; }
+  .badge-p { background:rgba(241,196,15,0.14); color:#f1c40f; }
+  .badge-e { background:rgba(39,174,96,0.14);  color:#2ecc71; }
+  .badge-s { background:rgba(150,150,150,0.1); color:#888; }
+  .badge-t { background:rgba(52,152,219,0.14); color:#5dade2; }
 
-        /* ===== SEM ROTA ===== */
-        .empty-state {
-            text-align: center; padding: 40px 20px;
-            color: var(--text-muted);
-        }
-        .empty-icon { font-size: 48px; margin-bottom: 12px; opacity: 0.5; }
-        .empty-title { font-family: 'Syne', sans-serif; font-size: 16px; font-weight: 800; color: var(--text-dim); margin-bottom: 6px; }
-        .empty-sub { font-size: 13px; line-height: 1.6; }
+  .parada-actions { display:flex; gap:7px; }
+  .btn-nav {
+    flex:1; padding:10px; border:none; border-radius:11px;
+    font-size:12px; font-weight:700; cursor:pointer; transition:0.15s;
+    display:flex; align-items:center; justify-content:center; gap:4px;
+  }
+  .btn-nav:active { transform:scale(0.96); }
+  .btn-maps { background:rgba(52,152,219,0.14); color:#5dade2; border:1px solid rgba(52,152,219,0.3); }
+  .btn-waze { background:rgba(39,174,96,0.14);  color:#2ecc71; border:1px solid rgba(39,174,96,0.3); }
+  .btn-ok   { background:linear-gradient(135deg,#27ae60,#1e8449); color:white; border:none; }
+  .btn-ok:disabled { background:rgba(255,255,255,0.07); color:rgba(255,255,255,0.25); cursor:not-allowed; }
 
-        /* ===== TOAST ===== */
-        #toast {
-            position: fixed; bottom: 24px; left: 50%;
-            transform: translateX(-50%) translateY(80px);
-            background: var(--surface2);
-            border: 1px solid var(--border);
-            color: var(--text);
-            padding: 12px 20px; border-radius: 20px;
-            font-size: 13px; font-weight: 700;
-            z-index: 9998; opacity: 0;
-            transition: all 0.4s cubic-bezier(0.34,1.56,0.64,1);
-            white-space: nowrap;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-            pointer-events: none;
-        }
-        #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-        #toast.success { background: rgba(0,232,122,0.15); border-color: rgba(0,232,122,0.4); color: var(--green); }
-        #toast.warn { background: rgba(245,166,35,0.15); border-color: rgba(245,166,35,0.4); color: var(--primary); }
+  #emptyState {
+    display:none; flex-direction:column; align-items:center;
+    justify-content:center; padding:40px 20px; text-align:center;
+    color:rgba(255,255,255,0.3);
+  }
+  #emptyState .emo { font-size:52px; margin-bottom:12px; }
+  #emptyState h3 { font-size:16px; color:rgba(255,255,255,0.5); margin-bottom:6px; }
+  #emptyState p  { font-size:13px; line-height:1.5; }
 
-        /* ===== CONFIRMAR ENTREGA MODAL ===== */
-        #confirmModal {
-            position: fixed; inset: 0; z-index: 8000;
-            background: rgba(0,0,0,0.7); backdrop-filter: blur(8px);
-            display: none; align-items: flex-end; justify-content: center;
-        }
-        #confirmModal.show { display: flex; }
-        .confirm-box {
-            background: var(--surface);
-            border-radius: 28px 28px 0 0;
-            padding: 24px 20px 36px;
-            width: 100%; max-width: 500px;
-            border-top: 1px solid var(--border);
-            animation: slideUp 0.35s cubic-bezier(0.34,1.4,0.64,1);
-        }
-        @keyframes slideUp { from{transform:translateY(100%);} to{transform:translateY(0);} }
-        .confirm-icon { font-size: 42px; text-align: center; margin-bottom: 12px; }
-        .confirm-title { font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 900; text-align: center; margin-bottom: 6px; }
-        .confirm-sub { font-size: 13px; color: var(--text-dim); text-align: center; margin-bottom: 20px; }
-        .confirm-btn {
-            width: 100%; padding: 16px;
-            border: none; border-radius: 16px;
-            font-size: 15px; font-weight: 800;
-            cursor: pointer; font-family: 'DM Sans', sans-serif;
-            background: var(--green);
-            color: #000;
-            margin-bottom: 8px;
-        }
-        .confirm-cancel {
-            width: 100%; padding: 14px;
-            border: 1px solid var(--border);
-            border-radius: 16px; background: transparent;
-            color: var(--text-muted); font-size: 14px;
-            font-weight: 700; cursor: pointer;
-            font-family: 'DM Sans', sans-serif;
-        }
+  #loadingState {
+    display:flex; flex-direction:column; align-items:center;
+    justify-content:center; padding:40px 20px; gap:12px;
+    color:rgba(255,255,255,0.38);
+  }
+  .spinner {
+    width:34px; height:34px;
+    border:3px solid rgba(255,255,255,0.08);
+    border-top-color:#9b59b6;
+    border-radius:50%;
+    animation:spin 0.8s linear infinite;
+  }
+  @keyframes spin { to{transform:rotate(360deg)} }
 
-        /* ===== PAGAMENTO MODAL ===== */
-        #pagamentoModal {
-            position: fixed; inset: 0; z-index: 8500;
-            background: rgba(0,0,0,0.8); backdrop-filter: blur(10px);
-            display: none; align-items: flex-end; justify-content: center;
-        }
-        #pagamentoModal.show { display: flex; }
-        .pag-box {
-            background: var(--surface);
-            border-radius: 28px 28px 0 0;
-            padding: 28px 20px 40px;
-            width: 100%; max-width: 500px;
-            border-top: 1px solid var(--border);
-            animation: slideUp 0.35s cubic-bezier(0.34,1.4,0.64,1);
-        }
-        .pag-icon { font-size: 46px; text-align: center; margin-bottom: 10px; }
-        .pag-title {
-            font-family: 'Syne', sans-serif;
-            font-size: 19px; font-weight: 900;
-            text-align: center; margin-bottom: 4px;
-        }
-        .pag-sub {
-            font-size: 13px; color: var(--text-dim);
-            text-align: center; margin-bottom: 22px; line-height: 1.5;
-        }
-        .pag-valor {
-            font-family: 'Syne', sans-serif;
-            font-size: 32px; font-weight: 900;
-            text-align: center; color: var(--primary);
-            margin-bottom: 22px;
-        }
-        .pag-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .pag-sim {
-            padding: 16px; border: none; border-radius: 16px;
-            font-size: 15px; font-weight: 800; cursor: pointer;
-            font-family: 'DM Sans', sans-serif;
-            background: var(--green); color: #000;
-        }
-        .pag-nao {
-            padding: 16px; border: none; border-radius: 16px;
-            font-size: 15px; font-weight: 800; cursor: pointer;
-            font-family: 'DM Sans', sans-serif;
-            background: rgba(255,71,87,0.15);
-            color: var(--red);
-            border: 1px solid rgba(255,71,87,0.35);
-        }
+  #bottomNav {
+    display:none; gap:10px; flex-shrink:0;
+    padding:10px 14px 26px;
+    border-top:1px solid rgba(255,255,255,0.06);
+  }
+  .btn-bt {
+    flex:1; padding:14px; border:none; border-radius:14px;
+    font-size:14px; font-weight:800; cursor:pointer; transition:0.15s;
+  }
+  .btn-bt:active { transform:scale(0.97); }
+  .btn-prox  { background:linear-gradient(135deg,#9b59b6,#6c3483); color:white; }
+  .btn-conc  { background:linear-gradient(135deg,#27ae60,#1e8449); color:white; display:none; }
+  .btn-bt:disabled { background:rgba(255,255,255,0.08); color:rgba(255,255,255,0.25); cursor:not-allowed; }
 
-        /* ===== MODO 3D / PERSPECTIVA INCLINADA ===== */
-        /* A perspective e o transform-origin ficam no #mapaWrapper acima */
-        /* O #mapaDiv já tem transform definido — gerenciado via JS */
-
-        /* Indicador de rotação */
-        #indicadorRotacao {
-            position: fixed; top: 70px; right: 16px; z-index: 500;
-            width: 44px; height: 44px; border-radius: 50%;
-            background: rgba(10,10,15,0.88);
-            border: 1px solid var(--border);
-            backdrop-filter: blur(14px);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 18px; cursor: pointer;
-            box-shadow: 0 2px 14px rgba(0,0,0,0.5);
-            transition: all 0.3s;
-        }
-        #indicadorRotacao .seta {
-            display: block;
-            font-size: 20px;
-            transition: transform 0.5s ease;
-        }
-        /* Botão de toggle perspectiva */
-        #btnToggle3D {
-            position: fixed; bottom: 140px; right: 16px; z-index: 500;
-            width: 48px; height: 48px; border-radius: 50%;
-            background: rgba(10,10,15,0.88);
-            border: 1px solid rgba(61,156,255,0.4);
-            backdrop-filter: blur(14px);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 16px; cursor: pointer;
-            box-shadow: 0 2px 14px rgba(0,0,0,0.5);
-            transition: all 0.2s;
-            color: var(--blue);
-            font-weight: 900;
-            font-family: 'Syne', sans-serif;
-        }
-        #btnToggle3D:active { transform: scale(0.9); }
-        #btnToggle3D.ativo {
-            background: rgba(61,156,255,0.2);
-            border-color: rgba(61,156,255,0.7);
-            box-shadow: 0 2px 20px rgba(61,156,255,0.3);
-        }
-
-        /* ===== ESCUDO DE HEADING ===== */
-        #headingBadge {
-            position: fixed; bottom: 200px; right: 16px; z-index: 500;
-            padding: 5px 10px; border-radius: 12px;
-            background: rgba(10,10,15,0.85);
-            border: 1px solid var(--border);
-            backdrop-filter: blur(10px);
-            font-size: 10px; font-weight: 700;
-            color: var(--primary);
-            font-family: 'Syne', sans-serif;
-            display: none;
-            text-align: center;
-        }
-
-        /* ===== NAVEGAÇÃO AVULSA (pressionar cliente) ===== */
-        #navAvulsaChip {
-            position: fixed;
-            bottom: 80px; left: 50%;
-            transform: translateX(-50%);
-            z-index: 600;
-            display: none;
-            align-items: center; gap: 10px;
-            padding: 10px 16px 10px 14px;
-            border-radius: 24px;
-            background: rgba(10,10,15,0.92);
-            border: 1.5px solid rgba(0,232,122,0.55);
-            box-shadow: 0 4px 24px rgba(0,232,122,0.2);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            white-space: nowrap;
-            animation: chipEntrada 0.35s cubic-bezier(0.34,1.56,0.64,1);
-        }
-        #navAvulsaChip.visivel { display: flex; }
-        @keyframes chipEntrada {
-            from { transform: translateX(-50%) translateY(20px); opacity: 0; }
-            to   { transform: translateX(-50%) translateY(0);    opacity: 1; }
-        }
-        .nav-chip-dot {
-            width: 8px; height: 8px; border-radius: 50%;
-            background: var(--green);
-            animation: navDotPulse 1s ease-in-out infinite;
-            flex-shrink: 0;
-        }
-        @keyframes navDotPulse { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(0.6);opacity:0.4} }
-        .nav-chip-info { flex: 1; }
-        .nav-chip-nome {
-            font-family: 'Syne', sans-serif;
-            font-size: 13px; font-weight: 900;
-            color: var(--green);
-        }
-        .nav-chip-dist {
-            font-size: 11px; color: var(--text-dim);
-            margin-top: 1px;
-        }
-        .nav-chip-fechar {
-            width: 28px; height: 28px; border-radius: 50%;
-            background: rgba(255,71,87,0.15);
-            border: 1px solid rgba(255,71,87,0.4);
-            color: var(--red);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 14px; cursor: pointer;
-            flex-shrink: 0;
-            transition: background 0.2s;
-        }
-        .nav-chip-fechar:active { background: rgba(255,71,87,0.35); }
-
-        /* Destino pulsante no mapa */
-        @keyframes destinoPulse {
-            0%   { box-shadow: 0 0 0 0   rgba(0,232,122,0.8); }
-            70%  { box-shadow: 0 0 0 18px rgba(0,232,122,0);   }
-            100% { box-shadow: 0 0 0 0   rgba(0,232,122,0);    }
-        }
-        @keyframes holdProgress {
-            from { stroke-dashoffset: 100; }
-            to   { stroke-dashoffset: 0;   }
-        }
-        .leaflet-popup-content-wrapper {
-            background: var(--surface2) !important;
-            color: var(--text) !important;
-            border-radius: 16px !important;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.6) !important;
-            border: 1px solid var(--border) !important;
-        }
-        .leaflet-popup-tip { background: var(--surface2) !important; }
-        .leaflet-popup-content { margin: 14px 16px !important; }
-        .leaflet-bar a { background: var(--surface2) !important; color: var(--text) !important; border-color: var(--border) !important; }
-        .leaflet-control-zoom { border: 1px solid var(--border) !important; border-radius: 12px !important; overflow: hidden; }
-    </style>
+  .toast {
+    position:fixed; bottom:100px; left:50%; transform:translateX(-50%);
+    background:rgba(12,8,30,0.96); color:white;
+    padding:12px 22px; border-radius:22px;
+    font-size:14px; font-weight:600; z-index:9999;
+    backdrop-filter:blur(14px);
+    border:1px solid rgba(155,89,182,0.38);
+    opacity:0; transition:opacity 0.3s;
+    white-space:nowrap; pointer-events:none;
+    box-shadow:0 4px 24px rgba(0,0,0,0.6);
+  }
+  .toast.show { opacity:1; }
+</style>
 </head>
 <body>
 
-<!-- LOADING -->
-<div id="loadingScreen" style="display:none;"></div>
+<div id="map"></div>
 
-<!-- TOAST -->
-<div id="toast"></div>
-
-<!-- PAGAMENTO MODAL -->
-<div id="pagamentoModal">
-    <div class="pag-box">
-        <div class="pag-icon">💰</div>
-        <div class="pag-title" id="pagNome">Cliente pagou?</div>
-        <div class="pag-sub" id="pagSub">Este cliente escolheu pagar na entrega.</div>
-        <div class="pag-valor" id="pagValor">R$ 0,00</div>
-        <div class="pag-btns">
-            <button class="pag-sim" onclick="responderPagamento(true)">✅ Sim, pagou</button>
-            <button class="pag-nao" onclick="responderPagamento(false)">❌ Não pagou</button>
-        </div>
-    </div>
+<!-- BARRA TOPO: Rota | Paradas | Todas | GPS -->
+<div id="topBar">
+  <div class="pill" id="pillRota">🗺️ <span id="rotaNome">Rota</span></div>
+  <div class="pill pill-filter" id="filtParadas" onclick="setFiltro('paradas')">📋 Paradas</div>
+  <div class="pill pill-filter ativo" id="filtTodas" onclick="setFiltro('todas')">📖 Todas</div>
+  <div class="pill" id="pillGps" style="display:none;">
+    <div class="gps-dot" id="gpsDot"></div>
+    <span id="gpsLabel">±10m</span>
+  </div>
 </div>
 
-<!-- CONFIRM MODAL -->
-<div id="confirmModal">
-    <div class="confirm-box">
-        <div class="confirm-icon">✅</div>
-        <div class="confirm-title" id="confirmTitle">Entrega confirmada!</div>
-        <div class="confirm-sub" id="confirmSub">Você saiu da área do cliente.</div>
-        <button class="confirm-btn" onclick="confirmarEntregaModal()">✓ Confirmar entrega</button>
-        <button class="confirm-cancel" onclick="fecharConfirmModal()">Cancelar</button>
+<!-- CHIPS ROTA (múltiplas rotas) -->
+<div id="chipBar"></div>
+
+<!-- BOTÃO NORTE -->
+<div id="btnNorte" onclick="toast('⬆️ Norte alinhado')">⬆️</div>
+
+<!-- PAINEL INFERIOR -->
+<div id="painel" class="fechado">
+  <div id="painelHandle" onclick="togglePainel()">
+    <div class="handle-bar"></div>
+    <div id="painelHeaderRow">
+      <div class="painel-title" id="painelTitulo">📦 Entregas</div>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <span id="painelMeta"></span>
+        <span id="painelSeta">▲</span>
+      </div>
     </div>
+  </div>
+
+  <div class="stats-row" id="statsRow" style="display:none;">
+    <div class="stat-b"><div class="stat-num" id="statTotal">0</div><div class="stat-lbl">Total</div></div>
+    <div class="stat-b"><div class="stat-num" id="statPend" style="color:#f1c40f;">0</div><div class="stat-lbl">Pendentes</div></div>
+    <div class="stat-b"><div class="stat-num" id="statEntr" style="color:#2ecc71;">0</div><div class="stat-lbl">Entregues</div></div>
+    <div class="stat-b"><div class="stat-num" id="statEta" style="color:#5dade2;">--</div><div class="stat-lbl">Min rest.</div></div>
+  </div>
+
+  <div id="progWrap" style="display:none;"><div id="progFill"></div></div>
+
+  <div id="paradasList">
+    <div id="loadingState"><div class="spinner"></div><div style="font-size:14px;">Carregando...</div></div>
+    <div id="emptyState">
+      <div class="emo">🛵</div>
+      <h3>Sem entregas hoje</h3>
+      <p>Nenhuma rota ativa ou paradas ainda não geradas pelo admin.</p>
+    </div>
+  </div>
+
+  <div id="bottomNav">
+    <button class="btn-bt btn-prox" id="btnProxima" onclick="irProxima()">🧭 Próxima parada</button>
+    <button class="btn-bt btn-conc" id="btnConcluir" onclick="concluirRota()">✅ Concluir rota</button>
+  </div>
 </div>
 
-<!-- OVERLAY PAINEL -->
-<div id="overlayPainel" onclick="fecharPainel()"></div>
+<!-- MOTOBOY FLUTUANTE (botão de localização) -->
+<div id="motoBtn" onclick="localizarMe()">🛵</div>
 
-<!-- APP -->
-<div id="mainApp">
-
-    <!-- HEADER FLUTUANTE -->
-    <div id="appHeader">
-        <div class="header-brand"></div>
-        <div class="tabs">
-            <button class="tab-btn active" onclick="abrirTab('rota', event)">🗺️ Rota</button>
-            <button class="tab-btn" onclick="abrirTab('paradas', event)">📋 Paradas</button>
-            <button class="tab-btn" onclick="abrirTab('todas', event)">📁 Todas</button>
-        </div>
-        <div class="gps-badge off" id="gpsBadge">
-            <div class="gps-dot"></div>
-            <span id="gpsText">GPS erro</span>
-        </div>
-    </div>
-
-    <!-- MAPA TELA CHEIA -->
-    <div id="mapaWrapper">
-        <div id="mapaScene">
-            <div id="mapaDiv"></div>
-        </div>
-        <div id="proximidadeChip">📍 Calculando...</div>
-    </div>
-
-    <!-- INDICADOR DE ROTAÇÃO (Norte) -->
-    <div id="indicadorRotacao" onclick="resetarRotacao()" title="Toque para nortear">
-        <span class="seta" id="setaNorte">⬆️</span>
-    </div>
-
-    <!-- TOGGLE 3D -->
-    <button id="btnToggle3D" onclick="toggle3D()" class="ativo">3D</button>
-
-    <!-- HEADING BADGE -->
-    <div id="headingBadge">0°</div>
-
-    <!-- BOTÃO RECENTRAR -->
-    <button id="btnRecentrar" onclick="recentrarMapa()">🛵</button>
-
-    <!-- NAVEGAÇÃO AVULSA -->
-    <div id="navAvulsaChip">
-        <div class="nav-chip-dot"></div>
-        <div class="nav-chip-info">
-            <div class="nav-chip-nome" id="navAvulsaNome">Cliente</div>
-            <div class="nav-chip-dist" id="navAvulsaDist">Calculando...</div>
-        </div>
-        <div class="nav-chip-fechar" onclick="cancelarNavAvulsa()">✕</div>
-    </div>
-
-    <!-- PAINEL INFERIOR DESLIZANTE -->
-    <div id="painelInferior">
-        <div class="drag-handle"></div>
-
-        <!-- TAB ROTA -->
-        <div id="tab-rota" class="tab-content active">
-            <div id="rotaAtivaContent"></div>
-        </div>
-
-        <!-- TAB PARADAS -->
-        <div id="tab-paradas" class="tab-content">
-            <div id="paradasContent"></div>
-        </div>
-
-        <!-- TAB TODAS AS ROTAS -->
-        <div id="tab-todas" class="tab-content">
-            <div id="todasRotasContent"></div>
-        </div>
-    </div>
-</div>
+<div class="toast" id="toastEl"></div>
 
 <script>
-// ===== CONFIGURAÇÃO =====
 const SUPABASE_URL = "https://vpeyqgijajywgswmezlh.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZwZXlxZ2lqYWp5d2dzd21lemxoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEyNTM1MDIsImV4cCI6MjA4NjgyOTUwMn0.LA5Cbof7IKWAA7l8YbCuPzANpCy0rX_Dro4l9fcDgoQ";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const FABRICA = [-8.1837523, -34.9383004];
-const RAIO_ENTREGA = 40; // metros para confirmar entrega
-const INTERVALO_GPS = 4000; // ms entre envios de posição
+let map, rotaAtual=null, paradasAtuais=[], rotasDisponiveis=[];
+let marcadores=[], minhaPosicao=null, meuMarcador=null;
+let paradaAtivIdx=-1, painelAberto=false;
+let filtroAtual='todas';
 
-// ===== ESTADO =====
-let mapaObj = null;
-let motoMarker = null;
-let seguindoMoto = true;
-let posAtual = null;
-let motoBearing = 0;
-let watchId = null;
-let gpsInterval = null;
-let rotaAtual = null;
-let paradasList = [];
-let paradaEmConfirmacao = null;
-let estavaNaParada = false;
-let paradaAtualId = null;
-let realtimeCh = null;
-let todasAsRotas = [];
-let todosOsClientes = []; // todos os clientes únicos de todas as rotas históricas
-let mediaMinPorParada = 12;
-let toastTimer = null;
-let paradaPagamentoPendente = null; // parada aguardando resposta de pagamento
-
-// ===== 3D / PERSPECTIVA =====
-let modo3DAtivo = true;          // Perspectiva 3D inclinada ativa
-let rotacaoAtual = 0;            // rotação atual do mapa em graus (heading da moto)
-let rotacaoAlvo = 0;             // rotação alvo (suavizado)
-let animFrameRot = null;         // requestAnimationFrame para suavizar rotação
-let bearingHistorico = [];       // histórico de bearings para suavizar direção
-const MAX_HIST_BEARING = 5;      // quantas leituras para média do bearing
-
-// ===== NAVEGAÇÃO AVULSA =====
-let navAvulsaDestino = null;      // { nome, coords } do cliente selecionado
-let navAvulsaLayer   = null;      // polyline verde da rota avulsa
-let navAvulsaMarker  = null;      // marcador de destino pulsante
-let navAvulsaInterval = null;     // intervalo para atualizar distância no chip
-let holdTimer        = null;      // timer do long-press
-let holdStartEl      = null;      // elemento que está sendo segurado
-
-// ===== OSRM / ROTA REAL =====
-let rotaCompletaLayer = null;   // polyline vermelha tracejada (rota completa pelas ruas)
-let rotaProximaLayer = null;    // polyline azul (posição atual → próxima parada)
-let cacheRotaCompleta = null;   // cache da rota completa (evita chamadas repetidas)
-let cacheRotaCompletaKey = '';  // chave do cache (hash dos pontos)
-let ultimaProximaId = null;     // evita redesenhar a azul sem necessidade
-const OSRM_BASE = 'https://router.project-osrm.org/route/v1/driving/';
-
-// Limites do mapa — Pernambuco
-const PE_BOUNDS = L.latLngBounds
-    ? null // será setado após Leaflet carregar
-    : null;
-const PE_SW = [-9.48, -41.37]; // sudoeste PE
-const PE_NE = [-7.15, -34.79]; // nordeste PE
-
-// ===== INIT =====
-// Inicia imediatamente assim que o DOM estiver pronto — sem esperar nada
-document.addEventListener('DOMContentLoaded', () => {
-    // Inicia mapa (Leaflet já carregado no <head>)
-    try { inicializarMapa(); } catch(e) { console.warn('Mapa err:', e); }
-
-    // Dados e GPS em segundo plano
-    carregarDados().catch(e => console.warn('Dados err:', e));
-    iniciarGPS();
-    iniciarRealtimeRotas();
-});
-
-window.onload = () => {}; // mantido por compatibilidade
-
-// Leaflet carregado diretamente no <head>
-
-function inicializarMapa() {
-    mapaObj = L.map('mapaDiv', {
-        zoomControl: false,
-        attributionControl: false,
-        minZoom: 5,
-        maxZoom: 20,
-        // Renderiza tiles além da área visível para não ficar em branco ao girar
-        keepBuffer: 6
-    }).setView(FABRICA, 16);
-
-    // Tiles escuros com crossOrigin para cache funcionar
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 20,
-        crossOrigin: true,
-        keepBuffer: 6
-    }).addTo(mapaObj);
-
-    // Labels
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', {
-        maxZoom: 20,
-        opacity: 0.6,
-        crossOrigin: true,
-        keepBuffer: 6
-    }).addTo(mapaObj);
-
-    L.control.zoom({ position: 'topright' }).addTo(mapaObj);
-    mapaObj.on('dragstart', () => { seguindoMoto = false; });
-    mapaObj.dragging.enable();
-
-    // Aplica rotação inicial
-    aplicarTransformacao3D(0, false);
+// ===== PAINEL =====
+function togglePainel() {
+  painelAberto = !painelAberto;
+  document.getElementById('painel').className = painelAberto ? 'aberto' : 'fechado';
+  document.getElementById('painelSeta').textContent = painelAberto ? '▼' : '▲';
+}
+function abrirPainel() {
+  if (!painelAberto) { painelAberto=true; document.getElementById('painel').className='aberto'; document.getElementById('painelSeta').textContent='▼'; }
 }
 
-// ===== FUNÇÕES 3D / ROTAÇÃO =====
-
-function aplicarTransformacao3D(bearingDeg, animate = true) {
-    const scene = document.getElementById('mapaScene');
-    const wrapper = document.getElementById('mapaWrapper');
-    if (!scene) return;
-
-    // Rotação Z: gira o mapa conforme direção de marcha da moto
-    // rotateZ negativo para que a rua à frente fique sempre no topo
-    const rotZ = modo3DAtivo ? -bearingDeg : 0;
-
-    // Inclinação perspectiva 3D leve — aplicada no wrapper via perspective
-    // Não usamos rotateX no scene pois distorce o sistema de coordenadas do Leaflet
-    if (modo3DAtivo) {
-        wrapper.classList.add('perspectiva3d');
-        // Inclinação suave via scaleY — simula perspectiva sem quebrar tiles
-        scene.style.transition = animate
-            ? 'transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94)'
-            : 'none';
-        scene.style.transform = `rotateZ(${rotZ}deg) scaleY(0.78)`;
-        scene.style.transformOrigin = '50% 38%';
-    } else {
-        wrapper.classList.remove('perspectiva3d');
-        scene.style.transition = animate
-            ? 'transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94)'
-            : 'none';
-        scene.style.transform = `rotateZ(0deg) scaleY(1)`;
-        scene.style.transformOrigin = '50% 50%';
-    }
-
-    // Seta do norte contra-rotaciona para sempre indicar o norte real
-    const seta = document.getElementById('setaNorte');
-    if (seta) seta.style.transform = `rotate(${bearingDeg}deg)`;
-
-    // Badge de heading
-    const badge = document.getElementById('headingBadge');
-    if (badge) {
-        badge.textContent = `${Math.round(((bearingDeg % 360) + 360) % 360)}°`;
-        badge.style.display = modo3DAtivo ? 'block' : 'none';
-    }
-}
-
-function suavizarBearing(novoBearing) {
-    bearingHistorico.push(novoBearing);
-    if (bearingHistorico.length > MAX_HIST_BEARING) bearingHistorico.shift();
-
-    // Média circular dos últimos bearings (evita saltos em 0°/360°)
-    let sinSum = 0, cosSum = 0;
-    bearingHistorico.forEach(b => {
-        sinSum += Math.sin(b * Math.PI / 180);
-        cosSum += Math.cos(b * Math.PI / 180);
-    });
-    const media = (Math.atan2(sinSum, cosSum) * 180 / Math.PI + 360) % 360;
-    return media;
-}
-
-function toggle3D() {
-    modo3DAtivo = !modo3DAtivo;
-    const btn = document.getElementById('btnToggle3D');
-    if (btn) btn.classList.toggle('ativo', modo3DAtivo);
-
-    // Se desligar 3D: volta pra visão top-down sem rotação
-    aplicarTransformacao3D(modo3DAtivo ? rotacaoAtual : 0);
-
-    // Reativa seguimento
-    if (modo3DAtivo) {
-        seguindoMoto = true;
-        if (posAtual) posicionarMoto(posAtual);
-    }
-}
-
-function resetarRotacao() {
-    // Zera rotação — norte em cima
-    rotacaoAtual = 0;
-    rotacaoAlvo = 0;
-    bearingHistorico = [];
-    aplicarTransformacao3D(0);
-    seguindoMoto = true;
-}
-
-// ===== DADOS =====
-async function carregarDados() {
-    await calcularMediaEta();
-
-    const hoje = new Date().toISOString().split('T')[0];
-
-    // Busca rotas, clientes e pedidos de hoje em paralelo
-    const [{ data: rotas }, { data: clientesCadastrados }, { data: pedidosHoje }] = await Promise.all([
-        sb.from("delivery_routes").select("*").order("hora_saida", { ascending: true }),
-        sb.from("clients").select("*"),
-        sb.from("orders")
-            .select("customer_phone")
-            .gte("created_at", hoje + 'T00:00:00')
-            .lte("created_at", hoje + 'T23:59:59')
-    ]);
-
-    // Phones que fizeram pedido hoje
-    const phonesComPedido = new Set((pedidosHoje || []).map(p => p.customer_phone));
-
-    // Aplica lógica de status por data
-    todasAsRotas = (rotas || []).map(r => {
-        const concluidoHoje = r.fim_em && r.fim_em.startsWith(hoje);
-        const emAndamentoHoje = r.saida_em && r.saida_em.startsWith(hoje);
-        if (r.status === 'concluido' && !concluidoHoje) return { ...r, status: 'criada' };
-        if (r.status === 'em_andamento' && !emAndamentoHoje) return { ...r, status: 'criada' };
-        return r;
-    });
-
-    // Para cada rota com status "criada", regenera as paradas ativas
-    // baseado no paradas_template × quem pediu hoje — sem precisar abrir o ADM
-    for (const rota of todasAsRotas) {
-        const template = rota.paradas_template || [];
-        if (template.length === 0) continue;
-
-        const paradasAtivas = template
-            .filter(p => p.cliente_phone && phonesComPedido.has(p.cliente_phone))
-            .map((p, i) => ({
-                ...p,
-                status: rota.status === 'em_andamento'
-                    ? (rota.paradas?.find(a => a.cliente_phone === p.cliente_phone)?.status || 'pendente')
-                    : 'pendente',
-                eta_min: Math.round((i + 1) * mediaMinPorParada)
-            }));
-
-        // Só atualiza no banco se a rota ainda não começou (criada) e as paradas mudaram
-        if (rota.status === 'criada') {
-            const ativasAntes = JSON.stringify(rota.paradas || []);
-            const ativasAgora = JSON.stringify(paradasAtivas);
-            if (ativasAntes !== ativasAgora) {
-                await sb.from("delivery_routes")
-                    .update({ paradas: paradasAtivas })
-                    .eq("id", rota.id);
-            }
-            rota.paradas = paradasAtivas;
-        }
-    }
-
-    // Clientes no mapa (todos os cadastrados com coordenadas)
-    todosOsClientes = (clientesCadastrados || []).map(c => {
-        let coords = null;
-        if (c.delivery_lat && c.delivery_lon) {
-            coords = [parseFloat(c.delivery_lat), parseFloat(c.delivery_lon)];
-        }
-        return { ...c, nome: c.name, coords };
-    }).filter(c => c.coords);
-
-    const emAndamento = todasAsRotas.find(r => r.status === 'em_andamento');
-    if (emAndamento) {
-        rotaAtual = emAndamento;
-        paradasList = emAndamento.paradas || [];
-    } else {
-        rotaAtual = null;
-        paradasList = [];
-    }
-
-    renderTudo();
-    renderizarMapaCompleto();
-}
-
-async function calcularMediaEta() {
-    const ontem = new Date(); ontem.setDate(ontem.getDate() - 1);
-    const base = ontem.toISOString().split('T')[0];
-    const { data: hist } = await sb.from("delivery_routes")
-        .select("paradas, saida_em, fim_em")
-        .gte("created_at", base + 'T00:00:00')
-        .lte("created_at", base + 'T23:59:59')
-        .eq("status", "concluido").limit(5);
-    if (hist?.length) {
-        const ts = hist.filter(h => h.saida_em && h.fim_em && h.paradas?.length)
-            .map(h => (new Date(h.fim_em) - new Date(h.saida_em)) / 60000 / h.paradas.length);
-        if (ts.length) { mediaMinPorParada = ts.reduce((a, b) => a + b, 0) / ts.length; return; }
-    }
-    mediaMinPorParada = 12;
-}
-
-// ===== REALTIME =====
-function iniciarRealtimeRotas() {
-    if (realtimeCh) { try { sb.removeChannel(realtimeCh); } catch(e){} }
-    realtimeCh = sb.channel('entregador_rotas')
-        .on('postgres_changes', {
-            event: '*', schema: 'public', table: 'delivery_routes'
-        }, async () => {
-            await carregarDados();
-        })
-        .subscribe();
-}
-
-// ===== GPS =====
-let ultimoEnvioGPS = 0; // controle de throttle
-const THROTTLE_GPS_MS = 3000; // envia pro Supabase no máximo a cada 3s
-
-function iniciarGPS() {
-    if (!navigator.geolocation) {
-        setBadge(false, 'Sem suporte');
-        return;
-    }
-    setBadge(true, 'Conectando...');
-
-    // maximumAge: 3000 evita leituras duplicadas em menos de 3s
-    watchId = navigator.geolocation.watchPosition(
-        pos => processarPosicao(pos),
-        err => setBadge(false, 'GPS erro'),
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 3000 }
-    );
-}
-
-async function processarPosicao(pos) {
-    const lat = pos.coords.latitude;
-    const lon = pos.coords.longitude;
-    const acc = pos.coords.accuracy;
-
-    setBadge(true, `±${Math.round(acc)}m`);
-
-    // Calcula direção e distância movida
-    let distMovida = 999;
-    if (posAtual) {
-        const dx = Math.abs(lat - posAtual[0]);
-        const dy = Math.abs(lon - posAtual[1]);
-        if (dx > 0.000005 || dy > 0.000005) {
-            const novoBearing = calcBearing(posAtual, [lat, lon]);
-            motoBearing = novoBearing;
-
-            // Atualiza rotação 3D do mapa em tempo real (suavizado)
-            if (modo3DAtivo && seguindoMoto) {
-                const bearingSmooth = suavizarBearing(novoBearing);
-                rotacaoAtual = bearingSmooth;
-                rotacaoAlvo = bearingSmooth;
-                aplicarTransformacao3D(bearingSmooth);
-            }
-        }
-        distMovida = calcDistM(posAtual[0], posAtual[1], lat, lon);
-    }
-    posAtual = [lat, lon];
-
-    // Atualiza rota avulsa se ativa
-    _onMoveNavAvulsa();
-
-    // Atualiza marcador no mapa sempre (visual fluido)
-    posicionarMoto([lat, lon]);
-
-    // Envia pro Supabase no máximo a cada 3s (throttle)
-    const agora = Date.now();
-    if (agora - ultimoEnvioGPS >= THROTTLE_GPS_MS) {
-        ultimoEnvioGPS = agora;
-        await enviarPosicaoSupabase(lat, lon, acc);
-    }
-
-    // Verifica proximidade com paradas
-    if (rotaAtual && paradasList.length) await verificarProximidade(lat, lon);
-
-    // Atualiza rota azul se entregador moveu mais de 50m
-    if (rotaAtual && distMovida > 50) {
-        const proxima = paradasList.find(p => p.status === 'pendente' && p.coords);
-        if (proxima) {
-            ultimaProximaId = null; // força redesenho da rota azul
-            desenharRotaProxima(posAtual, proxima);
-        }
-    }
-}
-
-async function enviarPosicaoSupabase(lat, lon, acc = 0) {
-    try {
-        const ts = new Date().toISOString();
-        await sb.from("config").upsert(
-            { key: "admin_gps", value: JSON.stringify({ lat, lon, ts, precisao: acc, rota_id: rotaAtual?.id || null }) },
-            { onConflict: 'key' }
-        );
-        if (rotaAtual?.id) {
-            await sb.from("delivery_routes")
-                .update({ posicao_entregador: { lat, lon, ts, precisao: acc } })
-                .eq("id", rotaAtual.id);
-        }
-    } catch(e) { console.warn('GPS send err:', e); }
-}
-
-function setBadge(on, txt) {
-    const badge = document.getElementById('gpsBadge');
-    const label = document.getElementById('gpsText');
-    badge.className = 'gps-badge' + (on ? '' : ' off');
-    label.textContent = txt;
-}
-
-// ===== PROXIMIDADE =====
-async function verificarProximidade(lat, lon) {
-    // Processa todas as paradas pendentes em loop — para encadear paradas no mesmo local
-    let continuar = true;
-    while (continuar) {
-        continuar = false;
-        const proxima = paradasList.find(p => p.status === 'pendente' && p.coords);
-        if (!proxima) {
-            document.getElementById('proximidadeChip').style.display = 'none';
-            return;
-        }
-
-        const dist = calcDistM(lat, lon, proxima.coords[0], proxima.coords[1]);
-        const chip = document.getElementById('proximidadeChip');
-        chip.style.display = 'block';
-
-        if (dist <= RAIO_ENTREGA) {
-            // ✅ Está na área — marca entregue imediatamente
-            chip.className = 'proximidadeChip chegando';
-            chip.textContent = `✅ Entregando ${proxima.nome}...`;
-
-            // Só dispara uma vez por parada
-            if (paradaAtualId !== proxima.id) {
-                paradaAtualId = proxima.id;
-                estavaNaParada = true;
-                verificarPagamentoEntrega(proxima);
-                await executarMarcarEntregue(proxima.id, proxima.nome);
-                paradaAtualId = null;
-                estavaNaParada = false;
-                // Verifica se a próxima parada também está na área (mesmo local)
-                continuar = true;
-            }
-        } else {
-            // Fora da área — mostra distância
-            chip.className = 'proximidadeChip longe';
-            chip.textContent = dist <= 200
-                ? `🛵 ${Math.round(dist)}m de ${proxima.nome}`
-                : `🏁 ${Math.round(dist)}m — ${proxima.nome}`;
-            estavaNaParada = false;
-            paradaAtualId = null;
-            renderProximaCard(proxima, dist);
-        }
-    }
-}
-
-// ===== PAGAMENTO NA ENTREGA =====
-async function verificarPagamentoEntrega(parada) {
-    if (!parada.cliente_phone) return;
-
-    // Busca pedido de hoje do cliente
-    const hoje = new Date().toISOString().split('T')[0];
-    const { data: pedidos } = await sb.from("orders")
-        .select("id, total, payment_method, customer_name")
-        .eq("customer_phone", parada.cliente_phone)
-        .gte("created_at", hoje + 'T00:00:00')
-        .lte("created_at", hoje + 'T23:59:59')
-        .order("created_at", { ascending: false })
-        .limit(1);
-
-    if (!pedidos || !pedidos.length) return;
-    const pedido = pedidos[0];
-
-    // Só exibe se o pagamento for exatamente "PAGA NA ENTREGA"
-    if ((pedido.payment_method || '').toUpperCase() !== 'PAGA NA ENTREGA') return;
-
-    // Guarda parada para uso na resposta
-    paradaPagamentoPendente = { parada, pedido };
-
-    // Preenche modal
-    document.getElementById('pagNome').textContent = `${parada.nome} pagou?`;
-    document.getElementById('pagSub').textContent = `Pagamento: ${pedido.payment_method} · Pedido de hoje`;
-    document.getElementById('pagValor').textContent = `R$ ${Number(pedido.total).toFixed(2).replace('.', ',')}`;
-
-    // Pequeno delay para não sobrepor o confirm modal
-    setTimeout(() => {
-        document.getElementById('confirmModal').classList.remove('show');
-        document.getElementById('pagamentoModal').classList.add('show');
-    }, 800);
-}
-
-async function responderPagamento(pagou) {
-    document.getElementById('pagamentoModal').classList.remove('show');
-    if (!paradaPagamentoPendente) return;
-
-    const { parada, pedido } = paradaPagamentoPendente;
-    paradaPagamentoPendente = null;
-
-    if (pagou) {
-        // ✅ Pagou — marca pedido como pago
-        await sb.from("orders")
-            .update({ payment_method: pedido.payment_method + ' ✓' })
-            .eq("id", pedido.id);
-        showToast(`✅ Pagamento de ${parada.nome} confirmado!`, 'success');
-    } else {
-        // ❌ Não pagou — lança no fiado (débito)
-        await sb.from("orders")
-            .update({ payment_method: 'FIADO' })
-            .eq("id", pedido.id);
-
-        // Adiciona ao débito do cliente
-        const { data: cliente } = await sb.from("clients")
-            .select("debt").eq("phone", parada.cliente_phone).maybeSingle();
-        const debtAtual = cliente?.debt || 0;
-        const novaDebt = debtAtual + Number(pedido.total);
-        await sb.from("clients")
-            .update({ debt: novaDebt })
-            .eq("phone", parada.cliente_phone);
-
-        showToast(`⚠️ ${parada.nome} lançado no fiado — R$ ${Number(pedido.total).toFixed(2).replace('.', ',')}`, 'warn');
-    }
-}
-
-// ===== CONFIRM MODAL =====
-function mostrarConfirmModal(parada) {
-    paradaEmConfirmacao = parada;
-    document.getElementById('confirmTitle').textContent = `Chegou em ${parada.nome}!`;
-    document.getElementById('confirmSub').textContent = `📍 ${parada.endereco}\nSaia da área para confirmar automaticamente, ou confirme agora.`;
-    document.getElementById('confirmModal').classList.add('show');
-}
-
-function fecharConfirmModal() {
-    document.getElementById('confirmModal').classList.remove('show');
-}
-
-async function confirmarEntregaModal() {
-    fecharConfirmModal();
-    if (paradaEmConfirmacao) {
-        estavaNaParada = false;
-        paradaAtualId = null;
-        await executarMarcarEntregue(paradaEmConfirmacao.id, paradaEmConfirmacao.nome);
-        paradaEmConfirmacao = null;
-    }
-}
-
-async function executarMarcarEntregue(paradaId, nome) {
-    const p = paradasList.find(x => x.id === paradaId);
-    if (!p || p.status === 'entregue') return;
-    p.status = 'entregue';
-
-    // Invalida cache da rota completa e força redesenho da azul
-    cacheRotaCompleta = null;
-    cacheRotaCompletaKey = '';
-    ultimaProximaId = null;
-    if (rotaProximaLayer) { try { mapaObj.removeLayer(rotaProximaLayer); } catch(e){} rotaProximaLayer = null; }
-
-    await sb.from("delivery_routes")
-        .update({ paradas: paradasList })
-        .eq("id", rotaAtual.id);
-
-    const proxNome = paradasList.find(x => x.status === 'pendente')?.nome;
-    showToast(proxNome ? `✅ ${nome} entregue! Próximo: ${proxNome}` : `✅ ${nome} entregue! Rota concluída!`, 'success');
-
-    // Verifica se todas as paradas foram entregues
-    const todasEntregues = paradasList.every(p => p.status === 'entregue');
-    if (todasEntregues) {
-        await sb.from("delivery_routes")
-            .update({ status: 'concluido', fim_em: new Date().toISOString() })
-            .eq("id", rotaAtual.id);
-        await sb.from("config").upsert({ key: "admin_gps", value: JSON.stringify({ lat: null, lon: null, ts: null }) }, { onConflict: 'key' });
-        showToast('🏁 Todas as entregas concluídas!', 'success');
-        rotaAtual = null;
-        limparTodasRotasVisuais();
-    }
-
-    renderTudo();
-    renderizarMapaCompleto();
-}
-
-// ===== OSRM — ROTA REAL PELAS RUAS =====
-
-// Busca rota no OSRM e retorna array de [lat, lon]
-async function buscarRotaOSRM(pontos) {
-    if (pontos.length < 2) return null;
-    // OSRM recebe lon,lat
-    const coords = pontos.map(p => `${p[1]},${p[0]}`).join(';');
-    const url = `${OSRM_BASE}${coords}?overview=full&geometries=geojson&steps=false`;
-    try {
-        const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
-        if (!resp.ok) return null;
-        const json = await resp.json();
-        if (json.code !== 'Ok' || !json.routes?.length) return null;
-        // GeoJSON vem como [lon, lat] → inverter para Leaflet [lat, lon]
-        return json.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-    } catch(e) {
-        console.warn('OSRM err:', e);
-        return null;
-    }
-}
-
-// Desenha a rota completa (fábrica → todas as paradas) em vermelho tracejado
-async function desenharRotaCompleta(paradas) {
-    // Monta chave de cache com os IDs das paradas
-    const key = paradas.map(p => p.id + p.status).join('|');
-    let coords;
-
-    if (cacheRotaCompletaKey === key && cacheRotaCompleta) {
-        coords = cacheRotaCompleta;
-    } else {
-        const pontos = [FABRICA, ...paradas.map(p => p.coords)];
-        coords = await buscarRotaOSRM(pontos);
-        if (coords) {
-            cacheRotaCompleta = coords;
-            cacheRotaCompletaKey = key;
-        }
-    }
-
-    // Remove layer anterior
-    if (rotaCompletaLayer) { try { mapaObj.removeLayer(rotaCompletaLayer); } catch(e){} rotaCompletaLayer = null; }
-
-    if (coords) {
-        rotaCompletaLayer = L.polyline(coords, {
-            color: '#ff4757', weight: 3, opacity: 0.45, dashArray: '10 7'
-        }).addTo(mapaObj);
-    } else {
-        // Fallback: linha reta se OSRM falhar
-        const pts = [FABRICA, ...paradas.map(p => p.coords)];
-        rotaCompletaLayer = L.polyline(pts, {
-            color: '#ff4757', weight: 2, opacity: 0.3, dashArray: '8 6'
-        }).addTo(mapaObj);
-    }
-    // Garante que a moto fique por cima
-    if (motoMarker) motoMarker.bringToFront();
-}
-
-// Desenha trecho azul da posição atual até a próxima parada
-async function desenharRotaProxima(posAtual, proxima) {
-    if (!posAtual || !proxima?.coords) {
-        if (rotaProximaLayer) { try { mapaObj.removeLayer(rotaProximaLayer); } catch(e){} rotaProximaLayer = null; }
-        ultimaProximaId = null;
-        return;
-    }
-
-    // Só redesenha se a próxima parada mudou
-    if (ultimaProximaId === proxima.id) {
-        // Só atualiza o ponto de origem (posição do entregador mudou)
-        // Para não ficar chamando OSRM a cada 4s, redesenha só quando próxima muda
-        // ou quando ainda não tem layer
-        if (rotaProximaLayer) return;
-    }
-    ultimaProximaId = proxima.id;
-
-    const coords = await buscarRotaOSRM([posAtual, proxima.coords]);
-
-    if (rotaProximaLayer) { try { mapaObj.removeLayer(rotaProximaLayer); } catch(e){} rotaProximaLayer = null; }
-
-    if (coords) {
-        rotaProximaLayer = L.polyline(coords, {
-            color: '#3d9cff', weight: 5, opacity: 0.9
-        }).addTo(mapaObj);
-    } else {
-        // Fallback linha reta
-        rotaProximaLayer = L.polyline([posAtual, proxima.coords], {
-            color: '#3d9cff', weight: 4, opacity: 0.85
-        }).addTo(mapaObj);
-    }
-    if (motoMarker) motoMarker.bringToFront();
-}
-
-// ===== NAVEGAÇÃO AVULSA (long-press no cliente) =====
-
-async function ativarNavAvulsa(cliente) {
-    const nome   = cliente.name || cliente.nome || 'Cliente';
-    const coords = cliente.coords;
-
-    // Se já está navegando para este cliente → cancela
-    if (navAvulsaDestino && navAvulsaDestino.nome === nome &&
-        navAvulsaDestino.coords[0] === coords[0] &&
-        navAvulsaDestino.coords[1] === coords[1]) {
-        cancelarNavAvulsa();
-        return;
-    }
-
-    // Cancela eventual navegação anterior
-    cancelarNavAvulsa(false);
-
-    navAvulsaDestino = { nome, coords };
-
-    // --- Marcador de destino pulsante ---
-    const destIcon = L.divIcon({
-        html: `<div style="
-            width:44px;height:44px;border-radius:50%;
-            background:rgba(0,232,122,0.9);
-            display:flex;align-items:center;justify-content:center;
-            font-size:22px;
-            border:3px solid #fff;
-            box-shadow:0 0 0 0 rgba(0,232,122,0.8);
-            animation:destinoPulse 1.4s ease-out infinite;
-        ">📍</div>`,
-        className: '', iconSize: [44, 44], iconAnchor: [22, 44]
-    });
-    navAvulsaMarker = L.marker(coords, { icon: destIcon, zIndexOffset: 900 })
-        .addTo(mapaObj)
-        .bindPopup(`<b>🎯 ${nome}</b><br><small>Segurar para cancelar</small>`);
-    layersEstaticos.push(navAvulsaMarker);
-
-    // --- Desenha rota verde via OSRM ---
-    await _desenharRotaAvulsa();
-
-    // --- Chip de navegação ---
-    document.getElementById('navAvulsaNome').textContent = `🎯 ${nome}`;
-    _atualizarDistNavAvulsa();
-    document.getElementById('navAvulsaChip').classList.add('visivel');
-
-    // Atualiza distância a cada 4s
-    navAvulsaInterval = setInterval(_atualizarDistNavAvulsa, 4000);
-
-    showToast(`🗺️ Rota para ${nome} ativada!`, 'success');
-}
-
-async function _desenharRotaAvulsa() {
-    if (!navAvulsaDestino || !posAtual) return;
-
-    // Remove layer anterior
-    if (navAvulsaLayer) { try { mapaObj.removeLayer(navAvulsaLayer); } catch(e){} navAvulsaLayer = null; }
-
-    const coords = await buscarRotaOSRM([posAtual, navAvulsaDestino.coords]);
-
-    if (coords) {
-        navAvulsaLayer = L.polyline(coords, {
-            color: '#00e87a', weight: 5, opacity: 0.92,
-            dashArray: '0'       // linha sólida verde
-        }).addTo(mapaObj);
-    } else {
-        // Fallback: linha reta
-        navAvulsaLayer = L.polyline([posAtual, navAvulsaDestino.coords], {
-            color: '#00e87a', weight: 4, opacity: 0.8, dashArray: '8 5'
-        }).addTo(mapaObj);
-    }
-    if (motoMarker) motoMarker.bringToFront();
-}
-
-function _atualizarDistNavAvulsa() {
-    if (!navAvulsaDestino || !posAtual) return;
-    const dist = calcDistM(posAtual[0], posAtual[1],
-        navAvulsaDestino.coords[0], navAvulsaDestino.coords[1]);
-    const el = document.getElementById('navAvulsaDist');
-    if (!el) return;
-    if (dist < 1000) {
-        el.textContent = `📡 ${Math.round(dist)}m até ${navAvulsaDestino.nome}`;
-    } else {
-        el.textContent = `📡 ${(dist / 1000).toFixed(1)}km até ${navAvulsaDestino.nome}`;
-    }
-    // Redesenha a rota se moto se moveu muito
-    if (dist < 30) {
-        showToast(`✅ Chegou em ${navAvulsaDestino.nome}!`, 'success');
-        cancelarNavAvulsa();
-    }
-}
-
-function cancelarNavAvulsa(mostrarToast = true) {
-    // Remove layer da rota verde
-    if (navAvulsaLayer) {
-        try { mapaObj.removeLayer(navAvulsaLayer); } catch(e){}
-        navAvulsaLayer = null;
-    }
-    // Remove marcador destino
-    if (navAvulsaMarker) {
-        try { mapaObj.removeLayer(navAvulsaMarker); } catch(e){}
-        navAvulsaMarker = null;
-        // Remove do array de layers estáticos também
-        layersEstaticos = layersEstaticos.filter(l => l !== navAvulsaMarker);
-    }
-    // Para atualização de distância
-    if (navAvulsaInterval) { clearInterval(navAvulsaInterval); navAvulsaInterval = null; }
-
-    if (navAvulsaDestino && mostrarToast) {
-        showToast(`❌ Rota para ${navAvulsaDestino.nome} cancelada`);
-    }
-    navAvulsaDestino = null;
-
-    // Esconde chip
-    document.getElementById('navAvulsaChip').classList.remove('visivel');
-}
-
-// Atualiza a rota avulsa quando moto se move (chamado por processarPosicao)
-function _onMoveNavAvulsa() {
-    if (!navAvulsaDestino) return;
-    _atualizarDistNavAvulsa();
-    // Redesenha rota a cada 100m de deslocamento (throttled via ultimaNavAvulsaPos)
-    if (!_onMoveNavAvulsa._lastPos) { _onMoveNavAvulsa._lastPos = posAtual; }
-    const d = calcDistM(
-        _onMoveNavAvulsa._lastPos[0], _onMoveNavAvulsa._lastPos[1],
-        posAtual[0], posAtual[1]
-    );
-    if (d > 80) {
-        _onMoveNavAvulsa._lastPos = posAtual;
-        _desenharRotaAvulsa();
-    }
+// ===== FILTRO =====
+function setFiltro(f) {
+  filtroAtual=f;
+  document.getElementById('filtParadas').classList.toggle('ativo', f==='paradas');
+  document.getElementById('filtTodas').classList.toggle('ativo', f==='todas');
+  if (rotaAtual) renderMarcadores();
 }
 
 // ===== MAPA =====
-function posicionarMoto(pos) {
-    if (!mapaObj || !window.L) return;
-
-    // No modo 3D o mapa gira — a moto fica sempre apontando para cima (direção de marcha)
-    // No modo 2D, rotacionamos o emoji pelo bearing
-    const motoRotate = modo3DAtivo ? 0 : motoBearing;
-
-    const html = `
-        <div style="position:relative;width:56px;height:56px;display:flex;align-items:center;justify-content:center;">
-            <div style="position:absolute;inset:-16px;border-radius:50%;
-                background:radial-gradient(circle,rgba(245,166,35,0.18) 0%,transparent 70%);
-                animation:ondaMoto 2.5s ease-out infinite;pointer-events:none;"></div>
-            <div style="position:absolute;inset:-8px;border-radius:50%;
-                border:2px solid rgba(245,166,35,0.35);
-                animation:anelMoto 2.5s ease-out infinite;pointer-events:none;"></div>
-            <div style="position:absolute;bottom:-4px;left:50%;transform:translateX(-50%);
-                width:32px;height:7px;border-radius:50%;
-                background:rgba(0,0,0,0.4);filter:blur(3px);"></div>
-            <div style="font-size:30px;transform:rotate(${motoRotate}deg);
-                transition:transform 0.5s ease;
-                filter:drop-shadow(0 2px 8px rgba(245,166,35,0.8));
-                position:relative;z-index:2;">🛵</div>
-            <style>
-                @keyframes ondaMoto{0%{transform:scale(0.5);opacity:0.8}80%{transform:scale(2.2);opacity:0}100%{transform:scale(0.5);opacity:0}}
-                @keyframes anelMoto{0%{transform:scale(0.6);opacity:1}100%{transform:scale(2.4);opacity:0}}
-            </style>
-        </div>`;
-
-    const icon = L.divIcon({ html, className: '', iconSize: [56, 56], iconAnchor: [28, 28] });
-
-    if (motoMarker) {
-        motoMarker.setLatLng(pos);
-        motoMarker.setIcon(icon);
-    } else {
-        motoMarker = L.marker(pos, { icon, zIndexOffset: 1000 })
-            .addTo(mapaObj)
-            .bindPopup('<b>🛵 Você está aqui</b>');
-    }
-
-    if (seguindoMoto) {
-        const zoom = mapaObj.getZoom() || 17;
-        const size = mapaObj.getSize();
-
-        // GPS em pixels no espaço do Leaflet
-        const gpsPx = mapaObj.project(L.latLng(pos[0], pos[1]), zoom);
-
-        // Modo 3D: moto mais abaixo no frame (45% do topo = muita área à frente visível)
-        // Modo 2D: moto em 62% vertical
-        const offsetFatorY = modo3DAtivo ? 0.28 : 0.12;
-        const offsetY = size.y * offsetFatorY;
-        const novoCentroPx = L.point(gpsPx.x, gpsPx.y - offsetY);
-        const novoCentro   = mapaObj.unproject(novoCentroPx, zoom);
-
-        mapaObj.setView(novoCentro, zoom, {
-            animate: true, duration: 0.4, easeLinearity: 0.3, noMoveStart: true
-        });
-    }
-}
-
-// Layers estáticos do mapa (paradas, linhas, fábrica) — separados da moto
-let layersEstaticos = [];
-
-function limparLayersEstaticos() {
-    layersEstaticos.forEach(l => { try { mapaObj.removeLayer(l); } catch(e){} });
-    layersEstaticos = [];
-}
-
-function limparTodasRotasVisuais() {
-    limparLayersEstaticos();
-    if (rotaCompletaLayer) { try { mapaObj.removeLayer(rotaCompletaLayer); } catch(e){} rotaCompletaLayer = null; }
-    if (rotaProximaLayer) { try { mapaObj.removeLayer(rotaProximaLayer); } catch(e){} rotaProximaLayer = null; }
-    cacheRotaCompleta = null;
-    cacheRotaCompletaKey = '';
-    ultimaProximaId = null;
-}
-
-async function renderizarMapaCompleto() {
-    if (!mapaObj || !window.L) return;
-
-    // Remove apenas layers estáticos (paradas, marcadores) — linhas de rota gerenciadas separadamente
-    limparLayersEstaticos();
-
-    // Paradas da rota ativa (para lógica de rota e próxima parada)
-    const paradas = paradasList.filter(p => p.coords);
-    const pendentes = paradas.filter(p => p.status !== 'entregue');
-    const proxima = pendentes[0] || null;
-
-    // TODOS os clientes históricos (já extraídos em carregarDados)
-    const todasParadas = todosOsClientes;
-
-    // Marcador fábrica
-    const fabMarker = L.marker(FABRICA, {
-        icon: L.divIcon({
-            html: `<div style="width:40px;height:40px;border-radius:12px;
-                background:linear-gradient(135deg,#f5a623,#e67e22);
-                display:flex;align-items:center;justify-content:center;
-                font-size:20px;
-                box-shadow:0 4px 16px rgba(245,166,35,0.5);
-                border:2px solid rgba(255,255,255,0.2);">🏭</div>`,
-            className: '', iconSize: [40, 40], iconAnchor: [20, 20]
-        })
-    }).addTo(mapaObj).bindPopup('<b>🏭 Fábrica</b>');
-    layersEstaticos.push(fabMarker);
-
-    // Rota completa pelas ruas (vermelho tracejado) — async, não bloqueia
-    if (paradas.length >= 1) {
-        desenharRotaCompleta(paradas); // não aguarda — atualiza quando chegar
-    } else {
-        // Sem paradas: limpa layer de rota completa
-        if (rotaCompletaLayer) { try { mapaObj.removeLayer(rotaCompletaLayer); } catch(e){} rotaCompletaLayer = null; }
-    }
-
-    // Rota até a próxima parada (azul) — só redesenha quando a parada muda
-    desenharRotaProxima(posAtual, proxima); // também async
-
-    // Agrupa clientes próximos (raio ~30m) para exibir lado a lado
-    const RAIO_GRUPO = 0.00027; // ~30 metros em graus
-    const grupos = [];
-    const usados = new Set();
-
-    todasParadas.forEach((p, i) => {
-        if (usados.has(i)) return;
-        const grupo = [p];
-        usados.add(i);
-        todasParadas.forEach((q, j) => {
-            if (usados.has(j)) return;
-            const dlat = Math.abs(p.coords[0] - q.coords[0]);
-            const dlon = Math.abs(p.coords[1] - q.coords[1]);
-            if (dlat < RAIO_GRUPO && dlon < RAIO_GRUPO) {
-                grupo.push(q);
-                usados.add(j);
-            }
-        });
-        grupos.push({ coords: p.coords, clientes: grupo });
-    });
-
-    // Renderiza cada grupo — se tiver mais de um cliente, coloca lado a lado num único marker
-    grupos.forEach(grupo => {
-        const { coords, clientes } = grupo;
-
-        // Monta HTML de cada cliente no grupo — com SVG de progresso circular para long-press
-        const clientesHTML = clientes.map((p, ci) => {
-            const paradaAtiva = paradasList.find(pa => pa.coords && pa.coords[0] === p.coords[0] && pa.coords[1] === p.coords[1] && pa.nome === (p.name || p.nome));
-            const entregue = paradaAtiva ? paradaAtiva.status === 'entregue' : false;
-            const isProx = proxima && paradaAtiva && paradaAtiva.id === proxima.id;
-            const isRotaAtiva = !!paradaAtiva;
-
-            let bg, borderColor, labelBg, labelColor, ringColor;
-            if (entregue) {
-                bg = '#00e87a'; borderColor = 'rgba(0,232,122,0.4)'; labelBg = 'rgba(0,0,0,0.65)'; labelColor = '#aaa'; ringColor = '#00e87a';
-            } else if (isProx) {
-                bg = '#f5a623'; borderColor = 'rgba(245,166,35,0.6)'; labelBg = 'rgba(245,166,35,0.92)'; labelColor = '#000'; ringColor = '#f5a623';
-            } else if (isRotaAtiva) {
-                bg = '#3d9cff'; borderColor = 'rgba(61,156,255,0.4)'; labelBg = 'rgba(10,10,15,0.85)'; labelColor = '#f0f0f8'; ringColor = '#3d9cff';
-            } else {
-                bg = '#7c5cbf'; borderColor = 'rgba(124,92,191,0.4)'; labelBg = 'rgba(20,10,40,0.85)'; labelColor = 'rgba(240,240,248,0.7)'; ringColor = '#00e87a';
-            }
-
-            const pulse = isProx ? 'animation:paradaPulse 1.5s ease-in-out infinite;' : '';
-            const nome = p.name || p.nome;
-            // ID único para referenciar o SVG deste marcador via JS
-            const uid = `cm_${coords[0].toFixed(5).replace('.','')}_${coords[1].toFixed(5).replace('.','')}_${ci}`;
-
-            // SVG circular progress: circunferência = 2π × r = 2π × 17 ≈ 106.8
-            const R = 17, C = 2 * Math.PI * R; // ~106.8
-
-            return `
-            <div id="${uid}" data-uid="${uid}" style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;-webkit-user-select:none;user-select:none;">
-                <div style="
-                    background:${labelBg};color:${labelColor};
-                    font-size:10px;font-weight:800;
-                    padding:2px 7px;border-radius:10px;
-                    white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis;
-                    border:1px solid ${borderColor};
-                    box-shadow:0 2px 8px rgba(0,0,0,0.6);
-                    backdrop-filter:blur(6px);
-                    pointer-events:none;
-                ">${nome}</div>
-
-                <!-- Wrapper do ícone com SVG de progresso sobreposto -->
-                <div style="position:relative;width:44px;height:44px;">
-
-                    <!-- Círculo de fundo (trilha) -->
-                    <svg style="position:absolute;inset:0;width:44px;height:44px;transform:rotate(-90deg);pointer-events:none;" viewBox="0 0 44 44">
-                        <circle cx="22" cy="22" r="${R}"
-                            fill="none"
-                            stroke="rgba(255,255,255,0.12)"
-                            stroke-width="3"/>
-                        <!-- Arco de progresso — dashoffset controlado via JS -->
-                        <circle id="${uid}_ring" cx="22" cy="22" r="${R}"
-                            fill="none"
-                            stroke="${ringColor}"
-                            stroke-width="3"
-                            stroke-linecap="round"
-                            stroke-dasharray="${C.toFixed(1)}"
-                            stroke-dashoffset="${C.toFixed(1)}"
-                            style="transition:stroke-dashoffset 0.05s linear;filter:drop-shadow(0 0 4px ${ringColor});"/>
-                    </svg>
-
-                    <!-- Ícone do cliente -->
-                    <div id="${uid}_ico" style="
-                        position:absolute;inset:0;
-                        width:44px;height:44px;border-radius:50%;
-                        background:${bg};
-                        display:flex;align-items:center;justify-content:center;
-                        font-size:20px;
-                        border:2.5px solid rgba(255,255,255,0.25);
-                        box-shadow:0 3px 12px rgba(0,0,0,0.5);
-                        opacity:${entregue ? 0.5 : 1};
-                        transition:transform 0.15s ease, filter 0.15s ease;
-                        ${pulse}
-                    ">👤</div>
-                </div>
-            </div>`;
-        }).join('');
-
-        const largura = clientes.length * 54 + (clientes.length - 1) * 4;
-        const icon = L.divIcon({
-            html: `<div style="display:flex;flex-direction:row;align-items:flex-end;gap:4px;">${clientesHTML}</div>
-            <style>
-                @keyframes paradaPulse{0%,100%{box-shadow:0 0 0 0 rgba(245,166,35,0.7)}70%{box-shadow:0 0 0 12px rgba(245,166,35,0)}}
-            </style>`,
-            className: '',
-            iconSize: [largura, 70],
-            iconAnchor: [largura / 2, 70]
-        });
-
-        // Popup com todos os clientes do grupo
-        const popupHTML = clientes.map(p => {
-            const paradaAtiva = paradasList.find(pa => pa.coords && pa.coords[0] === p.coords[0] && pa.coords[1] === p.coords[1] && pa.nome === (p.name || p.nome));
-            const entregue = paradaAtiva ? paradaAtiva.status === 'entregue' : false;
-            const isProx = proxima && paradaAtiva && paradaAtiva.id === proxima.id;
-            const isRotaAtiva = !!paradaAtiva;
-            const statusLabel = entregue ? '✅ Entregue hoje' : isProx ? '▶ Próxima parada' : isRotaAtiva ? '⏳ Pendente' : '📍 Cliente cadastrado';
-            const statusColor = entregue ? '#00e87a' : isProx ? '#f5a623' : isRotaAtiva ? '#3d9cff' : '#7c5cbf';
-            const debtInfo = p.debt > 0 ? `<div style="font-size:11px;font-weight:700;color:#ff4757;margin-top:2px;">💳 Fiado: R$ ${Number(p.debt).toFixed(2).replace('.',',')}</div>` : '';
-            const phoneInfo = p.phone ? `<div style="font-size:11px;color:rgba(240,240,248,0.45);">📞 ${p.phone}</div>` : '';
-            return `<div style="padding:6px 0;${clientes.length > 1 ? 'border-bottom:1px solid rgba(255,255,255,0.08);' : ''}">
-                <div style="font-weight:800;font-size:13px;color:#f0f0f8;">${p.name || p.nome}</div>
-                <div style="font-size:11px;color:rgba(240,240,248,0.55);">📍 ${p.delivery_address || p.endereco || ''}</div>
-                ${phoneInfo}${debtInfo}
-                <div style="font-size:11px;font-weight:700;color:${statusColor};margin-top:2px;">${statusLabel}</div>
-            </div>`;
-        }).join('');
-
-        const m = L.marker(coords, { icon }).addTo(mapaObj)
-            .bindPopup(`<div style="min-width:160px;max-width:220px;">${popupHTML}</div>`);
-
-        // ===== LONG-PRESS 2s com animação SVG circular =====
-        const HOLD_MS   = 2000;   // 2 segundos
-        const FPS       = 30;     // frames por segundo da animação
-        const R_CIRC    = 17;
-        const CIRCUNF   = 2 * Math.PI * R_CIRC; // ≈ 106.8
-
-        let pressTimer    = null;
-        let rafTimer      = null;
-        let pressStart    = 0;
-        let pressAtivo    = false;
-        let uidAtivo      = null;  // uid do cliente que está sendo segurado
-
-        function iniciarHold(e) {
-            // Descobre qual cliente dentro do grupo foi tocado pelo uid mais próximo
-            const target = e.originalEvent?.target || e.target;
-            // Sobe no DOM até achar um [data-uid]
-            let el = target;
-            let uid = null;
-            for (let i = 0; i < 6 && el; i++) {
-                if (el.dataset?.uid) { uid = el.dataset.uid; break; }
-                el = el.parentElement;
-            }
-            // Fallback: usa uid do primeiro cliente
-            if (!uid) {
-                const primeiro = clientes[0];
-                const ci = 0;
-                uid = `cm_${coords[0].toFixed(5).replace('.','')}_${coords[1].toFixed(5).replace('.','')}_${ci}`;
-            }
-            uidAtivo = uid;
-
-            pressAtivo = true;
-            pressStart = performance.now();
-
-            // Feedback: leve zoom no ícone
-            const ico = document.getElementById(uid + '_ico');
-            if (ico) ico.style.transform = 'scale(1.1)';
-
-            // Anima o anel SVG frame-a-frame
-            function tick() {
-                if (!pressAtivo) return;
-                const elapsed = performance.now() - pressStart;
-                const pct = Math.min(elapsed / HOLD_MS, 1);
-                // dashoffset: CIRCUNF (0%) → 0 (100%)
-                const offset = CIRCUNF * (1 - pct);
-                const ring = document.getElementById(uid + '_ring');
-                if (ring) ring.style.strokeDashoffset = offset.toFixed(2);
-
-                if (pct < 1) {
-                    rafTimer = requestAnimationFrame(tick);
-                } else {
-                    // 2s completos — ATIVA!
-                    completarHold(uid);
-                }
-            }
-            rafTimer = requestAnimationFrame(tick);
-
-            // Timer de segurança
-            pressTimer = setTimeout(() => completarHold(uid), HOLD_MS + 50);
-        }
-
-        async function completarHold(uid) {
-            pressAtivo = false;
-            cancelAnimationFrame(rafTimer);
-            clearTimeout(pressTimer);
-
-            // Reseta visual
-            const ring = document.getElementById(uid + '_ring');
-            const ico  = document.getElementById(uid + '_ico');
-            if (ring) {
-                // Flash de sucesso: anel fica cheio por 300ms antes de sumir
-                ring.style.transition = 'stroke-dashoffset 0s, opacity 0.4s';
-                ring.style.strokeDashoffset = '0';
-                ring.style.opacity = '1';
-                setTimeout(() => {
-                    ring.style.transition = 'stroke-dashoffset 0.15s linear, opacity 0.3s';
-                    ring.style.opacity = '0';
-                    setTimeout(() => {
-                        ring.style.strokeDashoffset = CIRCUNF.toFixed(1);
-                        ring.style.opacity = '1';
-                        ring.style.transition = 'stroke-dashoffset 0.05s linear';
-                    }, 350);
-                }, 280);
-            }
-            if (ico) {
-                ico.style.transform = 'scale(1.25)';
-                setTimeout(() => { ico.style.transform = ''; }, 300);
-            }
-
-            // Identifica qual cliente do grupo corresponde ao uid
-            const uidParts = uid.split('_');
-            const ci = parseInt(uidParts[uidParts.length - 1]) || 0;
-            const clienteAlvo = clientes[Math.min(ci, clientes.length - 1)];
-            await ativarNavAvulsa(clienteAlvo);
-        }
-
-        function cancelarHold() {
-            if (!pressAtivo) return;
-            pressAtivo = false;
-            cancelAnimationFrame(rafTimer);
-            clearTimeout(pressTimer);
-
-            // Reseta anel e ícone
-            if (uidAtivo) {
-                const ring = document.getElementById(uidAtivo + '_ring');
-                const ico  = document.getElementById(uidAtivo + '_ico');
-                if (ring) {
-                    ring.style.transition = 'stroke-dashoffset 0.2s ease';
-                    ring.style.strokeDashoffset = CIRCUNF.toFixed(1);
-                }
-                if (ico) ico.style.transform = '';
-            }
-            uidAtivo = null;
-        }
-
-        m.on('mousedown',   iniciarHold);
-        m.on('touchstart',  iniciarHold, { passive: true });
-        m.on('mouseup',     cancelarHold);
-        m.on('mouseleave',  cancelarHold);
-        m.on('touchend',    cancelarHold);
-        m.on('touchcancel', cancelarHold);
-
-        layersEstaticos.push(m);
-    });
-
-    // Posiciona moto por cima de tudo (zIndexOffset alto)
-    if (posAtual) posicionarMoto(posAtual);
-
-    // Ajusta zoom só na primeira carga (sem posição GPS ainda)
-    const pts = [FABRICA, ...todasParadas.map(p => p.coords)];
-    if (pts.length >= 2 && !posAtual) {
-        mapaObj.fitBounds(L.latLngBounds(pts), { padding: [50, 50], maxZoom: 16 });
-    }
-}
-
-function recentrarMapa() {
-    seguindoMoto = true;
-    modo3DAtivo = true;
-    const btn = document.getElementById('btnToggle3D');
-    if (btn) btn.classList.add('ativo');
-
-    // Restaura rotação para o bearing atual da moto
-    const bearingSmooth = suavizarBearing(motoBearing);
-    rotacaoAtual = bearingSmooth;
-    aplicarTransformacao3D(bearingSmooth);
-
-    if (posAtual) posicionarMoto(posAtual);
-    else mapaObj.setView(FABRICA, 17, { animate: true });
-}
-
-// ===== RENDER UI =====
-function renderTudo() {
-    renderRotaAtiva();
-    renderParadas();
-    renderTodasRotas();
-}
-
-function renderRotaAtiva() {
-    const el = document.getElementById('rotaAtivaContent');
-
-    if (!rotaAtual) {
-        el.innerHTML = `
-        <div class="empty-state">
-            <div class="empty-icon">🏭</div>
-            <div class="empty-title">Nenhuma rota ativa</div>
-            <div class="empty-sub">Quando uma rota for iniciada pelo admin, ela aparecerá aqui automaticamente.</div>
-        </div>`;
-        return;
-    }
-
-    const entregues = paradasList.filter(p => p.status === 'entregue').length;
-    const total = paradasList.length;
-    const pendentes = total - entregues;
-    const totalMin = Math.round(pendentes * mediaMinPorParada);
-    const proxima = paradasList.find(p => p.status === 'pendente');
-
-    el.innerHTML = `
-    <div class="rota-ativa-card">
-        <div class="rota-ativa-header">
-            <div class="rota-nome">${rotaAtual.nome}</div>
-            <div class="rota-status-badge">🟢 Em andamento</div>
-        </div>
-        <div class="rota-stats">
-            <div class="rota-stat">
-                <div class="rota-stat-val" style="color:var(--green);">${entregues}</div>
-                <div class="rota-stat-lbl">Entregues</div>
-            </div>
-            <div class="rota-stat">
-                <div class="rota-stat-val" style="color:var(--primary);">${pendentes}</div>
-                <div class="rota-stat-lbl">Restantes</div>
-            </div>
-            <div class="rota-stat">
-                <div class="rota-stat-val" style="color:var(--blue);">${totalMin}</div>
-                <div class="rota-stat-lbl">min est.</div>
-            </div>
-        </div>
-    </div>
-    ${proxima ? `
-    <div class="proxima-card" id="proximaCard">
-        <div class="proxima-lbl">▶ Próxima parada</div>
-        <div class="proxima-nome">${proxima.nome}</div>
-        <div class="proxima-end">📍 ${proxima.endereco}</div>
-        <div class="proxima-dist">
-            <div class="dist-badge" id="distBadge">📡 aguardando GPS...</div>
-            <div class="eta-badge">⏱️ ~${proxima.eta_min}min</div>
-        </div>
-    </div>` : `
-    <div style="text-align:center;padding:20px;color:var(--green);">
-        <div style="font-size:32px;">🏁</div>
-        <div style="font-family:'Syne',sans-serif;font-weight:900;font-size:16px;margin-top:8px;">Todas as entregas concluídas!</div>
-    </div>`}`;
-}
-
-function renderProximaCard(parada, dist) {
-    const badge = document.getElementById('distBadge');
-    if (!badge) return;
-    if (dist <= RAIO_ENTREGA) {
-        badge.style.background = 'rgba(0,232,122,0.15)';
-        badge.style.color = 'var(--green)';
-        badge.style.borderColor = 'rgba(0,232,122,0.4)';
-        badge.textContent = `✅ Na área! ${Math.round(dist)}m`;
-        document.getElementById('proximaCard')?.classList.add('chegando');
-    } else {
-        badge.style.background = 'rgba(61,156,255,0.15)';
-        badge.style.color = 'var(--blue)';
-        badge.style.borderColor = 'rgba(61,156,255,0.3)';
-        badge.textContent = `📡 ${Math.round(dist)}m`;
-        document.getElementById('proximaCard')?.classList.remove('chegando');
-    }
-}
-
-function renderParadas() {
-    const el = document.getElementById('paradasContent');
-
-    if (!rotaAtual || !paradasList.length) {
-        el.innerHTML = `<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">Sem paradas</div><div class="empty-sub">As paradas aparecerão aqui quando a rota for iniciada.</div></div>`;
-        return;
-    }
-
-    const proxima = paradasList.find(p => p.status === 'pendente');
-    el.innerHTML = paradasList.map((p, i) => {
-        const entregue = p.status === 'entregue';
-        const isProx = proxima && p.id === proxima.id;
-        const numClass = entregue ? 'entregue' : isProx ? 'proxima' : 'pendente';
-        const lbl = entregue ? '✓' : String(i + 1);
-        return `
-        <div class="parada-item ${entregue ? 'entregue' : ''}">
-            <div class="parada-num ${numClass}">${lbl}</div>
-            <div class="parada-info">
-                <div class="parada-nome">${p.name || p.nome}</div>
-                <div class="parada-end">📍 ${p.endereco}</div>
-            </div>
-            <div class="parada-eta">⏱️ ${p.eta_min}min</div>
-        </div>`;
-    }).join('');
-}
-
-function renderTodasRotas() {
-    const el = document.getElementById('todasRotasContent');
-    if (!todasAsRotas.length) {
-        el.innerHTML = `<div class="empty-state"><div class="empty-icon">📁</div><div class="empty-title">Sem rotas</div><div class="empty-sub">Nenhuma rota cadastrada ainda.</div></div>`;
-        return;
-    }
-
-    const cores = { criada: '#f5a623', aguardando: '#3d9cff', em_andamento: '#00e87a', concluido: '#555' };
-    const labels = { criada: '⏳ Aguardando', aguardando: '🏭 Na fábrica', em_andamento: '🛵 Em andamento', concluido: '✅ Concluída' };
-
-    el.innerHTML = todasAsRotas.map(r => {
-        const entregues = (r.paradas || []).filter(p => p.status === 'entregue').length;
-        const total = (r.paradas || []).length;
-        const cor = cores[r.status] || '#555';
-        return `
-        <div style="background:var(--surface2);border-radius:16px;padding:14px;margin-bottom:8px;border-left:3px solid ${cor};">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-                <div>
-                    <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;">${r.nome}</div>
-                    <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">⏰ ${r.hora_saida || '--'} · ${(r.dias_semana || []).join(' ')}</div>
-                </div>
-                <span style="font-size:10px;font-weight:700;padding:4px 10px;border-radius:20px;background:${cor}22;color:${cor};">${labels[r.status] || r.status}</span>
-            </div>
-            ${total > 0 ? `
-            <div style="margin-top:10px;">
-                <div style="height:4px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;">
-                    <div style="height:100%;width:${total?Math.round(entregues/total*100):0}%;background:${cor};border-radius:4px;transition:width 0.5s;"></div>
-                </div>
-                <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">📦 ${entregues}/${total} entregas</div>
-            </div>` : ''}
-        </div>`;
-    }).join('');
-}
-
-// ===== TABS / PAINEL =====
-function abrirTab(nome, ev) {
-    // Toggle: se o painel já está aberto na mesma aba, fecha
-    const painel = document.getElementById('painelInferior');
-    const jaAtivo = document.getElementById('tab-' + nome)?.classList.contains('active');
-    const painelAberto = painel.classList.contains('aberto');
-
-    if (painelAberto && jaAtivo) {
-        fecharPainel();
-        return;
-    }
-
-    // Atualiza tabs
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    if (ev?.currentTarget) ev.currentTarget.classList.add('active');
-
-    // Mostra conteúdo
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    document.getElementById('tab-' + nome).classList.add('active');
-
-    // Abre painel
-    painel.classList.add('aberto');
-    document.getElementById('overlayPainel').classList.add('visivel');
-}
-
-function fecharPainel() {
-    document.getElementById('painelInferior').classList.remove('aberto');
-    document.getElementById('overlayPainel').classList.remove('visivel');
-}
-
-// ===== TOAST =====
-function showToast(msg, type = '') {
-    const t = document.getElementById('toast');
-    t.textContent = msg;
-    t.className = 'show ' + type;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { t.className = ''; }, 4000);
-}
-
-// ===== UTILS =====
-function calcBearing(c1, c2) {
-    const lat1 = c1[0] * Math.PI / 180, lat2 = c2[0] * Math.PI / 180;
-    const dLon = (c2[1] - c1[1]) * Math.PI / 180;
-    const y = Math.sin(dLon) * Math.cos(lat2);
-    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-    return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
-}
-
-function calcDistM(lat1, lon1, lat2, lon2) {
-    const R = 6371000;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-</script>
-
-<script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js')
-        .then(reg => console.log('[PWA] Service Worker registrado:', reg.scope))
-        .catch(err => console.warn('[PWA] Falha ao registrar SW:', err));
-    });
+function initMap() {
+  map = L.map('map', { zoomControl:false, attributionControl:false });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom:19 }).addTo(map);
+  map.setView([-8.0, -34.9], 14);
+
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(onPos, onGpsErr, { enableHighAccuracy:true });
+    navigator.geolocation.watchPosition(onPos, onGpsErr, { enableHighAccuracy:true, maximumAge:4000 });
   }
-</script>
-
-<script>
-// ===== CACHE DE TILES VIA CACHE API =====
-// Pré-carrega e armazena tiles no Cache Storage do browser
-// Assim ficam disponíveis mesmo offline / com internet ruim
-
-const TILE_CACHE_NAME = 'rei-coxinha-tiles-v2';
-
-// Converte BBox geográfica → range de tiles XY (disponível globalmente)
-function bboxToTiles(swLat, swLon, neLat, neLon, zoom) {
-    function lon2tile(lon, z) { return Math.floor((lon + 180) / 360 * Math.pow(2, z)); }
-    function lat2tile(lat, z) {
-        return Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, z));
-    }
-    return {
-        xMin: lon2tile(swLon, zoom),
-        xMax: lon2tile(neLon, zoom),
-        yMin: lat2tile(neLat, zoom),
-        yMax: lat2tile(swLat, zoom)
-    };
 }
 
-// Intercepta requisições de tiles — serve do cache quando disponível
-// Deve ser instalado ANTES do Leaflet carregar tiles
-(function instalarInterceptorTiles() {
-    if (!('caches' in window)) return;
-    const originalFetch = window.fetch.bind(window);
-    window.fetch = async function(input, init) {
-        const url = typeof input === 'string' ? input : (input?.url || '');
-        const isTile = url.includes('cartocdn.com') || url.includes('openstreetmap.org');
-        if (!isTile) return originalFetch(input, init);
-        try {
-            const cache = await caches.open(TILE_CACHE_NAME);
-            const cached = await cache.match(url);
-            if (cached) return cached.clone();
-            const resp = await originalFetch(input, init);
-            if (resp && resp.ok) cache.put(url, resp.clone()).catch(() => {});
-            return resp;
-        } catch(e) {
-            try {
-                const cache = await caches.open(TILE_CACHE_NAME);
-                const cached = await cache.match(url);
-                if (cached) return cached.clone();
-            } catch(_) {}
-            throw e;
-        }
-    };
-})();
-
-// Pré-baixa e armazena tiles de Jaboatão dos Guararapes no Cache Storage
-async function cachearTilesJaboatao() {
-    if (!('caches' in window)) return;
-
-    try {
-        const cache = await caches.open(TILE_CACHE_NAME);
-        const keys = await cache.keys();
-        if (keys.length > 500) {
-            console.log(`[TileCache] ✅ Cache já populado — ${keys.length} tiles`);
-            return;
-        }
-    } catch(e) { return; }
-
-    // BBox Jaboatão dos Guararapes com margem generosa
-    const bbox = { swLat: -8.26, swLon: -35.10, neLat: -8.05, neLon: -34.85 };
-    const servers = ['a', 'b', 'c'];
-    const zooms   = [12, 13, 14, 15, 16, 17];
-    const urls    = [];
-
-    zooms.forEach(z => {
-        const { xMin, xMax, yMin, yMax } = bboxToTiles(
-            bbox.swLat, bbox.swLon, bbox.neLat, bbox.neLon, z
-        );
-        for (let x = xMin; x <= xMax; x++) {
-            for (let y = yMin; y <= yMax; y++) {
-                const s = servers[Math.abs(x + y) % 3];
-                urls.push(`https://${s}.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`);
-                urls.push(`https://${s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/${z}/${x}/${y}.png`);
-                if (urls.length >= 1400) return;
-            }
-        }
-    });
-
-    console.log(`[TileCache] 🗺️ Armazenando ${urls.length} tiles de Jaboatão...`);
-
-    try {
-        const cache = await caches.open(TILE_CACHE_NAME);
-        const LOTE = 15;
-        let ok = 0;
-        for (let i = 0; i < urls.length; i += LOTE) {
-            const lote = urls.slice(i, i + LOTE);
-            const results = await Promise.allSettled(
-                lote.map(url =>
-                    fetch(url, { mode: 'cors' })
-                        .then(r => { if (r.ok) { cache.put(url, r); ok++; } })
-                        .catch(() => {})
-                )
-            );
-            await new Promise(r => setTimeout(r, 60));
-        }
-        console.log(`[TileCache] ✅ ${ok} tiles de Jaboatão em cache!`);
-    } catch(e) {
-        console.warn('[TileCache] Erro:', e);
-    }
+function onPos(pos) {
+  minhaPosicao = [pos.coords.latitude, pos.coords.longitude];
+  atualizarMeuMarcador(minhaPosicao);
+  const acc = Math.round(pos.coords.accuracy);
+  document.getElementById('pillGps').style.display='flex';
+  document.getElementById('gpsDot').className='gps-dot';
+  document.getElementById('gpsLabel').textContent=`±${acc}m`;
+}
+function onGpsErr() {
+  document.getElementById('pillGps').style.display='flex';
+  document.getElementById('gpsDot').className='gps-dot erro';
+  document.getElementById('gpsLabel').textContent='GPS erro';
 }
 
-// Inicia cache em background após 4s (não bloqueia o mapa)
-window.addEventListener('load', () => {
-    setTimeout(() => cachearTilesJaboatao().catch(() => {}), 4000);
-});
-</script>
-<script>
-  // ===== WAKE LOCK — Mantém a tela acesa =====
-  let wakeLock = null;
+function atualizarMeuMarcador(pos) {
+  if (meuMarcador) { meuMarcador.setLatLng(pos); return; }
+  const icon = L.divIcon({
+    html:`<div style="width:18px;height:18px;background:#3498db;border:3px solid white;border-radius:50%;box-shadow:0 0 0 6px rgba(52,152,219,0.22),0 3px 12px rgba(0,0,0,0.5);"></div>`,
+    className:'', iconSize:[18,18], iconAnchor:[9,9]
+  });
+  meuMarcador = L.marker(pos,{icon,zIndexOffset:3000}).addTo(map).bindPopup('<b>📍 Você está aqui</b>');
+}
 
-  async function ativarWakeLock() {
-    if (!('wakeLock' in navigator)) return;
-    try {
-      wakeLock = await navigator.wakeLock.request('screen');
-      console.log('[WakeLock] Tela mantida acesa ✅');
-    } catch (err) {
-      console.warn('[WakeLock] Não foi possível ativar:', err);
-    }
+function localizarMe() {
+  if (minhaPosicao) { map.setView(minhaPosicao,17,{animate:true}); }
+  else {
+    toast('📍 Aguardando GPS...');
+    navigator.geolocation.getCurrentPosition(pos=>{
+      minhaPosicao=[pos.coords.latitude,pos.coords.longitude];
+      atualizarMeuMarcador(minhaPosicao);
+      map.setView(minhaPosicao,17,{animate:true});
+    }, ()=>toast('❌ Localização indisponível'));
   }
+}
 
-  // Reativa ao voltar para a aba (ex: usuário minimizou e voltou)
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') ativarWakeLock();
+// ===== DADOS =====
+async function carregarRotas() {
+  const dia = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][new Date().getDay()];
+  const hoje = new Date().toISOString().split('T')[0];
+  const { data:todas } = await sb.from("delivery_routes").select("*").order("hora_saida",{ascending:true});
+
+  const rotasDia = (todas||[]).filter(r=> r.dias_semana && r.dias_semana.includes(dia));
+  rotasDisponiveis = rotasDia.filter(r=>{
+    const p=r.paradas||[];
+    return (r.status==='em_andamento'||r.status==='criada'||r.status==='aguardando') && p.length>0;
+  }).map(r=>{
+    const ativa = r.saida_em && r.saida_em.startsWith(hoje);
+    return (r.status==='em_andamento' && !ativa) ? {...r,status:'criada'} : r;
   });
 
-  // Ativa assim que a página carrega
-  window.addEventListener('load', ativarWakeLock);
+  document.getElementById('loadingState').style.display='none';
+
+  if (rotasDisponiveis.length===0) {
+    document.getElementById('emptyState').style.display='flex';
+    document.getElementById('rotaNome').textContent='Sem rotas';
+    return;
+  }
+
+  renderChipBar();
+  selecionarRota(rotasDisponiveis[0].id);
+}
+
+function renderChipBar() {
+  const bar=document.getElementById('chipBar');
+  if (rotasDisponiveis.length>1) {
+    bar.style.display='flex';
+    bar.innerHTML = rotasDisponiveis.map(r=>
+      `<div class="rota-chip" id="chip-${r.id}" onclick="selecionarRota('${r.id}')">${r.nome}</div>`
+    ).join('');
+  }
+}
+
+function selecionarRota(id) {
+  rotaAtual = rotasDisponiveis.find(r=>r.id===id);
+  if (!rotaAtual) return;
+
+  document.querySelectorAll('.rota-chip').forEach(c=>c.classList.remove('active'));
+  const ch=document.getElementById(`chip-${id}`);
+  if(ch) ch.classList.add('active');
+
+  document.getElementById('rotaNome').textContent = rotaAtual.nome;
+
+  paradasAtuais = (rotaAtual.paradas||[]).filter(p=>p.status!==undefined);
+  paradaAtivIdx = paradasAtuais.findIndex(p=>p.status!=='entregue');
+
+  const temE = paradasAtuais.length>0;
+  document.getElementById('emptyState').style.display='none';
+  document.getElementById('statsRow').style.display = temE?'flex':'none';
+  document.getElementById('progWrap').style.display = temE?'block':'none';
+  document.getElementById('bottomNav').style.display = temE?'flex':'none';
+  document.getElementById('painelTitulo').textContent = temE
+    ? '📦 Entregas'
+    : `👥 Clientes (${(rotaAtual.paradas||[]).length})`;
+
+  renderParadas();
+  renderMarcadores();
+  atualizarStatus();
+  atualizarBottomNav();
+  ajustarBounds();
+}
+
+// ===== LISTA =====
+function renderParadas() {
+  const list=document.getElementById('paradasList');
+  list.innerHTML='';
+  const lista = paradasAtuais.length>0 ? paradasAtuais : (rotaAtual.paradas||[]);
+  if (lista.length===0) { document.getElementById('emptyState').style.display='flex'; return; }
+
+  lista.forEach((p,i)=>{
+    const ent=p.status==='entregue';
+    const temE=p.status!==undefined;
+    const ativa=temE && i===paradaAtivIdx;
+    const card=document.createElement('div');
+    card.className=`parada-card${ent?' entregue':''}${ativa?' ativa':''}${!temE?' semped':''}`;
+    card.id=`parada-card-${p.id}`;
+    const [lat,lon]=p.coords||[null,null];
+    const temC=lat&&lon;
+    const endL=p.endereco||(temC?`${lat.toFixed(4)},${lon.toFixed(4)}`:'Sem endereço');
+    const numL=temE?(ent?'✓':String(i+1)):'·';
+    const badge=!temE
+      ?`<span class="badge badge-s">👤 Sem entrega hoje</span>`
+      :ent?`<span class="badge badge-e">✅ Entregue</span>`
+          :`<span class="badge badge-p">📦 Pendente</span>`;
+    card.innerHTML=`
+      <div class="parada-header">
+        <div class="parada-num">${numL}</div>
+        <div class="parada-nome">${p.nome}</div>
+        ${ativa?'<span style="font-size:10px;font-weight:800;background:rgba(155,89,182,0.22);color:#d7bde2;padding:3px 8px;border-radius:20px;">▶ ATUAL</span>':''}
+      </div>
+      <div class="parada-end">📍 ${endL}</div>
+      <div class="parada-info">
+        ${badge}
+        ${p.eta_min?`<span class="badge badge-t">⏱️ ~${p.eta_min} min</span>`:''}
+      </div>
+      <div class="parada-actions">
+        ${temC
+          ?`<button class="btn-nav btn-maps" onclick="navMaps(${lat},${lon})">🗺️ Maps</button>
+            <button class="btn-nav btn-waze" onclick="navWaze(${lat},${lon})">🚗 Waze</button>`
+          :'<span style="font-size:11px;color:rgba(231,76,60,0.7);">⚠️ Sem coordenadas</span>'}
+        ${temE?`<button class="btn-nav btn-ok" id="btn-e-${p.id}" onclick="marcarEntregue('${p.id}')" ${ent?'disabled':''}>${ent?'✅':'✔ Entregue'}</button>`:''}
+      </div>`;
+    list.appendChild(card);
+  });
+}
+
+// ===== MARCADORES — TODOS OS CLIENTES =====
+function limparMarcadores() {
+  marcadores.forEach(m=>map.removeLayer(m));
+  marcadores=[];
+}
+
+function renderMarcadores() {
+  limparMarcadores();
+
+  // 'todas' → todos da rota; 'paradas' → só com entrega
+  const fonte = filtroAtual==='todas'
+    ? (rotaAtual.paradas||[])
+    : paradasAtuais;
+
+  fonte.forEach(p=>{
+    const [lat,lon]=p.coords||[];
+    if(!lat||!lon) return;
+
+    const ent=p.status==='entregue';
+    const temE=p.status!==undefined;
+
+    const ringColor = ent?'#27ae60': temE?'#9b59b6':'#6a6a9a';
+    const bgColor   = ent?'#0b3318': temE?'#2e1040':'#1a1a2e';
+    const avColor   = ent?'#2ecc71': temE?'#c39bd3':'#7a7aaa';
+    const nameBg    = ent?'rgba(10,50,25,0.92)':'rgba(12,8,32,0.92)';
+    const nameBdr   = ent?'rgba(46,204,113,0.45)':temE?'rgba(155,89,182,0.45)':'rgba(100,100,140,0.3)';
+
+    const badge = ent
+      ? `<div style="position:absolute;top:-3px;right:-3px;width:16px;height:16px;background:#27ae60;border-radius:50%;border:2px solid #061510;display:flex;align-items:center;justify-content:center;font-size:8px;color:white;font-weight:900;">✓</div>`
+      : '';
+
+    const icon = L.divIcon({
+      html:`
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px;pointer-events:none;">
+          <div style="background:${nameBg};color:white;font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:20px;white-space:nowrap;box-shadow:0 2px 10px rgba(0,0,0,0.85);border:1px solid ${nameBdr};letter-spacing:0.2px;">${p.nome}</div>
+          <div style="width:50px;height:50px;border-radius:50%;background:${bgColor};border:3px solid ${ringColor};box-shadow:0 0 0 3px rgba(0,0,0,0.5),0 6px 18px rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;position:relative;">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="${avColor}">
+              <circle cx="12" cy="8" r="4"/>
+              <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+            </svg>
+            ${badge}
+          </div>
+        </div>`,
+      className:'',
+      iconSize:[100,78],
+      iconAnchor:[50,78],
+      popupAnchor:[0,-82]
+    });
+
+    const statusTxt=ent?'✅ Entregue':temE?'📦 Pendente':'👤 Sem entrega hoje';
+    const m=L.marker([lat,lon],{icon}).addTo(map)
+      .bindPopup(`<div style="font-family:sans-serif;min-width:140px;">
+        <div style="font-weight:900;font-size:14px;margin-bottom:3px;">${p.nome}</div>
+        <div style="font-size:12px;color:#888;margin-bottom:6px;">${p.endereco||''}</div>
+        <div style="font-size:12px;font-weight:700;color:${ent?'#27ae60':temE?'#e67e22':'#888'}">${statusTxt}</div>
+      </div>`);
+
+    m.on('click',()=>{
+      abrirPainel();
+      setTimeout(()=>{
+        const el=document.getElementById(`parada-card-${p.id}`);
+        if(el) el.scrollIntoView({behavior:'smooth',block:'center'});
+      },380);
+    });
+    marcadores.push(m);
+  });
+
+  // Linha tracejada pendentes
+  const pendentes=paradasAtuais.filter(p=>p.status!=='entregue'&&p.coords?.[0]);
+  if(pendentes.length>=2){
+    marcadores.push(L.polyline(pendentes.map(p=>p.coords),{color:'#9b59b6',weight:2,opacity:0.32,dashArray:'10,8'}).addTo(map));
+  }
+}
+
+function ajustarBounds() {
+  const todos=(rotaAtual?.paradas||[]);
+  const pts=todos.filter(p=>p.coords?.[0]).map(p=>p.coords);
+  if(minhaPosicao) pts.push(minhaPosicao);
+  if(pts.length>0){
+    map.fitBounds(L.latLngBounds(pts),{
+      paddingTopLeft:[20,80],
+      paddingBottomRight:[20,100],
+      maxZoom:16
+    });
+  }
+}
+
+// ===== STATUS =====
+function atualizarStatus() {
+  const total=paradasAtuais.length;
+  const ent=paradasAtuais.filter(p=>p.status==='entregue').length;
+  const pend=total-ent;
+  const eta=pend>0?pend*12:0;
+  document.getElementById('statTotal').textContent=total;
+  document.getElementById('statPend').textContent=pend;
+  document.getElementById('statEntr').textContent=ent;
+  document.getElementById('statEta').textContent=eta>0?eta:'✓';
+  document.getElementById('progFill').style.width=total>0?(ent/total*100)+'%':'0%';
+  const totalC=(rotaAtual?.paradas||[]).length;
+  document.getElementById('painelMeta').textContent=
+    total>0?`${ent}/${total} entregues`:`${totalC} clientes no mapa`;
+}
+
+function atualizarBottomNav() {
+  const pend=paradasAtuais.filter(p=>p.status!=='entregue');
+  const btnP=document.getElementById('btnProxima');
+  const btnC=document.getElementById('btnConcluir');
+  if(paradasAtuais.length===0){ document.getElementById('bottomNav').style.display='none'; return; }
+  document.getElementById('bottomNav').style.display='flex';
+  if(pend.length===0){ btnP.style.display='none'; btnC.style.display='flex'; btnC.style.flex='1'; }
+  else { btnP.style.display='flex'; btnC.style.display='none'; }
+}
+
+// ===== AÇÕES =====
+async function marcarEntregue(paradaId) {
+  const p=paradasAtuais.find(x=>x.id===paradaId);
+  if(!p||p.status==='entregue') return;
+  p.status='entregue';
+  const {error}=await sb.from("delivery_routes").update({paradas:paradasAtuais}).eq("id",rotaAtual.id);
+  if(error){ toast('❌ Erro ao salvar.'); p.status='pendente'; return; }
+  paradaAtivIdx=paradasAtuais.findIndex(p2=>p2.status!=='entregue');
+  renderParadas(); renderMarcadores(); atualizarStatus(); atualizarBottomNav();
+  if(paradaAtivIdx>=0){
+    const next=document.getElementById(`parada-card-${paradasAtuais[paradaAtivIdx].id}`);
+    if(next) setTimeout(()=>next.scrollIntoView({behavior:'smooth',block:'center'}),200);
+    const c=paradasAtuais[paradaAtivIdx].coords;
+    if(c?.[0]) map.setView(c,15,{animate:true});
+  }
+  toast(`✅ ${p.nome} entregue!`);
+}
+
+function irProxima() {
+  if(paradaAtivIdx<0) return;
+  const p=paradasAtuais[paradaAtivIdx];
+  if(!p) return;
+  if(p.coords?.[0]) map.setView(p.coords,17,{animate:true});
+  abrirPainel();
+  setTimeout(()=>{
+    const card=document.getElementById(`parada-card-${p.id}`);
+    if(card) card.scrollIntoView({behavior:'smooth',block:'center'});
+  },380);
+}
+
+async function concluirRota() {
+  const {error}=await sb.from("delivery_routes").update({status:'concluido',fim_em:new Date().toISOString()}).eq("id",rotaAtual.id);
+  if(error){ toast('❌ Erro ao concluir.'); return; }
+  toast('🎉 Rota concluída!');
+  document.getElementById('btnConcluir').textContent='🎉 Concluída!';
+  document.getElementById('btnConcluir').disabled=true;
+  setTimeout(()=>{
+    rotasDisponiveis=rotasDisponiveis.filter(r=>r.id!==rotaAtual.id);
+    if(rotasDisponiveis.length>0){ renderChipBar(); selecionarRota(rotasDisponiveis[0].id); }
+    else { document.getElementById('emptyState').style.display='flex'; document.getElementById('bottomNav').style.display='none'; limparMarcadores(); }
+  },2000);
+}
+
+function navMaps(lat,lon){ window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}&travelmode=driving`,'_blank'); }
+function navWaze(lat,lon){ window.open(`https://waze.com/ul?ll=${lat},${lon}&navigate=yes`,'_blank'); }
+
+// ===== TOAST =====
+let toastT=null;
+function toast(msg){
+  const el=document.getElementById('toastEl');
+  el.textContent=msg; el.classList.add('show');
+  clearTimeout(toastT);
+  toastT=setTimeout(()=>el.classList.remove('show'),3000);
+}
+
+// ===== INIT =====
+window.onload=async()=>{
+  initMap();
+  await carregarRotas();
+  setInterval(async()=>{
+    if(!rotaAtual) return;
+    const {data}=await sb.from("delivery_routes").select("paradas").eq("id",rotaAtual.id).single();
+    if(data){
+      (data.paradas||[]).forEach(np=>{
+        const loc=paradasAtuais.find(p=>p.id===np.id);
+        if(loc && loc.status!==np.status && loc.status!=='entregue') loc.status=np.status;
+      });
+      paradaAtivIdx=paradasAtuais.findIndex(p=>p.status!=='entregue');
+      atualizarStatus(); atualizarBottomNav();
+    }
+  },30000);
+};
 </script>
 </body>
 </html>
