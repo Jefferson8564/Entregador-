@@ -233,6 +233,11 @@ let ultimaLat = null, ultimaLng = null;
 let gpsEnvioInterval = null;   // envia a cada 7s para config.admin_gps
 let syncRotaInterval = null;   // sync da rota a cada 30s
 
+// ── BEARING STATE ──
+let ultimaPosicao = null;
+let ultimaDirecao = 0;
+let meuMarcadorEl = null;
+
 // ── MAPA ──
 function initMap() {
   map = new maplibregl.Map({
@@ -279,9 +284,10 @@ function iniciarGPS() {
 function onPosicao(pos) {
   ultimaLat = pos.coords.latitude;
   ultimaLng = pos.coords.longitude;
+  const heading = pos.coords.heading;
   gpsOk = true;
   setGpsStatus('ok');
-  moverMoto(ultimaLat, ultimaLng);
+  moverEntregador(ultimaLat, ultimaLng, heading);
 }
 
 async function enviarGPSSupabase() {
@@ -329,23 +335,62 @@ function setGpsStatus(estado) {
   }
 }
 
-// ── MOVER MOTO NO MAPA (3D FIXO, NORTE SEMPRE) ──
-function moverMoto(lat, lng) {
-  minhaPosicao = [lng, lat];
+// ── CALCULAR ÂNGULO (bearing) ENTRE DOIS PONTOS ──
+function calcularAngulo(lat1, lng1, lat2, lng2) {
+  const toRad = d => d * Math.PI / 180;
+  const dLng = toRad(lng2 - lng1);
+  const y = Math.sin(dLng) * Math.cos(toRad(lat2));
+  const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2))
+          - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLng);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+// ── MOVER MOTO NO MAPA (3D GPS-STYLE: gira e inclina) ──
+function moverEntregador(novaLat, novaLng, headingGPS) {
+  let angulo = ultimaDirecao;
+
+  // 1. Cálculo da direção (Bearing)
+  if (ultimaPosicao) {
+    const dLat = Math.abs(novaLat - ultimaPosicao.lat);
+    const dLng = Math.abs(novaLng - ultimaPosicao.lng);
+    // Só atualiza o ângulo se houver movimento real (evita o mapa "vibrar" parado)
+    if (dLat + dLng > 0.00002) {
+      angulo = calcularAngulo(ultimaPosicao.lat, ultimaPosicao.lng, novaLat, novaLng);
+    }
+  } else if (headingGPS != null && !isNaN(headingGPS)) {
+    angulo = headingGPS;
+  }
+
+  ultimaDirecao = angulo;
+  minhaPosicao = [novaLng, novaLat];
+
+  // 2. Atualiza ou cria o marcador da moto
   if (!meuMarcador) {
     const el = document.createElement('div');
-    el.className = 'moto-wrap'; el.innerHTML = '🛵';
-    meuMarcador = new maplibregl.Marker({ element:el, anchor:'center' })
-      .setLngLat([lng, lat]).addTo(map);
-    // Pitch inicial na primeira posição
+    el.className = 'moto-wrap';
+    el.innerHTML = '🛵';
+    meuMarcadorEl = el;
+    meuMarcador = new maplibregl.Marker({ element: el, anchor: 'center' })
+      .setLngLat([novaLng, novaLat])
+      .addTo(map);
     map.setPitch(65);
   } else {
-    meuMarcador.setLngLat([lng, lat]);
+    meuMarcador.setLngLat([novaLng, novaLat]);
   }
+
+  // 3. MOVIMENTO ESTILO GPS: Centraliza, Rotaciona e Inclina (Pitch)
   map.easeTo({
-    center: [lng, lat], pitch: 65, bearing: 0, zoom: 17,
-    offset: [0, 150], duration: 1500, easing: t => t, essential: true
+    center: [novaLng, novaLat],
+    bearing: angulo, // Faz o mapa girar conforme a direção
+    pitch: 65,       // Inclinação 3D para ver o horizonte
+    zoom: 17,
+    offset: [0, 150],
+    duration: 2000,  // Transição suave
+    easing: t => t,
+    essential: true
   });
+
+  ultimaPosicao = { lat: novaLat, lng: novaLng };
 }
 
 // ── ABAS ──
