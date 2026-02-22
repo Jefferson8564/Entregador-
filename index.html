@@ -197,6 +197,18 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); col
   </div>
 </div>
 
+<!-- DESISTIR MODAL -->
+<div id="desistirModal" style="position:fixed;inset:0;z-index:8200;background:rgba(0,0,0,0.75);backdrop-filter:blur(8px);display:none;align-items:flex-end;justify-content:center;">
+  <div style="background:var(--surface);border-radius:28px 28px 0 0;padding:28px 20px 40px;width:100%;max-width:500px;border-top:1px solid rgba(255,71,87,0.3);animation:slideUp 0.35s cubic-bezier(0.34,1.4,0.64,1);">
+    <div style="font-size:44px;text-align:center;margin-bottom:12px;">⚠️</div>
+    <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:900;text-align:center;margin-bottom:6px;">Desistir da rota?</div>
+    <div style="font-size:13px;color:var(--text-dim);text-align:center;margin-bottom:8px;line-height:1.6;" id="desistirSub">As entregas já realizadas serão mantidas. A rota voltará para o status inicial.</div>
+    <div style="font-size:12px;color:var(--red);text-align:center;margin-bottom:24px;font-weight:700;" id="desistirPendentes"></div>
+    <button onclick="executarDesistirRota()" style="width:100%;padding:16px;border:none;border-radius:16px;font-size:15px;font-weight:800;cursor:pointer;font-family:'DM Sans',sans-serif;background:var(--red);color:#fff;margin-bottom:10px;">⚠️ Sim, desistir</button>
+    <button onclick="document.getElementById('desistirModal').style.display='none'" style="width:100%;padding:14px;border:1px solid var(--border);border-radius:16px;background:transparent;color:var(--text-muted);font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Cancelar</button>
+  </div>
+</div>
+
 <!-- CONFIRM MODAL -->
 <div id="confirmModal">
   <div class="confirm-box">
@@ -649,7 +661,7 @@ async function carregarDados() {
     sb.from("delivery_routes").select("*").order("hora_saida",{ascending:true}),
     sb.from("clients").select("*"),
     sb.from("orders")
-      .select("customer_phone, customer_name, delivery_address, delivery_lat, delivery_lon, total, payment_method, id")
+      .select("customer_phone, customer_name, client_name, total, payment_method, id, details, items")
       .gte("created_at",hoje+'T00:00:00').lte("created_at",hoje+'T23:59:59')
   ]);
 
@@ -686,15 +698,13 @@ async function carregarDados() {
         const pedido = pedidoPorPhone[p.cliente_phone];
         const cli    = clientePorPhone[p.cliente_phone];
 
-        // Tenta obter coordenadas: template → pedido → cliente cadastrado
+        // Tenta obter coordenadas: template → cliente cadastrado
         let coords = p.coords || null;
-        if (!coords && pedido?.delivery_lat && pedido?.delivery_lon)
-          coords = [parseFloat(pedido.delivery_lat), parseFloat(pedido.delivery_lon)];
         if (!coords && cli?.delivery_lat && cli?.delivery_lon)
           coords = [parseFloat(cli.delivery_lat), parseFloat(cli.delivery_lon)];
 
-        // Endereço: template → pedido → cliente
-        const endereco = p.endereco || pedido?.delivery_address || cli?.delivery_address || '';
+        // Endereço: template → cliente
+        const endereco = p.endereco || cli?.delivery_address || '';
 
         // Status preservado se rota já em andamento
         const statusSalvo = rota.status==='em_andamento'
@@ -705,7 +715,7 @@ async function carregarDados() {
           ...p,
           coords,
           endereco,
-          nome: p.nome || p.name || cli?.name || pedido?.customer_name || p.cliente_phone,
+          nome: p.nome || p.name || cli?.name || pedido?.customer_name || pedido?.client_name || p.cliente_phone,
           status: statusSalvo,
           eta_min: Math.round((i+1)*mediaMinPorParada),
           total: pedido?.total || p.total || 0,
@@ -750,7 +760,8 @@ async function verificarAutoInicioRotas(horaAgoraMin) {
     if (!r.hora_saida) return true; // sem horário definido → sempre elegível
     const [h,m] = r.hora_saida.split(':').map(Number);
     const horaSaida = h*60 + m;
-    return horaAgoraMin >= horaSaida;
+    // Só inicia se estiver dentro da janela: horário chegou E não passou mais de 60 min
+    return horaAgoraMin >= horaSaida && horaAgoraMin <= horaSaida + 60;
   });
 
   if (candidatas.length === 0) return;
@@ -1017,6 +1028,7 @@ function renderRotaAtiva() {
       <div class="rota-stat"><div class="rota-stat-val" style="color:var(--blue);">${min}</div><div class="rota-stat-lbl">min est.</div></div>
     </div>
   </div>
+  <button onclick="confirmarDesistirRota()" style="width:100%;margin-top:4px;margin-bottom:4px;padding:11px;border:1px solid rgba(255,71,87,0.3);border-radius:14px;background:rgba(255,71,87,0.08);color:var(--red);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.2px;">⚠️ Desistir da rota</button>
   ${prox?`<div class="proxima-card" id="proximaCard">
     <div class="proxima-lbl">▶ Próxima parada</div>
     <div class="proxima-nome">${prox.nome}</div>
@@ -1057,6 +1069,38 @@ function renderTodasRotas() {
       ${btnIniciar}
     </div>`;
   }).join('');
+}
+
+// ===== DESISTIR DA ROTA =====
+function confirmarDesistirRota() {
+  if (!rotaAtual) return;
+  const pend = paradasList.filter(p => p.status === 'pendente').length;
+  const ent  = paradasList.filter(p => p.status === 'entregue').length;
+  document.getElementById('desistirPendentes').textContent =
+    pend > 0 ? `⚠️ Ainda há ${pend} entrega${pend>1?'s':''} pendente${pend>1?'s':''}.` : '';
+  document.getElementById('desistirSub').textContent =
+    ent > 0
+      ? `${ent} entrega${ent>1?'s foram':' foi'} realizada${ent>1?'s':''}. A rota voltará ao status inicial.`
+      : 'Nenhuma entrega foi realizada. A rota voltará ao status inicial.';
+  document.getElementById('desistirModal').style.display = 'flex';
+  fecharPainel();
+}
+async function executarDesistirRota() {
+  document.getElementById('desistirModal').style.display = 'none';
+  if (!rotaAtual) return;
+  // Reseta paradas pendentes mantendo as entregues
+  const paradasReset = paradasList.map(p => ({...p, status: p.status === 'entregue' ? 'entregue' : 'pendente'}));
+  await sb.from("delivery_routes").update({
+    status: 'criada',
+    saida_em: null,
+    paradas: paradasReset
+  }).eq("id", rotaAtual.id);
+  showToast(`❌ Rota "${rotaAtual.nome}" abandonada.`, 'warn');
+  rotaAtual = null; paradasList = [];
+  cacheRotaCompleta = null; cacheRotaCompletaKey = ''; ultimaProximaId = null;
+  setGJ('rota-completa', null); setGJ('rota-proxima', null);
+  await sb.from("config").upsert({ key:"admin_gps", value:JSON.stringify({lat:null,lon:null,ts:null}) },{onConflict:'key'});
+  await carregarDados();
 }
 
 async function iniciarRotaManual(rotaId) {
