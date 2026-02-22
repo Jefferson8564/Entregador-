@@ -114,10 +114,22 @@
             overflow: hidden;   /* corta as bordas quando o container expande na rotação */
         }
 
-        /* O mapa em si é maior que a tela para acomodar a rotação sem bordas brancas */
+        /* O mapa é maior que a tela para cobrir os cantos durante a rotação.
+           √2 × maior dimensão garante cobertura em qualquer ângulo.
+           O overflow:hidden no wrapper corta o excesso. */
         #mapaDiv {
             width: 100%;
             height: 100%;
+        }
+
+        /* Quando giroscópio ativo, o container do mapa fica expandido */
+        #mapaDiv.giro-ativo {
+            width: 200%;
+            height: 200%;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
         }
 
         /* Moto fixa — posicionada no inferior da tela (25% do topo para o rodapé)
@@ -783,6 +795,10 @@ function inicializarMapa() {
     mapaObj.keyboard.disable();
     if (mapaObj.tap) mapaObj.tap.disable();
 
+    // Expande o container já na inicialização (giroAtivo = true por padrão)
+    document.getElementById('mapaDiv').classList.add('giro-ativo');
+    setTimeout(() => { mapaObj.invalidateSize(); }, 100);
+
     iniciarLoopGiro();
 }
 
@@ -808,29 +824,26 @@ function anguloMinimo(diff) {
     return diff;
 }
 
-// Rotaciona os panes do Leaflet em torno do ponto onde a moto aparece na tela.
-// O #mapaWrapper tem overflow:hidden — corta as bordas sem precisar expandir nada.
+// Rotaciona o container inteiro do Leaflet em torno da posição da moto na tela.
+// O container tem 200%×200% centralizado via CSS (.giro-ativo).
+// Rodando o container inteiro, o Leaflet carrega tiles para toda a área expandida
+// e não ficam bordas/cantos vazios em nenhum ângulo de rotação.
 function aplicarRotacaoMapa(graus) {
     if (!mapaObj) return;
 
     const container = mapaObj.getContainer();
-    const W = container.clientWidth;
-    const H = container.clientHeight;
+    const W = window.innerWidth;
+    const H = window.innerHeight;
 
-    // Pivot = posição da moto na tela (centro X, bottom 22% = 78% do topo)
-    const pivotX = W / 2;
-    const pivotY = H * 0.78;
+    // O container tem 200% da tela (2W × 2H), centrado via translate(-50%,-50%).
+    // O pivot na tela é: centro X = W/2, moto Y = H*0.78
+    // Em coordenadas do container (que começa em -W/2, -H/2 relativo à tela):
+    const pivotNoContainer_X = W / 2 + W / 2;   // = W  (dentro do container 2W)
+    const pivotNoContainer_Y = H * 0.78 + H / 2; // = H*1.28 (dentro do container 2H)
 
-    // Lista de panes que precisam girar (tiles + marcadores + overlays)
-    const panes = ['tilePane', 'overlayPane', 'shadowPane', 'markerPane', 'tooltipPane', 'popupPane'];
-    panes.forEach(name => {
-        const pane = mapaObj.getPane(name);
-        if (pane) {
-            pane.style.transformOrigin = `${pivotX}px ${pivotY}px`;
-            pane.style.transform      = `rotate(${-graus}deg)`;
-            pane.style.willChange     = 'transform';
-        }
-    });
+    container.style.transformOrigin = `${pivotNoContainer_X}px ${pivotNoContainer_Y}px`;
+    container.style.transform       = `translate(-50%, -50%) rotate(${-graus}deg)`;
+    container.style.willChange      = 'transform';
 
     // Agulha contra-rotaciona → sempre aponta Norte
     const needle = document.getElementById('compassNeedle');
@@ -851,6 +864,10 @@ function toggleGiroMode() {
         if (motoFixaEl) motoFixaEl.style.display = 'flex';
         if (motoMarker) { try { mapaObj.removeLayer(motoMarker); } catch(e){} motoMarker = null; }
 
+        // Expande o container para cobrir cantos na rotação
+        document.getElementById('mapaDiv').classList.add('giro-ativo');
+        setTimeout(() => { mapaObj.invalidateSize(); }, 50);
+
         // Bloqueia interação manual — mapa só segue GPS e rotação automática
         mapaObj.dragging.disable();
         mapaObj.touchZoom.disable();
@@ -862,18 +879,30 @@ function toggleGiroMode() {
 
         showToast('🗺️ Mapa rotacional ativado', 'success');
     } else {
-        // Zera a rotação de todos os panes
+        // Zera a rotação do container
+        const container = mapaObj.getContainer();
+        container.style.transform = 'translate(-50%, -50%)';
+        container.style.transformOrigin = '';
+
+        // Zera os panes também (segurança)
         const panes = ['tilePane','overlayPane','shadowPane','markerPane','tooltipPane','popupPane'];
         panes.forEach(name => {
             const pane = mapaObj.getPane(name);
-            if (pane) { pane.style.transform = 'none'; pane.style.transformOrigin = ''; }
+            if (pane) { pane.style.transform = ''; pane.style.transformOrigin = ''; }
         });
+
         mapaRotacaoAtual = 0;
         bearingAlvo      = 0;
         btn.style.borderColor = 'var(--border)';
         btn.style.background  = 'rgba(10,10,15,0.85)';
         if (needle)    needle.style.transform = 'rotate(0deg)';
         if (motoFixaEl) motoFixaEl.style.display = 'none';
+
+        // Volta ao tamanho normal
+        const mapaDiv = document.getElementById('mapaDiv');
+        mapaDiv.classList.remove('giro-ativo');
+        mapaDiv.style.transform = '';
+        setTimeout(() => { mapaObj.invalidateSize(); }, 50);
 
         // Libera interação manual no modo normal
         mapaObj.dragging.enable();
