@@ -496,10 +496,9 @@
 <div id="rotaBadge">
   <div class="rb-dot"></div>
   <div class="rb-info">
-    <div class="rb-nome" id="rbNome">Rota</div>
     <div class="rb-dist" id="rbDist">Calculando...</div>
   </div>
-  <button class="rb-fechar" onclick="cancelarNavAvulsa()">✕</button>
+  <button class="rb-fechar" style="width:auto;border-radius:14px;padding:0 12px;font-size:11px;font-weight:800;" onclick="cancelarNavAvulsa()">✕ Cancelar Rota</button>
 </div>
 
 <div class="toast-msg" id="toastMsg"></div>
@@ -581,7 +580,7 @@ function ativarModo2D() {
     pitch: 0,
     bearing: 0,
     zoom: 15,
-    center: [-34.9289, -8.1649],
+    center: [-34.9384332, -8.1837433],
     offset: [0, 0],
     duration: 900,
     essential: true
@@ -625,7 +624,7 @@ function initMap() {
   map = new maplibregl.Map({
     container: 'map',
     style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-    center: [-34.9289, -8.1649],
+    center: [-34.9384332, -8.1837433],
     zoom: 15,
     pitch: 0,
     bearing: 0,
@@ -654,11 +653,29 @@ function initMap() {
       type: 'geojson',
       data: { type:'FeatureCollection', features:[] }
     });
-    // Glow (camada de baixo)
+    // Rota total — linha vermelha transparente
     map.addLayer({
-      id: 'nav-avulsa-glow',
+      id: 'nav-avulsa-total',
       type: 'line',
       source: 'nav-avulsa-line',
+      paint: {
+        'line-color': '#ff4757',
+        'line-width': 3,
+        'line-opacity': 0.35,
+        'line-dasharray': [4, 3]
+      }
+    });
+
+    // Source separado para o segmento atual (verde)
+    map.addSource('nav-proximo-line', {
+      type: 'geojson',
+      data: { type:'FeatureCollection', features:[] }
+    });
+    // Glow verde
+    map.addLayer({
+      id: 'nav-proximo-glow',
+      type: 'line',
+      source: 'nav-proximo-line',
       paint: {
         'line-color': '#00e87a',
         'line-width': 14,
@@ -666,15 +683,15 @@ function initMap() {
         'line-blur': 5
       }
     });
-    // Linha principal animada
+    // Linha verde principal
     map.addLayer({
-      id: 'nav-avulsa-layer',
+      id: 'nav-proximo-layer',
       type: 'line',
-      source: 'nav-avulsa-line',
+      source: 'nav-proximo-line',
       paint: {
         'line-color': '#00e87a',
         'line-width': 4,
-        'line-opacity': 0.9,
+        'line-opacity': 0.95,
         'line-dasharray': [2, 2.5]
       }
     });
@@ -1232,6 +1249,7 @@ function cancelarNavAvulsa() {
 
   document.getElementById('rotaBadge').classList.remove('visivel');
   try { map.getSource('nav-avulsa-line').setData({ type:'FeatureCollection', features:[] }); } catch(e){}
+  try { map.getSource('nav-proximo-line').setData({ type:'FeatureCollection', features:[] }); } catch(e){}
 
   // Remove marcação visual dos clientes
   document.querySelectorAll('.marker-client-wrap.nav-ativo').forEach(el => el.classList.remove('nav-ativo'));
@@ -1243,8 +1261,6 @@ function _atualizarBadge() {
   const badge = document.getElementById('rotaBadge');
   if (navFila.length === 0) { badge.classList.remove('visivel'); return; }
 
-  const nomes = navFila.map(c => c.name || 'Cliente').join(' → ');
-  document.getElementById('rbNome').textContent = nomes;
   document.getElementById('rbDist').textContent = '⏳ Calculando...';
   badge.classList.add('visivel');
 }
@@ -1305,6 +1321,7 @@ function _checarDesvio() {
 
   const [lng, lat] = minhaPosicao;
   let minDist = Infinity;
+  let closestIdx = 0;
   for (let i = 0; i < navRotaCoords.length - 1; i++) {
     const [aLng, aLat] = navRotaCoords[i];
     const [bLng, bLat] = navRotaCoords[i+1];
@@ -1312,7 +1329,7 @@ function _checarDesvio() {
     const len2 = dx*dx+dy*dy;
     let t = len2 === 0 ? 0 : Math.max(0,Math.min(1,((lng-aLng)*dx+(lat-aLat)*dy)/len2));
     const d = _distM(lat, lng, aLat+t*dy, aLng+t*dx);
-    if (d < minDist) minDist = d;
+    if (d < minDist) { minDist = d; closestIdx = i; }
   }
 
   if (minDist > NAV_DESVIO) {
@@ -1320,6 +1337,13 @@ function _checarDesvio() {
     navRotaCoords = null;
     _calcularRotaFila();
   } else {
+    // Apaga trecho já percorrido — mantém apenas da posição atual em diante
+    if (closestIdx > 0) {
+      navRotaCoords = [[lng, lat], ...navRotaCoords.slice(closestIdx + 1)];
+    }
+    // Atualiza linhas
+    _aplicarRota(navRotaCoords);
+
     // Verifica chegada ao próximo destino
     const prox = navFila[0];
     const dist = _distM(lat, lng, prox.delivery_lat, prox.delivery_lon);
@@ -1340,9 +1364,35 @@ function _checarDesvio() {
 
 function _aplicarRota(coords) {
   try {
+    // Linha vermelha transparente — rota total restante
     map.getSource('nav-avulsa-line').setData({
       type:'Feature', geometry:{ type:'LineString', coordinates:coords }
     });
+  } catch(e) {}
+
+  // Linha verde — apenas do entregador até o próximo destino
+  try {
+    if (minhaPosicao && navFila.length > 0) {
+      const prox = navFila[0];
+      // Pega somente a parte inicial da rota OSRM até o primeiro waypoint
+      // Usa os primeiros pontos até chegar perto do destino da fila[0]
+      const destLat = prox.delivery_lat;
+      const destLng = prox.delivery_lon;
+      let cutIdx = coords.length - 1;
+      let minD = Infinity;
+      for (let i = 0; i < coords.length; i++) {
+        const d = _distM(destLat, destLng, coords[i][1], coords[i][0]);
+        if (d < minD) { minD = d; cutIdx = i; }
+      }
+      const segmento = coords.slice(0, cutIdx + 1);
+      map.getSource('nav-proximo-line').setData({
+        type:'Feature', geometry:{ type:'LineString', coordinates: segmento.length >= 2 ? segmento : coords }
+      });
+    } else {
+      map.getSource('nav-proximo-line').setData({
+        type:'Feature', geometry:{ type:'LineString', coordinates: coords }
+      });
+    }
   } catch(e) {}
 }
 
