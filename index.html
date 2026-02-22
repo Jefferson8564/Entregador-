@@ -8,9 +8,27 @@
 <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet"/>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800;900&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; font-family:'Segoe UI',system-ui,sans-serif; }
-  html, body { width:100%; height:100%; overflow:hidden; background:#0d0d1a; }
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --surface2: #1a1a26;
+    --border: rgba(255,255,255,0.07);
+    --primary: #f5a623;
+    --primary-glow: rgba(245,166,35,0.3);
+    --green: #00e87a;
+    --green-glow: rgba(0,232,122,0.25);
+    --blue: #3d9cff;
+    --red: #ff4757;
+    --text: #f0f0f8;
+    --text-dim: rgba(240,240,248,0.5);
+    --text-muted: rgba(240,240,248,0.28);
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); color:var(--text); font-family:'DM Sans',sans-serif; }
 
   /* MAPA FULLSCREEN */
   #map { position:fixed; inset:0; width:100%; height:100%; z-index:1; }
@@ -18,67 +36,68 @@
   /* ABAS SUPERIORES */
   #tabBar {
     position:fixed;
-    top:12px; left:12px;
+    top:14px; left:12px;
     display:flex;
-    gap:8px;
-    z-index:100;
+    gap:6px;
+    z-index:400;
+    pointer-events:all;
   }
   .tab-btn {
-    padding:9px 14px;
-    border:none;
-    border-radius:12px;
-    font-size:13px;
+    padding:8px 14px;
+    border:1px solid var(--border);
+    border-radius:22px;
+    font-size:12px;
     font-weight:700;
     cursor:pointer;
-    backdrop-filter:blur(14px);
-    -webkit-backdrop-filter:blur(14px);
-    display:flex;
-    align-items:center;
-    gap:5px;
-    transition:0.15s;
-    letter-spacing:0.2px;
-    box-shadow:0 2px 10px rgba(0,0,0,0.35);
+    background:rgba(10,10,15,0.82);
+    backdrop-filter:blur(16px);
+    -webkit-backdrop-filter:blur(16px);
+    color:var(--text-dim);
+    transition:all 0.2s;
+    font-family:'DM Sans',sans-serif;
+    display:flex; align-items:center; gap:5px;
+  }
+  .tab-btn:active { transform:scale(0.94); }
+  .tab-btn.active {
+    background:rgba(245,166,35,0.18);
+    border-color:rgba(245,166,35,0.45);
+    color:var(--primary);
   }
   .tab-btn.inactive {
-    background:rgba(25,25,50,0.78);
-    color:rgba(255,255,255,0.65);
-    border:1px solid rgba(255,255,255,0.08);
-  }
-  .tab-btn.active {
-    background:rgba(30,30,65,0.95);
-    color:#fff;
-    border:1px solid rgba(255,255,255,0.2);
-    box-shadow:0 2px 14px rgba(0,0,0,0.5);
+    background:rgba(10,10,15,0.82);
+    color:var(--text-dim);
+    border:1px solid var(--border);
   }
 
-  /* INDICADOR GPS */
+  /* INDICADOR GPS — estilo badge antigo */
   #gpsIndicator {
     position:fixed;
-    top:12px; right:12px;
-    background:rgba(190,35,35,0.9);
-    color:white;
-    border-radius:10px;
-    padding:7px 11px;
-    font-size:12px;
-    font-weight:800;
-    display:flex;
-    align-items:center;
-    gap:6px;
-    z-index:200;
-    backdrop-filter:blur(8px);
-    box-shadow:0 2px 10px rgba(0,0,0,0.4);
-    transition:background 0.4s;
-    line-height:1.2;
-    text-align:center;
+    top:14px; right:12px;
+    display:flex; align-items:center; gap:6px;
+    padding:7px 13px; border-radius:22px;
+    font-size:11px; font-weight:700;
+    background:rgba(255,71,87,0.12);
+    border:1px solid rgba(255,71,87,0.35);
+    color:var(--red);
+    backdrop-filter:blur(16px);
+    -webkit-backdrop-filter:blur(16px);
+    white-space:nowrap;
+    transition:all 0.3s;
+    z-index:400;
   }
-  #gpsIndicator.ok { background:rgba(22,160,60,0.88); }
+  #gpsIndicator.ok {
+    background:rgba(0,232,122,0.15);
+    border-color:rgba(0,232,122,0.35);
+    color:var(--green);
+  }
   .gps-dot {
-    width:8px; height:8px; border-radius:50%;
-    background:white;
-    animation:pulse 1.2s infinite;
+    width:7px; height:7px; border-radius:50%;
+    background:var(--red);
+    animation:gpsDot 1.2s ease-in-out infinite;
     flex-shrink:0;
   }
-  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.35;transform:scale(0.65)} }
+  #gpsIndicator.ok .gps-dot { background:var(--green); }
+  @keyframes gpsDot { 0%,100%{opacity:1;transform:scale(1);} 50%{opacity:0.4;transform:scale(0.7);} }
 
   /* MARCADORES AVATAR */
   .marker-avatar-wrap {
@@ -86,184 +105,197 @@
     cursor:pointer; user-select:none;
   }
   .marker-name {
-    background:rgba(35,35,70,0.93);
-    color:#fff;
+    background:rgba(18,18,26,0.93);
+    color:var(--text);
     font-size:11px; font-weight:700;
     padding:2px 9px;
     border-radius:8px;
     margin-bottom:4px;
     white-space:nowrap;
-    backdrop-filter:blur(6px);
-    border:1px solid rgba(255,255,255,0.12);
-    box-shadow:0 1px 6px rgba(0,0,0,0.45);
+    backdrop-filter:blur(8px);
+    border:1px solid var(--border);
+    box-shadow:0 1px 6px rgba(0,0,0,0.5);
     line-height:1.6;
+    font-family:'DM Sans',sans-serif;
   }
   .marker-avatar {
     width:44px; height:44px;
     border-radius:50%;
-    border:2.5px solid rgba(255,255,255,0.25);
+    border:2.5px solid rgba(255,255,255,0.18);
     display:flex; align-items:center; justify-content:center;
     box-shadow:0 3px 14px rgba(0,0,0,0.55);
     overflow:hidden;
   }
   .marker-avatar.pendente  { background:radial-gradient(circle at 35% 35%, #8878e8, #5040b8); }
-  .marker-avatar.ativa     { background:radial-gradient(circle at 35% 35%, #e08838, #b05015); border-color:#ffb366; box-shadow:0 0 0 4px rgba(199,91,36,0.3),0 3px 14px rgba(0,0,0,0.55); }
-  .marker-avatar.entregue  { background:radial-gradient(circle at 35% 35%, #40b870, #1e7848); border-color:#66ffaa; }
+  .marker-avatar.ativa     { background:radial-gradient(circle at 35% 35%, #e08838, #b05015); border-color:var(--primary); box-shadow:0 0 0 4px var(--primary-glow),0 3px 14px rgba(0,0,0,0.55); }
+  .marker-avatar.entregue  { background:radial-gradient(circle at 35% 35%, #40b870, #1e7848); border-color:var(--green); }
   .marker-avatar svg { width:30px; height:30px; }
 
   /* MARCADOR MOTO */
   .moto-wrap {
     width:46px; height:46px; border-radius:50%;
-    background:rgba(240,150,30,0.18);
-    border:2.5px solid rgba(240,150,30,0.55);
-    box-shadow:0 0 0 7px rgba(240,130,20,0.1), 0 3px 16px rgba(0,0,0,0.5);
+    background:rgba(245,166,35,0.15);
+    border:2.5px solid rgba(245,166,35,0.5);
+    box-shadow:0 0 0 7px var(--primary-glow), 0 3px 16px rgba(0,0,0,0.5);
     display:flex; align-items:center; justify-content:center;
     font-size:24px; line-height:1;
   }
 
   /* FAB MOTO */
   #fabMoto {
-    position:fixed; bottom:26px; right:18px;
-    width:60px; height:60px; border-radius:50%;
-    background:linear-gradient(135deg, #f5a828, #e07012);
+    position:fixed; bottom:20px; right:16px;
+    width:52px; height:52px; border-radius:50%;
+    background:var(--primary);
     border:none;
-    box-shadow:0 4px 22px rgba(200,100,0,0.55), 0 2px 6px rgba(0,0,0,0.3);
-    font-size:26px; cursor:pointer; z-index:200;
+    box-shadow:0 4px 20px var(--primary-glow);
+    font-size:24px; cursor:pointer; z-index:500;
     display:flex; align-items:center; justify-content:center;
-    transition:0.15s;
+    transition:transform 0.2s;
   }
-  #fabMoto:active { transform:scale(0.92); }
+  #fabMoto:active { transform:scale(0.9); }
 
   /* BÚSSOLA */
   #compass {
-    position:fixed; bottom:100px; right:22px;
+    position:fixed; bottom:84px; right:16px;
     width:44px; height:44px; border-radius:50%;
-    background:rgba(18,18,40,0.85);
-    border:1.5px solid rgba(255,255,255,0.14);
-    backdrop-filter:blur(8px);
+    background:rgba(10,10,15,0.88);
+    border:1px solid var(--border);
+    backdrop-filter:blur(14px);
     display:flex; align-items:center; justify-content:center;
-    font-size:22px; cursor:pointer; z-index:200;
-    box-shadow:0 2px 12px rgba(0,0,0,0.45);
-    transition:0.18s;
+    font-size:20px; cursor:pointer; z-index:500;
+    box-shadow:0 2px 14px rgba(0,0,0,0.5);
+    transition:all 0.2s;
   }
-  #compass:active { transform:scale(0.92); }
+  #compass:active { transform:scale(0.9); }
 
   /* PAINEL INFERIOR */
   #paradasPanel {
     position:fixed; bottom:0; left:0; right:0;
-    background:rgba(12,12,26,0.97);
+    background:var(--surface);
     backdrop-filter:blur(22px);
     -webkit-backdrop-filter:blur(22px);
-    border-top:1px solid rgba(255,255,255,0.07);
-    border-radius:22px 22px 0 0;
-    z-index:150;
+    border-top:1px solid var(--border);
+    border-radius:24px 24px 0 0;
+    z-index:700;
     display:none; flex-direction:column;
-    max-height:78vh;
-    box-shadow:0 -6px 40px rgba(0,0,0,0.6);
+    max-height:75vh;
+    box-shadow:0 -8px 40px rgba(0,0,0,0.6);
     transform:translateY(100%);
-    transition:transform 0.32s cubic-bezier(0.32,0.72,0,1);
+    transition:transform 0.38s cubic-bezier(0.32,0.72,0,1);
+    padding-bottom:28px;
   }
   #paradasPanel.show { display:flex; transform:translateY(0); }
 
   #panelHandle {
-    width:38px; height:4px;
-    background:rgba(255,255,255,0.18);
+    width:40px; height:4px;
+    background:rgba(255,255,255,0.15);
     border-radius:2px;
-    margin:10px auto 0; flex-shrink:0;
+    margin:12px auto 0; flex-shrink:0;
   }
   #panelTitle {
     padding:12px 16px 8px;
-    font-size:15px; font-weight:800; color:white;
+    font-family:'Syne',sans-serif;
+    font-size:16px; font-weight:900; color:var(--text);
     flex-shrink:0; display:flex; align-items:center; justify-content:space-between;
   }
   #panelClose {
-    background:rgba(255,255,255,0.09); border:none; color:rgba(255,255,255,0.7);
-    border-radius:8px; padding:4px 11px; font-size:13px; cursor:pointer;
+    background:rgba(255,255,255,0.06);
+    border:1px solid var(--border);
+    color:var(--text-dim);
+    border-radius:16px; padding:5px 13px;
+    font-size:12px; font-weight:700; cursor:pointer;
+    font-family:'DM Sans',sans-serif;
   }
 
   /* PROGRESS */
   #progressBar {
-    height:4px; background:rgba(255,255,255,0.07);
-    flex-shrink:0; margin:0 16px 10px; border-radius:2px; overflow:hidden;
+    height:3px; background:rgba(255,255,255,0.06);
+    flex-shrink:0; margin:0 16px 10px; border-radius:10px; overflow:hidden;
   }
   #progressFill {
     height:100%;
-    background:linear-gradient(90deg,#27ae60,#2ecc71);
-    transition:width 0.5s ease; width:0%; border-radius:2px;
+    background:linear-gradient(90deg,var(--green),#00c060);
+    transition:width 0.5s ease; width:0%; border-radius:10px;
   }
 
   /* STATUS */
   #statusBar {
-    display:flex; justify-content:space-around;
-    padding:0 16px 10px; flex-shrink:0;
-    border-bottom:1px solid rgba(255,255,255,0.06);
-    margin-bottom:6px;
+    display:grid; grid-template-columns:repeat(4,1fr);
+    padding:0 14px 10px; flex-shrink:0;
+    border-bottom:1px solid var(--border);
+    margin-bottom:6px; gap:8px;
   }
-  .status-item { text-align:center; }
-  .status-num  { font-size:20px; font-weight:900; color:white; }
-  .status-label{ font-size:9px; color:rgba(255,255,255,0.38); font-weight:700; text-transform:uppercase; letter-spacing:0.5px; }
+  .status-item {
+    background:var(--surface2);
+    border-radius:12px; padding:10px 8px; text-align:center;
+  }
+  .status-num  { font-family:'Syne',sans-serif; font-size:20px; font-weight:900; color:var(--text); }
+  .status-label{ font-size:9px; color:var(--text-muted); font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin-top:2px; }
 
   /* LISTA */
   #paradasList {
-    overflow-y:auto; padding:6px 12px 28px;
+    overflow-y:auto; padding:6px 12px 8px;
     -webkit-overflow-scrolling:touch;
   }
   #loadingState {
     display:flex; flex-direction:column; align-items:center;
-    padding:40px; color:rgba(255,255,255,0.35); gap:12px;
+    padding:40px; color:var(--text-muted); gap:12px;
   }
   .spinner {
     width:32px; height:32px;
-    border:3px solid rgba(255,255,255,0.08);
-    border-top-color:#c75b24;
+    border:3px solid rgba(255,255,255,0.06);
+    border-top-color:var(--primary);
     border-radius:50%;
     animation:spin 0.8s linear infinite;
   }
   @keyframes spin { to{ transform:rotate(360deg); } }
   #emptyState {
     display:none; flex-direction:column; align-items:center;
-    padding:40px 20px; text-align:center; color:rgba(255,255,255,0.35);
+    padding:40px 20px; text-align:center; color:var(--text-muted);
   }
-  #emptyState .emoji { font-size:52px; margin-bottom:12px; }
-  #emptyState h3 { font-size:16px; color:rgba(255,255,255,0.65); margin-bottom:6px; }
-  #emptyState p  { font-size:12px; line-height:1.6; }
+  #emptyState .emoji { font-size:48px; margin-bottom:12px; opacity:0.5; }
+  #emptyState h3 { font-family:'Syne',sans-serif; font-size:16px; font-weight:800; color:var(--text-dim); margin-bottom:6px; }
+  #emptyState p  { font-size:13px; line-height:1.6; }
 
-  /* CARD */
+  /* CARD PARADA */
   .parada-card {
-    background:rgba(255,255,255,0.045);
-    border-radius:14px; padding:12px 14px; margin-bottom:8px;
-    border-left:3px solid rgba(241,196,15,0.5);
-    transition:0.2s;
+    background:var(--surface2);
+    border-radius:16px; padding:12px 14px; margin-bottom:8px;
+    border:1px solid var(--border);
+    border-left:3px solid rgba(61,156,255,0.5);
+    transition:opacity 0.3s;
   }
-  .parada-card.entregue { border-left-color:rgba(39,174,96,0.5); opacity:0.55; }
-  .parada-card.ativa    { border-left-color:#c75b24; background:rgba(199,91,36,0.1); box-shadow:0 0 0 1px rgba(199,91,36,0.28); }
+  .parada-card.entregue { border-left-color:rgba(0,232,122,0.4); opacity:0.45; }
+  .parada-card.ativa    { border-left-color:var(--primary); background:rgba(245,166,35,0.07); box-shadow:0 0 0 1px rgba(245,166,35,0.2); }
   .parada-header { display:flex; align-items:center; gap:10px; margin-bottom:6px; }
   .parada-num {
-    width:28px; height:28px; border-radius:50%;
+    width:32px; height:32px; border-radius:50%;
     display:flex; align-items:center; justify-content:center;
     font-weight:900; font-size:12px; flex-shrink:0;
-    background:rgba(241,196,15,0.22); color:#f1c40f;
+    background:rgba(61,156,255,0.2); color:var(--blue);
+    border:1.5px solid rgba(61,156,255,0.4);
   }
-  .parada-card.entregue .parada-num { background:rgba(39,174,96,0.22); color:#2ecc71; }
-  .parada-card.ativa    .parada-num { background:rgba(199,91,36,0.4); color:#fff; }
-  .parada-nome { font-size:14px; font-weight:800; color:white; flex:1; }
-  .parada-end  { font-size:11px; color:rgba(255,255,255,0.38); margin-bottom:8px; line-height:1.5; }
+  .parada-card.entregue .parada-num { background:rgba(0,232,122,0.15); color:var(--green); border-color:rgba(0,232,122,0.3); }
+  .parada-card.ativa    .parada-num { background:rgba(245,166,35,0.2); color:var(--primary); border-color:rgba(245,166,35,0.4); animation:gpsDot 1.2s infinite; }
+  .parada-nome { font-size:14px; font-weight:700; color:var(--text); flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .parada-end  { font-size:11px; color:var(--text-muted); margin-bottom:8px; line-height:1.5; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .parada-info { display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap; }
-  .badge { font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; }
-  .badge-pendente { background:rgba(241,196,15,0.13); color:#f1c40f; }
-  .badge-entregue { background:rgba(39,174,96,0.13); color:#2ecc71; }
-  .badge-eta      { background:rgba(52,152,219,0.13); color:#5dade2; }
+  .badge { font-size:10px; font-weight:700; padding:3px 10px; border-radius:20px; }
+  .badge-pendente { background:rgba(61,156,255,0.13); color:var(--blue); border:1px solid rgba(61,156,255,0.25); }
+  .badge-entregue { background:rgba(0,232,122,0.12); color:var(--green); border:1px solid rgba(0,232,122,0.25); }
+  .badge-eta      { background:rgba(245,166,35,0.12); color:var(--primary); border:1px solid rgba(245,166,35,0.25); }
   .parada-actions { display:flex; gap:6px; }
   .btn-nav {
-    flex:1; padding:9px; border:none; border-radius:10px;
+    flex:1; padding:9px; border:none; border-radius:12px;
     font-size:12px; font-weight:700; cursor:pointer; transition:0.15s;
     display:flex; align-items:center; justify-content:center; gap:4px;
+    font-family:'DM Sans',sans-serif;
   }
   .btn-nav:active { transform:scale(0.96); }
-  .btn-maps    { background:rgba(52,152,219,0.14); color:#5dade2; border:1px solid rgba(52,152,219,0.28); }
-  .btn-waze    { background:rgba(39,174,96,0.14); color:#2ecc71; border:1px solid rgba(39,174,96,0.28); }
-  .btn-entregue{ background:#25d366; color:white; border:none; }
-  .btn-entregue:disabled { background:rgba(255,255,255,0.08); color:rgba(255,255,255,0.28); cursor:not-allowed; }
+  .btn-maps    { background:rgba(61,156,255,0.12); color:var(--blue); border:1px solid rgba(61,156,255,0.3); }
+  .btn-waze    { background:rgba(0,232,122,0.1); color:var(--green); border:1px solid rgba(0,232,122,0.28); }
+  .btn-entregue{ background:var(--green); color:#000; border:none; font-weight:800; }
+  .btn-entregue:disabled { background:rgba(255,255,255,0.06); color:var(--text-muted); cursor:not-allowed; border:1px solid var(--border); }
 
   /* ROTA CHIPS */
   #rotaBar {
@@ -273,26 +305,31 @@
   }
   #rotaBar.show { display:flex; }
   .rota-chip {
-    white-space:nowrap; padding:5px 12px; border-radius:20px;
+    white-space:nowrap; padding:5px 14px; border-radius:20px;
     font-size:11px; font-weight:700; cursor:pointer; flex-shrink:0;
-    background:rgba(255,255,255,0.06); color:rgba(255,255,255,0.55);
-    border:1px solid rgba(255,255,255,0.09); transition:0.15s;
+    background:rgba(255,255,255,0.04); color:var(--text-dim);
+    border:1px solid var(--border); transition:0.2s;
   }
-  .rota-chip.active { background:rgba(199,91,36,0.45); color:white; border-color:rgba(199,91,36,0.65); }
+  .rota-chip.active { background:rgba(245,166,35,0.18); color:var(--primary); border-color:rgba(245,166,35,0.45); }
 
   /* TOAST */
   .toast-msg {
-    position:fixed; bottom:100px; left:50%; transform:translateX(-50%);
-    background:rgba(16,16,36,0.95); color:white;
-    padding:11px 18px; border-radius:20px; font-size:13px; font-weight:600;
+    position:fixed; bottom:90px; left:50%;
+    transform:translateX(-50%) translateY(60px);
+    background:var(--surface2);
+    border:1px solid var(--border);
+    color:var(--text);
+    padding:12px 20px; border-radius:20px;
+    font-size:13px; font-weight:700;
     z-index:9999; backdrop-filter:blur(14px);
-    opacity:0; transition:opacity 0.25s; white-space:nowrap; pointer-events:none;
-    border:1px solid rgba(255,255,255,0.09);
-    box-shadow:0 3px 14px rgba(0,0,0,0.4);
+    opacity:0; transition:all 0.4s cubic-bezier(0.34,1.56,0.64,1);
+    white-space:nowrap; pointer-events:none;
+    box-shadow:0 8px 32px rgba(0,0,0,0.5);
+    font-family:'DM Sans',sans-serif;
   }
-  .toast-msg.show { opacity:1; }
+  .toast-msg.show { opacity:1; transform:translateX(-50%) translateY(0); }
 
-  /* MARCADORES CLIENTES — mesmo estilo avatar das paradas */
+  /* MARCADORES CLIENTES */
   .marker-client-wrap {
     display:flex; flex-direction:column; align-items:center;
     cursor:pointer; user-select:none;
@@ -300,12 +337,13 @@
 
   /* POPUP MapLibre */
   .maplibregl-popup-content {
-    background:rgba(16,16,36,0.97); color:white;
-    border-radius:13px; padding:10px 14px; font-size:13px;
-    box-shadow:0 4px 22px rgba(0,0,0,0.55);
-    border:1px solid rgba(255,255,255,0.09);
+    background:var(--surface); color:var(--text);
+    border-radius:16px; padding:12px 16px; font-size:13px;
+    box-shadow:0 8px 32px rgba(0,0,0,0.6);
+    border:1px solid var(--border);
+    font-family:'DM Sans',sans-serif;
   }
-  .maplibregl-popup-close-button { color:rgba(255,255,255,0.45); font-size:17px; right:6px; top:4px; }
+  .maplibregl-popup-close-button { color:var(--text-dim); font-size:17px; right:6px; top:4px; }
   .maplibregl-ctrl-attrib { display:none !important; }
   .maplibregl-ctrl-bottom-right { bottom:92px !important; right:70px !important; }
 </style>
@@ -322,7 +360,7 @@
 </div>
 
 <!-- GPS -->
-<div id="gpsIndicator"><div class="gps-dot"></div>GPS<br>erro</div>
+<div id="gpsIndicator"><div class="gps-dot"></div>GPS erro</div>
 
 <!-- BÚSSOLA -->
 <div id="compass" onclick="resetNorth()">🧭</div>
@@ -447,7 +485,7 @@ function initMap() {
 function setGpsStatus(ok) {
   const el = document.getElementById('gpsIndicator');
   el.className = ok ? 'ok' : '';
-  el.innerHTML = `<div class="gps-dot"></div>GPS<br>${ok ? 'ok' : 'erro'}`;
+  el.innerHTML = `<div class="gps-dot"></div>GPS ${ok ? 'ok' : 'erro'}`;
 }
 
 // ── CÁLCULO DE ÂNGULO (bearing entre dois pontos) ──
