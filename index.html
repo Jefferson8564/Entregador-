@@ -335,15 +335,21 @@
     cursor:pointer; user-select:none;
     -webkit-user-select:none;
     touch-action:none;
+  }
+
+  /* Container relativo só ao redor do avatar — não afeta o marcador no mapa */
+  .marker-avatar-container {
     position:relative;
+    width:44px; height:44px;
+    display:flex; align-items:center; justify-content:center;
   }
 
   /* ANEL DE PROGRESSO — long-press 2s */
   .lp-ring {
     position:absolute;
     width:58px; height:58px;
-    top:calc(100% - 51px); left:50%;
-    transform:translateX(-50%) rotate(-90deg);
+    top:50%; left:50%;
+    transform:translate(-50%,-50%) rotate(-90deg);
     pointer-events:none;
     opacity:0;
     transition:opacity 0.15s;
@@ -374,82 +380,45 @@
     to   { transform:scale(1.14); box-shadow:0 0 0 8px rgba(0,232,122,0.22), 0 3px 14px rgba(0,0,0,0.55); }
   }
 
-  /* CHIP DE NAVEGAÇÃO AVULSA */
-  #navAvulsaChip {
+  /* POPUP MapLibre — desativado, não usado */
+  .maplibregl-popup { display:none !important; }
+  .maplibregl-ctrl-attrib { display:none !important; }
+  .maplibregl-ctrl-bottom-right { bottom:92px !important; right:70px !important; }
+
+  /* BADGE DE ROTA NO HEADER */
+  #rotaBadge {
     position:fixed;
-    bottom:84px; left:50%;
-    transform:translateX(-50%) translateY(20px);
-    z-index:600;
-    display:none; align-items:center; gap:10px;
-    padding:11px 12px 11px 16px;
-    border-radius:28px;
-    background:rgba(10,10,15,0.95);
+    top:14px; left:50%; transform:translateX(-50%);
+    z-index:500;
+    display:none; align-items:center; gap:8px;
+    padding:7px 14px 7px 12px;
+    border-radius:22px;
+    background:rgba(10,10,15,0.92);
     border:1.5px solid rgba(0,232,122,0.55);
-    box-shadow:0 4px 28px rgba(0,232,122,0.18), 0 2px 10px rgba(0,0,0,0.6);
-    backdrop-filter:blur(18px);
-    -webkit-backdrop-filter:blur(18px);
+    box-shadow:0 3px 18px rgba(0,232,122,0.18);
+    backdrop-filter:blur(16px);
+    -webkit-backdrop-filter:blur(16px);
     white-space:nowrap;
-    opacity:0;
-    transition:opacity 0.3s, transform 0.35s cubic-bezier(0.34,1.56,0.64,1);
-    pointer-events:none;
+    font-family:'DM Sans',sans-serif;
   }
-  #navAvulsaChip.visivel {
-    display:flex;
-    opacity:1;
-    transform:translateX(-50%) translateY(0);
-    pointer-events:all;
-  }
-  .nac-dot {
-    width:9px; height:9px; border-radius:50%;
+  #rotaBadge.visivel { display:flex; }
+  #rotaBadge .rb-dot {
+    width:7px; height:7px; border-radius:50%;
     background:var(--green); flex-shrink:0;
-    animation:navDotPulse 1s ease-in-out infinite;
+    animation:gpsDot 1s ease-in-out infinite;
   }
-  @keyframes navDotPulse { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(0.55);opacity:0.35} }
-  .nac-info { display:flex; flex-direction:column; gap:1px; }
-  .nac-nome { font-family:'Syne',sans-serif; font-size:13px; font-weight:900; color:var(--green); }
-  .nac-dist { font-size:11px; color:var(--text-dim); }
-  .nac-btns { display:flex; gap:6px; margin-left:4px; }
-  .nac-btn {
-    padding:6px 11px; border-radius:20px;
-    font-size:11px; font-weight:800; cursor:pointer;
-    font-family:'DM Sans',sans-serif; border:none;
-    transition:transform 0.15s;
-  }
-  .nac-btn:active { transform:scale(0.92); }
-  .nac-btn-maps { background:rgba(61,156,255,0.22); color:var(--blue); border:1px solid rgba(61,156,255,0.4); }
-  .nac-btn-waze { background:rgba(0,232,122,0.15); color:var(--green); border:1px solid rgba(0,232,122,0.35); }
-  .nac-btn-recalc {
-    width:30px; height:30px; border-radius:50%; padding:0;
-    background:rgba(245,166,35,0.18); color:var(--primary);
-    border:1px solid rgba(245,166,35,0.45);
-    display:flex; align-items:center; justify-content:center;
-    font-size:15px; cursor:pointer;
-    transition:transform 0.15s;
-  }
-  .nac-btn-recalc:active { transform:scale(0.9); }
-  .nac-btn-recalc.girando { animation:girarBtn 0.7s linear infinite; }
-  @keyframes girarBtn { to { transform:rotate(360deg); } }
-  .nac-btn-fechar {
-    width:30px; height:30px; border-radius:50%; padding:0;
+  #rotaBadge .rb-info { display:flex; flex-direction:column; gap:1px; }
+  #rotaBadge .rb-nome { font-family:'Syne',sans-serif; font-size:12px; font-weight:900; color:var(--green); }
+  #rotaBadge .rb-dist { font-size:10px; color:var(--text-dim); }
+  #rotaBadge .rb-fechar {
+    width:24px; height:24px; border-radius:50%; padding:0;
     background:rgba(255,71,87,0.15); color:var(--red);
     border:1px solid rgba(255,71,87,0.4);
     display:flex; align-items:center; justify-content:center;
-    font-size:15px; cursor:pointer;
-    transition:transform 0.15s;
+    font-size:13px; cursor:pointer; flex-shrink:0;
+    transition:transform 0.15s; margin-left:2px;
   }
-  .nac-btn-fechar:active { transform:scale(0.9); }
-
-  /* POPUP MapLibre */
-  .maplibregl-popup-content {
-    background:var(--surface); color:var(--text);
-    border-radius:16px; padding:12px 16px; font-size:13px;
-    box-shadow:0 8px 32px rgba(0,0,0,0.6);
-    border:1px solid var(--border);
-    font-family:'DM Sans',sans-serif;
-  }
-  .maplibregl-popup-close-button { color:var(--text-dim); font-size:17px; right:6px; top:4px; }
-  .maplibregl-ctrl-attrib { display:none !important; }
-  .maplibregl-ctrl-bottom-right { bottom:92px !important; right:70px !important; }
+  #rotaBadge .rb-fechar:active { transform:scale(0.88); }
 </style>
 </head>
 <body>
@@ -513,19 +482,14 @@
 </div>
 
 
-<!-- CHIP NAVEGAÇÃO AVULSA (long-press em cliente) -->
-<div id="navAvulsaChip">
-  <div class="nac-dot"></div>
-  <div class="nac-info">
-    <div class="nac-nome" id="nacNome">Cliente</div>
-    <div class="nac-dist" id="nacDist">Calculando...</div>
+<!-- BADGE DE ROTA NO HEADER -->
+<div id="rotaBadge">
+  <div class="rb-dot"></div>
+  <div class="rb-info">
+    <div class="rb-nome" id="rbNome">Rota</div>
+    <div class="rb-dist" id="rbDist">Calculando...</div>
   </div>
-  <div class="nac-btns">
-    <button class="nac-btn nac-btn-maps" id="nacBtnMaps">🗺️</button>
-    <button class="nac-btn nac-btn-waze" id="nacBtnWaze">🚗</button>
-    <button class="nac-btn-recalc" id="nacBtnRecalc" onclick="recalcularRotaAvulsa()" title="Recalcular rota">👤</button>
-    <button class="nac-btn-fechar" onclick="cancelarNavAvulsa()">✕</button>
-  </div>
+  <button class="rb-fechar" onclick="cancelarNavAvulsa()">✕</button>
 </div>
 
 <div class="toast-msg" id="toastMsg"></div>
@@ -606,7 +570,8 @@ function ativarModo2D() {
   map.easeTo({
     pitch: 0,
     bearing: 0,
-    zoom: 14,
+    zoom: 15,
+    center: [-34.9289, -8.1649],
     offset: [0, 0],
     duration: 900,
     essential: true
@@ -650,8 +615,8 @@ function initMap() {
   map = new maplibregl.Map({
     container: 'map',
     style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-    center: [-34.9, -8.05],
-    zoom: 14,
+    center: [-34.9289, -8.1649],
+    zoom: 15,
     pitch: 0,
     bearing: 0,
     attributionControl: false
@@ -1150,8 +1115,10 @@ function renderMarcadoresClientes() {
     el.className = 'marker-client-wrap';
     el.innerHTML = `
       <div class="marker-name">${c.name || 'Cliente'}</div>
-      <div class="marker-avatar pendente">${avatarSVG()}</div>
-      <svg class="lp-ring" viewBox="0 0 58 58"><circle/></svg>
+      <div class="marker-avatar-container">
+        <div class="marker-avatar pendente">${avatarSVG()}</div>
+        <svg class="lp-ring" viewBox="0 0 58 58"><circle/></svg>
+      </div>
     `;
 
     // ── Long-press: 2 segundos para iniciar navegação ──
