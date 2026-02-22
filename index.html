@@ -335,6 +335,8 @@
     cursor:pointer; user-select:none;
     -webkit-user-select:none;
     touch-action:none;
+    position:relative;
+    overflow:visible;
   }
 
   /* Container relativo só ao redor do avatar — não afeta o marcador no mapa */
@@ -1123,7 +1125,52 @@ function limparMarcadoresClientes() {
 }
 
 /**
- * renderMarcadoresClientes()
+ * Detecta marcadores sobrepostos e retorna offsets em pixels para separá-los.
+ * Agrupa clientes que estão muito próximos no mapa e os espalha em leque.
+ * @param {Array} clientes - lista de clientes com delivery_lat/delivery_lon
+ * @returns {Map} clienteId → {offsetX, offsetY} em pixels
+ */
+function calcularOffsets(clientes) {
+  const RAIO_COLISAO_GEO = 0.0004; // ~44m — distância mínima para considerar sobreposição
+  const SPREAD_PX = 52;             // distância em pixels para separar cada marcador
+
+  const offsets = new Map();
+  clientes.forEach(c => offsets.set(c.id, { offsetX: 0, offsetY: 0 }));
+
+  // Agrupa por proximidade geográfica
+  const visitados = new Set();
+  clientes.forEach((c, i) => {
+    if (visitados.has(c.id)) return;
+    const grupo = [c];
+    visitados.add(c.id);
+
+    clientes.forEach((d, j) => {
+      if (i === j || visitados.has(d.id)) return;
+      const dLat = Math.abs(c.delivery_lat - d.delivery_lat);
+      const dLng = Math.abs(c.delivery_lon - d.delivery_lon);
+      if (dLat < RAIO_COLISAO_GEO && dLng < RAIO_COLISAO_GEO) {
+        grupo.push(d);
+        visitados.add(d.id);
+      }
+    });
+
+    if (grupo.length > 1) {
+      // Espalha em círculo ao redor do centro
+      const angleStep = (2 * Math.PI) / grupo.length;
+      grupo.forEach((membro, idx) => {
+        const angle = idx * angleStep - Math.PI / 2; // começa do topo
+        offsets.set(membro.id, {
+          offsetX: Math.round(Math.cos(angle) * SPREAD_PX),
+          offsetY: Math.round(Math.sin(angle) * SPREAD_PX)
+        });
+      });
+    }
+  });
+
+  return offsets;
+}
+
+
  * Clientes SEMPRE aparecem no mapa — independente de ter rota ativa ou não.
  * Long-press de 2s inicia navegação avulsa até o cliente.
  */
@@ -1132,16 +1179,44 @@ function renderMarcadoresClientes() {
 
   const idsNaRota = new Set(paradasAtuais.map(p => p.client_id).filter(Boolean));
 
-  todosClientes.forEach(c => {
+  const clientesFiltrados = todosClientes.filter(c =>
+    c.delivery_lat && c.delivery_lon && !idsNaRota.has(c.id)
+  );
+
+  const offsets = calcularOffsets(clientesFiltrados);
+
+  clientesFiltrados.forEach(c => {
     const lat = c.delivery_lat;
     const lng = c.delivery_lon;
-    if (!lat || !lng) return;
-    if (idsNaRota.has(c.id)) return;
+    const off = offsets.get(c.id) || { offsetX: 0, offsetY: 0 };
+    const temOffset = off.offsetX !== 0 || off.offsetY !== 0;
 
     const el = document.createElement('div');
     el.className = 'marker-client-wrap';
     el.dataset.id = c.id;
+
+    // Linha fina conectando o avatar deslocado ao ponto real
+    let connectorHTML = '';
+    if (temOffset) {
+      const len = Math.round(Math.sqrt(off.offsetX ** 2 + off.offsetY ** 2));
+      const angle = Math.atan2(off.offsetX, -off.offsetY) * 180 / Math.PI;
+      // âncora: bottom do marcador = pé do avatar (offset já posicionado pelo MapLibre)
+      // a linha sai do centro do avatar para (0,0) que é o ponto geográfico real
+      connectorHTML = `<div style="
+        position:absolute;
+        bottom:0; left:50%;
+        width:1.5px; height:${len}px;
+        background:linear-gradient(to bottom, rgba(255,255,255,0.45), rgba(255,255,255,0.08));
+        border-radius:1px;
+        transform-origin:bottom center;
+        transform:translateX(-50%) rotate(${angle}deg);
+        pointer-events:none;
+        z-index:-1;
+      "></div>`;
+    }
+
     el.innerHTML = `
+      ${connectorHTML}
       <div class="marker-name">${c.name || 'Cliente'}</div>
       <div class="marker-avatar-container">
         <div class="marker-avatar pendente">${avatarSVG()}</div>
@@ -1149,21 +1224,17 @@ function renderMarcadoresClientes() {
       </div>
     `;
 
-    // ── Long-press: 2 segundos para iniciar navegação ──
     let pressTimer  = null;
     let pressing    = false;
     let pressStartX = 0;
     let pressStartY = 0;
 
     const startPress = (e) => {
-      // Pega coordenadas iniciais do toque
       const touch = e.touches ? e.touches[0] : e;
       pressStartX = touch.clientX;
       pressStartY = touch.clientY;
-
       pressing = true;
       el.classList.add('pressing');
-
       pressTimer = setTimeout(() => {
         if (!pressing) return;
         pressing = false;
@@ -1178,7 +1249,6 @@ function renderMarcadoresClientes() {
       const touch = e.touches ? e.touches[0] : e;
       const dx = Math.abs(touch.clientX - pressStartX);
       const dy = Math.abs(touch.clientY - pressStartY);
-      // Cancela se moveu mais de 10px (usuário está arrastando o mapa)
       if (dx > 10 || dy > 10) endPress();
     };
 
@@ -1189,22 +1259,21 @@ function renderMarcadoresClientes() {
       el.classList.remove('pressing');
     };
 
-    // stopPropagation impede que o MapLibre roube o evento touch
-    el.addEventListener('touchstart', (e) => {
-      e.stopPropagation();
-      startPress(e);
-    }, { passive: true });
+    el.addEventListener('touchstart', (e) => { e.stopPropagation(); startPress(e); }, { passive: true });
     el.addEventListener('touchmove',   (e) => { e.stopPropagation(); movePress(e); }, { passive: true });
     el.addEventListener('touchend',    (e) => { e.stopPropagation(); endPress(); });
     el.addEventListener('touchcancel', (e) => { e.stopPropagation(); endPress(); });
-    // Mouse (desktop)
     el.addEventListener('mousedown',  startPress);
     el.addEventListener('mousemove',  movePress);
     el.addEventListener('mouseup',    endPress);
     el.addEventListener('mouseleave', endPress);
 
-    // Sem popup — long-press abre rota direto
-    const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+    // Marcador com offset em pixels para separar sobrepostos
+    const marker = new maplibregl.Marker({
+      element: el,
+      anchor: 'bottom',
+      offset: [off.offsetX, off.offsetY]
+    })
       .setLngLat([lng, lat])
       .addTo(map);
 
