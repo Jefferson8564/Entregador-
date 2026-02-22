@@ -641,13 +641,24 @@ function _onMoveNavAvulsa() {
 async function carregarDados() {
   await calcularMediaEta();
   const hoje = new Date().toISOString().split('T')[0];
+  const agora = new Date();
+  const horaAgora = agora.getHours() * 60 + agora.getMinutes(); // minutos desde meia-noite
+  const diaSemana = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][agora.getDay()];
+
   const [{ data:rotas },{ data:clientes },{ data:pedidosHoje }] = await Promise.all([
     sb.from("delivery_routes").select("*").order("hora_saida",{ascending:true}),
     sb.from("clients").select("*"),
-    sb.from("orders").select("customer_phone").gte("created_at",hoje+'T00:00:00').lte("created_at",hoje+'T23:59:59')
+    sb.from("orders")
+      .select("customer_phone, customer_name, delivery_address, delivery_lat, delivery_lon, total, payment_method, id")
+      .gte("created_at",hoje+'T00:00:00').lte("created_at",hoje+'T23:59:59')
   ]);
-  const phonesComPedido = new Set((pedidosHoje||[]).map(p=>p.customer_phone));
 
+  const phonesComPedido = new Set((pedidosHoje||[]).map(p=>p.customer_phone).filter(Boolean));
+  // Mapa phone → pedido completo (para enriquecer paradas)
+  const pedidoPorPhone = {};
+  (pedidosHoje||[]).forEach(p=>{ if(p.customer_phone) pedidoPorPhone[p.customer_phone]=p; });
+
+  // Normaliza status das rotas conforme o dia
   todasAsRotas = (rotas||[]).map(r => {
     const cHoje = r.fim_em?.startsWith(hoje), aHoje = r.saida_em?.startsWith(hoje);
     if (r.status==='concluido'&&!cHoje) return {...r,status:'criada'};
@@ -655,11 +666,56 @@ async function carregarDados() {
     return r;
   });
 
+  // Filtra apenas rotas do dia de hoje
+  todasAsRotas = todasAsRotas.filter(r =>
+    !r.dias_semana || r.dias_semana.length===0 || r.dias_semana.includes(diaSemana)
+  );
+
+  // Mapa de clientes por phone para enriquecer coordenadas
+  const clientePorPhone = {};
+  (clientes||[]).forEach(c=>{ if(c.phone) clientePorPhone[c.phone]=c; });
+
   for (const rota of todasAsRotas) {
     const tmpl = rota.paradas_template||[];
     if (!tmpl.length) continue;
-    const ativas = tmpl.filter(p=>p.cliente_phone&&phonesComPedido.has(p.cliente_phone))
-      .map((p,i) => ({...p, status:rota.status==='em_andamento'?(rota.paradas?.find(a=>a.cliente_phone===p.cliente_phone)?.status||'pendente'):'pendente', eta_min:Math.round((i+1)*mediaMinPorParada)}));
+
+    // Monta paradas ativas cruzando template × pedidos de hoje
+    const ativas = tmpl
+      .filter(p => p.cliente_phone && phonesComPedido.has(p.cliente_phone))
+      .map((p, i) => {
+        const pedido = pedidoPorPhone[p.cliente_phone];
+        const cli    = clientePorPhone[p.cliente_phone];
+
+        // Tenta obter coordenadas: template → pedido → cliente cadastrado
+        let coords = p.coords || null;
+        if (!coords && pedido?.delivery_lat && pedido?.delivery_lon)
+          coords = [parseFloat(pedido.delivery_lat), parseFloat(pedido.delivery_lon)];
+        if (!coords && cli?.delivery_lat && cli?.delivery_lon)
+          coords = [parseFloat(cli.delivery_lat), parseFloat(cli.delivery_lon)];
+
+        // Endereço: template → pedido → cliente
+        const endereco = p.endereco || pedido?.delivery_address || cli?.delivery_address || '';
+
+        // Status preservado se rota já em andamento
+        const statusSalvo = rota.status==='em_andamento'
+          ? (rota.paradas?.find(a=>a.cliente_phone===p.cliente_phone)?.status || 'pendente')
+          : 'pendente';
+
+        return {
+          ...p,
+          coords,
+          endereco,
+          nome: p.nome || p.name || cli?.name || pedido?.customer_name || p.cliente_phone,
+          status: statusSalvo,
+          eta_min: Math.round((i+1)*mediaMinPorParada),
+          total: pedido?.total || p.total || 0,
+          payment_method: pedido?.payment_method || p.payment_method || ''
+        };
+      })
+      // Só inclui paradas que têm coordenadas
+      .filter(p => p.coords);
+
+    // Persiste paradas se mudaram (só em rotas ainda não iniciadas)
     if (rota.status==='criada' && JSON.stringify(rota.paradas||[])!==JSON.stringify(ativas)) {
       await sb.from("delivery_routes").update({paradas:ativas}).eq("id",rota.id);
     }
@@ -667,9 +723,13 @@ async function carregarDados() {
   }
 
   todosOsClientes = (clientes||[]).map(c => {
-    const coords = c.delivery_lat&&c.delivery_lon ? [parseFloat(c.delivery_lat),parseFloat(c.delivery_lon)] : null;
+    const coords = c.delivery_lat&&c.delivery_lon
+      ? [parseFloat(c.delivery_lat),parseFloat(c.delivery_lon)] : null;
     return {...c, nome:c.name, coords};
   }).filter(c=>c.coords);
+
+  // Verifica se alguma rota do dia deve ser iniciada automaticamente
+  await verificarAutoInicioRotas(horaAgora);
 
   const em = todasAsRotas.find(r=>r.status==='em_andamento');
   rotaAtual = em||null; paradasList = em?.paradas||[];
@@ -677,6 +737,101 @@ async function carregarDados() {
   if (map.isStyleLoaded()) renderizarMarcadores();
   else map.once('load', renderizarMarcadores);
 }
+
+// ===== AUTO-INÍCIO DE ROTA =====
+async function verificarAutoInicioRotas(horaAgoraMin) {
+  // Já tem rota em andamento → nada a fazer
+  if (todasAsRotas.some(r=>r.status==='em_andamento')) return;
+
+  // Encontra rotas prontas: status criada/aguardando, com paradas, e horário chegou
+  const candidatas = todasAsRotas.filter(r => {
+    if (r.status==='em_andamento'||r.status==='concluido') return false;
+    if (!r.paradas?.length) return false;
+    if (!r.hora_saida) return true; // sem horário definido → sempre elegível
+    const [h,m] = r.hora_saida.split(':').map(Number);
+    const horaSaida = h*60 + m;
+    return horaAgoraMin >= horaSaida;
+  });
+
+  if (candidatas.length === 0) return;
+
+  // Apenas uma candidata → inicia automaticamente sem perguntar
+  if (candidatas.length === 1) {
+    await iniciarRota(candidatas[0]);
+    return;
+  }
+
+  // Múltiplas candidatas → mostra modal de seleção
+  mostrarModalSelecaoRota(candidatas);
+}
+
+async function iniciarRota(rota) {
+  const ts = new Date().toISOString();
+  await sb.from("delivery_routes").update({
+    status: 'em_andamento',
+    saida_em: ts
+  }).eq("id", rota.id);
+
+  rota.status = 'em_andamento';
+  rota.saida_em = ts;
+  rotaAtual = rota;
+  paradasList = rota.paradas || [];
+
+  showToast(`🛵 Rota "${rota.nome}" iniciada!`, 'success');
+  renderTudo();
+  if (map.isStyleLoaded()) renderizarMarcadores();
+}
+
+// ===== MODAL SELEÇÃO DE ROTA =====
+function mostrarModalSelecaoRota(rotas) {
+  // Cria modal dinamicamente se não existir
+  let modal = document.getElementById('modalSelecaoRota');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'modalSelecaoRota';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,0.8);backdrop-filter:blur(10px);display:flex;align-items:flex-end;justify-content:center;';
+    document.body.appendChild(modal);
+  }
+
+  const lista = rotas.map(r => {
+    const qtd = r.paradas?.length || 0;
+    const hora = r.hora_saida ? `⏰ ${r.hora_saida.substring(0,5)}` : '';
+    return `<button onclick="window._selecionarRota('${r.id}')" style="
+      width:100%;padding:16px;border:1px solid rgba(245,166,35,0.3);border-radius:16px;
+      background:rgba(245,166,35,0.08);color:var(--text);text-align:left;cursor:pointer;
+      font-family:'DM Sans',sans-serif;margin-bottom:10px;transition:background 0.2s;
+    ">
+      <div style="font-family:'Syne',sans-serif;font-weight:900;font-size:15px;color:var(--primary);">${r.nome}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">${hora} &nbsp;📦 ${qtd} entrega${qtd!==1?'s':''}</div>
+    </button>`;
+  }).join('');
+
+  modal.innerHTML = `<div style="
+    background:var(--surface);border-radius:28px 28px 0 0;padding:24px 20px 40px;
+    width:100%;max-width:500px;border-top:1px solid var(--border);
+    animation:slideUp 0.35s cubic-bezier(0.34,1.4,0.64,1);
+  ">
+    <div style="width:40px;height:4px;background:rgba(255,255,255,0.15);border-radius:2px;margin:0 auto 20px;"></div>
+    <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:900;margin-bottom:6px;">🛵 Qual rota iniciar?</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px;">Múltiplas rotas disponíveis para agora. Escolha uma para começar.</div>
+    ${lista}
+    <button onclick="document.getElementById('modalSelecaoRota').style.display='none'" style="
+      width:100%;padding:14px;border:1px solid var(--border);border-radius:16px;
+      background:transparent;color:var(--text-muted);font-size:14px;font-weight:700;
+      cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:4px;
+    ">Agora não</button>
+  </div>`;
+
+  modal.style.display = 'flex';
+
+  // Handler global temporário
+  window._selecionarRota = async (rotaId) => {
+    modal.style.display = 'none';
+    const rota = todasAsRotas.find(r=>r.id===rotaId);
+    if (rota) await iniciarRota(rota);
+  };
+}
+
 async function calcularMediaEta() {
   const ontem = new Date(); ontem.setDate(ontem.getDate()-1);
   const base = ontem.toISOString().split('T')[0];
@@ -832,7 +987,23 @@ function renderTudo() { renderRotaAtiva(); renderParadas(); renderTodasRotas(); 
 
 function renderRotaAtiva() {
   const el=document.getElementById('rotaAtivaContent');
-  if(!rotaAtual){el.innerHTML=`<div class="empty-state"><div class="empty-icon">🏭</div><div class="empty-title">Nenhuma rota ativa</div><div class="empty-sub">Quando uma rota for iniciada pelo admin, ela aparecerá aqui automaticamente.</div></div>`;return;}
+  if(!rotaAtual){
+    const disponiveis=todasAsRotas.filter(r=>(r.status==='criada'||r.status==='aguardando')&&r.paradas?.length);
+    if(disponiveis.length>0){
+      el.innerHTML=`<div style="text-align:center;padding:32px 20px 16px;">
+        <div style="font-size:48px;margin-bottom:12px;">🛵</div>
+        <div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:900;color:var(--text);margin-bottom:6px;">Pronto para sair?</div>
+        <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px;line-height:1.6;">${disponiveis.length} rota${disponiveis.length>1?'s disponíveis':' disponível'} com pedidos de hoje.</div>
+        ${disponiveis.map(r=>`<button onclick="iniciarRotaManual('${r.id}')" style="display:block;width:100%;padding:16px;margin-bottom:10px;background:linear-gradient(135deg,rgba(245,166,35,0.18),rgba(255,140,0,0.1));border:1px solid rgba(245,166,35,0.45);border-radius:16px;color:var(--primary);font-family:'Syne',sans-serif;font-size:15px;font-weight:900;cursor:pointer;text-align:left;">
+          <div>🛵 ${r.nome}</div>
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);margin-top:4px;">📦 ${r.paradas.length} entrega${r.paradas.length!==1?'s':''} ${r.hora_saida?'· ⏰ '+r.hora_saida.substring(0,5):''}</div>
+        </button>`).join('')}
+      </div>`;
+    } else {
+      el.innerHTML=`<div class="empty-state"><div class="empty-icon">🏭</div><div class="empty-title">Nenhuma rota disponível</div><div class="empty-sub">Não há pedidos para hoje ou a rota ainda não foi configurada.</div></div>`;
+    }
+    return;
+  }
   const ent=paradasList.filter(p=>p.status==='entregue').length, total=paradasList.length;
   const pend=total-ent, min=Math.round(pend*mediaMinPorParada);
   const prox=paradasList.find(p=>p.status==='pendente');
@@ -870,19 +1041,29 @@ function renderParadas() {
 }
 function renderTodasRotas() {
   const el=document.getElementById('todasRotasContent');
-  if(!todasAsRotas.length){el.innerHTML=`<div class="empty-state"><div class="empty-icon">📁</div><div class="empty-title">Sem rotas</div><div class="empty-sub">Nenhuma rota cadastrada ainda.</div></div>`;return;}
+  if(!todasAsRotas.length){el.innerHTML=`<div class="empty-state"><div class="empty-icon">📁</div><div class="empty-title">Sem rotas</div><div class="empty-sub">Nenhuma rota cadastrada para hoje.</div></div>`;return;}
   const cores={criada:'#f5a623',aguardando:'#3d9cff',em_andamento:'#00e87a',concluido:'#555'};
   const labels={criada:'⏳ Aguardando',aguardando:'🏭 Na fábrica',em_andamento:'🛵 Em andamento',concluido:'✅ Concluída'};
   el.innerHTML=todasAsRotas.map(r=>{
     const ent=(r.paradas||[]).filter(p=>p.status==='entregue').length, tot=(r.paradas||[]).length, cor=cores[r.status]||'#555';
+    const podeIniciar=(r.status==='criada'||r.status==='aguardando')&&tot>0&&r.id!==rotaAtual?.id;
+    const btnIniciar=podeIniciar?`<button onclick="iniciarRotaManual('${r.id}')" style="margin-top:12px;width:100%;padding:12px;border:1px solid rgba(245,166,35,0.45);border-radius:12px;background:rgba(245,166,35,0.12);color:var(--primary);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:800;cursor:pointer;">🛵 Iniciar esta rota</button>`:'';
     return `<div style="background:var(--surface2);border-radius:16px;padding:14px;margin-bottom:8px;border-left:3px solid ${cor};">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;">
         <div><div style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;">${r.nome}</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px;">⏰ ${r.hora_saida||'--'} · ${(r.dias_semana||[]).join(' ')}</div></div>
-        <span style="font-size:10px;font-weight:700;padding:4px 10px;border-radius:20px;background:${cor}22;color:${cor};">${labels[r.status]||r.status}</span>
+        <span style="font-size:10px;font-weight:700;padding:4px 10px;border-radius:20px;background:${cor}22;color:${cor};flex-shrink:0;">${labels[r.status]||r.status}</span>
       </div>
       ${tot>0?`<div style="margin-top:10px;"><div style="height:4px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;"><div style="height:100%;width:${Math.round(ent/tot*100)}%;background:${cor};border-radius:4px;transition:width 0.5s;"></div></div><div style="font-size:11px;color:var(--text-muted);margin-top:4px;">📦 ${ent}/${tot} entregas</div></div>`:''}
+      ${btnIniciar}
     </div>`;
   }).join('');
+}
+
+async function iniciarRotaManual(rotaId) {
+  const rota = todasAsRotas.find(r=>r.id===rotaId);
+  if (!rota) return;
+  await iniciarRota(rota);
+  fecharPainel();
 }
 
 // ===== TABS =====
