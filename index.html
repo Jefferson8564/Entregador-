@@ -1616,9 +1616,9 @@ async function renderizarMapaCompleto() {
             .bindPopup(`<div style="min-width:160px;max-width:220px;">${popupHTML}</div>`);
         layersEstaticos.push(m);
 
-        // Long press — recalcula rota para o cliente (usa o primeiro do grupo com coords)
-        const clienteAlvo = clientes.find(c => c.coords) || clientes[0];
-        m.on('add', () => attachLongPress(m, clienteAlvo));
+        // Long press — navega para o cliente (qualquer cliente, qualquer hora)
+        const clienteAlvo = { ...(clientes.find(c => c.coords) || clientes[0]), coords };
+        setTimeout(() => attachLongPress(m, clienteAlvo), 100);
     });
 
     // Posiciona moto por cima de tudo (zIndexOffset alto)
@@ -1682,61 +1682,61 @@ function cancelarLongPress() {
 }
 
 async function confirmarRotaParaCliente(cliente) {
-    // Esconde anel
     document.getElementById('longPressRing').style.display = 'none';
-
-    // Vibra para confirmar
     if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
 
     const nome = cliente.name || cliente.nome;
+
+    if (!posAtual) { showToast('⚠️ GPS não disponível', 'warn'); return; }
+    if (!cliente.coords) { showToast('⚠️ Sem coordenadas', 'warn'); return; }
+
     const toast = document.getElementById('longPressToast');
-    toast.textContent = `🗺️ Rota para ${nome}...`;
+    toast.textContent = `🗺️ Calculando rota para ${nome}...`;
     toast.classList.add('show');
 
-    if (!posAtual) {
-        toast.textContent = '⚠️ GPS não disponível';
-        setTimeout(() => toast.classList.remove('show'), 2500);
-        return;
-    }
-
-    // Busca rota OSRM até o cliente
     const resultado = await buscarRotaComSteps(posAtual, cliente.coords);
+    toast.classList.remove('show');
 
-    setTimeout(() => toast.classList.remove('show'), 2200);
+    if (!resultado) { showToast(`⚠️ Sem rota para ${nome}`, 'warn'); return; }
 
-    if (!resultado) {
-        showToast(`⚠️ Sem rota para ${nome}`, 'warn');
-        return;
+    // Abre navegação se não estava ativa
+    if (!navAtiva) {
+        navAtiva = true;
+        document.body.classList.add('nav-ativa');
+        document.getElementById('navBanner').classList.add('ativo');
+        document.getElementById('navBottom').classList.add('ativo');
+        document.getElementById('navCloseBtn').classList.add('ativo');
+        document.getElementById('mapaDiv').classList.add('nav-tilt');
+        seguindoMoto = true;
+        if (!headingUp) toggleHeadingUp();
+        if (mapaObj) mapaObj.setZoom(17);
     }
 
-    // Se nav não estava ativa, abre
-    if (!navAtiva) await abrirNavegacao();
-
-    // Injeta a rota direto, ignorando a fila de paradas
+    // Carrega rota e steps
     navGeomFull = resultado.geometry;
     navSteps = mapearStepsNaPolilinha(resultado.steps, navGeomFull);
     navStepIdx = 0;
     navGeomSegIdx = 0;
-    navRotaParadaId = '__manual__' + nome; // id fictício
+    navRotaParadaId = '__nav__' + nome;
     navDuracao = resultado.duracao;
     navUltimaFalaKey = '';
 
-    // Desenha rota azul no mapa
+    // Atualiza polilinha azul
     if (rotaProximaLayer) { try { mapaObj.removeLayer(rotaProximaLayer); } catch(e){} rotaProximaLayer = null; }
-    rotaProximaLayer = L.polyline(resultado.geometry, {
-        color: '#3d9cff', weight: 5, opacity: 0.9
-    }).addTo(mapaObj);
+    rotaProximaLayer = L.polyline(resultado.geometry, { color: '#3d9cff', weight: 5, opacity: 0.9 }).addTo(mapaObj);
     if (motoMarker) motoMarker.bringToFront();
 
-    showToast(`✅ Rota para ${nome} — ${formatarDistNav(resultado.distancia)}`, 'success');
-    navFalar(`Rota calculada para ${nome}. ${formatarDistNav(resultado.distancia)}.`, 'manual-route');
-
     atualizarNavBanner();
+    navFalar(`Navegando para ${nome}. ${formatarDistNav(resultado.distancia)}.`, 'manual');
+    showToast(`✅ Navegando para ${nome} — ${formatarDistNav(resultado.distancia)}`, 'success');
 }
 
 function attachLongPress(marker, cliente) {
     const el = marker.getElement();
-    if (!el) return;
+    if (!el) return; // elemento ainda não no DOM, timeout vai tentar depois
+
+    // Previne menu de contexto nativo no mobile (interfere com long press)
+    el.addEventListener('contextmenu', e => e.preventDefault());
 
     // Touch (mobile)
     el.addEventListener('touchstart', e => {
@@ -1749,9 +1749,9 @@ function attachLongPress(marker, cliente) {
     el.addEventListener('touchcancel',() => cancelarLongPress(), { passive: true });
 
     // Mouse (desktop fallback)
-    el.addEventListener('mousedown', e => iniciarLongPress(e, cliente));
-    el.addEventListener('mouseup',   () => cancelarLongPress());
-    el.addEventListener('mouseleave',() => cancelarLongPress());
+    el.addEventListener('mousedown',  e => iniciarLongPress(e, cliente));
+    el.addEventListener('mouseup',    () => cancelarLongPress());
+    el.addEventListener('mouseleave', () => cancelarLongPress());
 }
 
 function recentrarMapa() {
