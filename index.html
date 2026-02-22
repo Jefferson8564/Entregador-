@@ -12,238 +12,151 @@
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; font-family:'Segoe UI',system-ui,sans-serif; }
   html, body { width:100%; height:100%; overflow:hidden; background:#0d0d1a; }
 
-  /* MAPA FULLSCREEN */
   #map { position:fixed; inset:0; width:100%; height:100%; z-index:1; }
 
-  /* ABAS SUPERIORES */
+  /* ── ABAS ── */
   #tabBar {
-    position:fixed;
-    top:12px; left:12px;
-    display:flex;
-    gap:8px;
-    z-index:100;
+    position:fixed; top:12px; left:12px;
+    display:flex; gap:8px; z-index:100;
   }
   .tab-btn {
-    padding:9px 14px;
-    border:none;
-    border-radius:12px;
-    font-size:13px;
-    font-weight:700;
-    cursor:pointer;
-    backdrop-filter:blur(14px);
-    -webkit-backdrop-filter:blur(14px);
-    display:flex;
-    align-items:center;
-    gap:5px;
-    transition:0.15s;
-    letter-spacing:0.2px;
+    padding:9px 14px; border:none; border-radius:12px;
+    font-size:13px; font-weight:700; cursor:pointer;
+    backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+    display:flex; align-items:center; gap:5px; transition:0.15s;
     box-shadow:0 2px 10px rgba(0,0,0,0.35);
   }
-  .tab-btn.inactive {
-    background:rgba(25,25,50,0.78);
-    color:rgba(255,255,255,0.65);
-    border:1px solid rgba(255,255,255,0.08);
-  }
-  .tab-btn.active {
-    background:rgba(30,30,65,0.95);
-    color:#fff;
-    border:1px solid rgba(255,255,255,0.2);
-    box-shadow:0 2px 14px rgba(0,0,0,0.5);
-  }
+  .tab-btn.inactive { background:rgba(25,25,50,0.78); color:rgba(255,255,255,0.55); border:1px solid rgba(255,255,255,0.08); }
+  .tab-btn.active   { background:rgba(199,91,36,0.92); color:#fff; border:1px solid rgba(255,150,80,0.35); box-shadow:0 2px 16px rgba(199,91,36,0.5); }
 
-  /* INDICADOR GPS */
+  /* ── GPS ── */
   #gpsIndicator {
-    position:fixed;
-    top:12px; right:12px;
-    background:rgba(190,35,35,0.9);
-    color:white;
-    border-radius:10px;
-    padding:7px 11px;
-    font-size:12px;
-    font-weight:800;
-    display:flex;
-    align-items:center;
-    gap:6px;
-    z-index:200;
-    backdrop-filter:blur(8px);
+    position:fixed; top:12px; right:12px;
+    background:rgba(190,35,35,0.9); color:white;
+    border-radius:10px; padding:7px 11px;
+    font-size:12px; font-weight:800;
+    display:flex; align-items:center; gap:6px;
+    z-index:200; backdrop-filter:blur(8px);
     box-shadow:0 2px 10px rgba(0,0,0,0.4);
-    transition:background 0.4s;
-    line-height:1.2;
-    text-align:center;
+    transition:background 0.4s; line-height:1.2; text-align:center;
   }
   #gpsIndicator.ok { background:rgba(22,160,60,0.88); }
-  .gps-dot {
-    width:8px; height:8px; border-radius:50%;
-    background:white;
-    animation:pulse 1.2s infinite;
-    flex-shrink:0;
-  }
+  .gps-dot { width:8px; height:8px; border-radius:50%; background:white; animation:pulse 1.2s infinite; flex-shrink:0; }
   @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.35;transform:scale(0.65)} }
 
-  /* MARCADORES AVATAR */
-  .marker-avatar-wrap {
+  /* ── MARCADORES ── */
+  .marker-avatar-wrap, .marker-client-wrap {
     display:flex; flex-direction:column; align-items:center;
     cursor:pointer; user-select:none;
   }
   .marker-name {
-    background:rgba(35,35,70,0.93);
-    color:#fff;
-    font-size:11px; font-weight:700;
-    padding:2px 9px;
-    border-radius:8px;
-    margin-bottom:4px;
-    white-space:nowrap;
-    backdrop-filter:blur(6px);
-    border:1px solid rgba(255,255,255,0.12);
-    box-shadow:0 1px 6px rgba(0,0,0,0.45);
-    line-height:1.6;
+    background:rgba(35,35,70,0.93); color:#fff;
+    font-size:11px; font-weight:700; padding:2px 9px;
+    border-radius:8px; margin-bottom:4px; white-space:nowrap;
+    backdrop-filter:blur(6px); border:1px solid rgba(255,255,255,0.12);
+    box-shadow:0 1px 6px rgba(0,0,0,0.45); line-height:1.6;
   }
   .marker-avatar {
-    width:44px; height:44px;
-    border-radius:50%;
+    width:44px; height:44px; border-radius:50%;
     border:2.5px solid rgba(255,255,255,0.25);
     display:flex; align-items:center; justify-content:center;
-    box-shadow:0 3px 14px rgba(0,0,0,0.55);
-    overflow:hidden;
+    box-shadow:0 3px 14px rgba(0,0,0,0.55); overflow:hidden;
   }
-  .marker-avatar.pendente  { background:radial-gradient(circle at 35% 35%, #8878e8, #5040b8); }
-  .marker-avatar.ativa     { background:radial-gradient(circle at 35% 35%, #e08838, #b05015); border-color:#ffb366; box-shadow:0 0 0 4px rgba(199,91,36,0.3),0 3px 14px rgba(0,0,0,0.55); }
-  .marker-avatar.entregue  { background:radial-gradient(circle at 35% 35%, #40b870, #1e7848); border-color:#66ffaa; }
+  .marker-avatar.pendente { background:radial-gradient(circle at 35% 35%, #8878e8, #5040b8); }
+  .marker-avatar.ativa    { background:radial-gradient(circle at 35% 35%, #e08838, #b05015); border-color:#ffb366; box-shadow:0 0 0 4px rgba(199,91,36,0.3),0 3px 14px rgba(0,0,0,0.55); }
+  .marker-avatar.entregue { background:radial-gradient(circle at 35% 35%, #40b870, #1e7848); border-color:#66ffaa; }
   .marker-avatar svg { width:30px; height:30px; }
 
-  /* MARCADOR MOTO */
   .moto-wrap {
     width:46px; height:46px; border-radius:50%;
-    background:rgba(240,150,30,0.18);
-    border:2.5px solid rgba(240,150,30,0.55);
+    background:rgba(240,150,30,0.18); border:2.5px solid rgba(240,150,30,0.55);
     box-shadow:0 0 0 7px rgba(240,130,20,0.1), 0 3px 16px rgba(0,0,0,0.5);
     display:flex; align-items:center; justify-content:center;
     font-size:24px; line-height:1;
   }
 
-  /* FAB MOTO */
+  /* ── FAB ── */
   #fabMoto {
     position:fixed; bottom:26px; right:18px;
     width:60px; height:60px; border-radius:50%;
     background:linear-gradient(135deg, #f5a828, #e07012);
-    border:none;
-    box-shadow:0 4px 22px rgba(200,100,0,0.55), 0 2px 6px rgba(0,0,0,0.3);
+    border:none; box-shadow:0 4px 22px rgba(200,100,0,0.55), 0 2px 6px rgba(0,0,0,0.3);
     font-size:26px; cursor:pointer; z-index:200;
-    display:flex; align-items:center; justify-content:center;
-    transition:0.15s;
+    display:flex; align-items:center; justify-content:center; transition:0.15s;
   }
   #fabMoto:active { transform:scale(0.92); }
 
-  /* BÚSSOLA */
-  #compass {
-    position:fixed; bottom:100px; right:22px;
-    width:44px; height:44px; border-radius:50%;
-    background:rgba(18,18,40,0.85);
-    border:1.5px solid rgba(255,255,255,0.14);
-    backdrop-filter:blur(8px);
-    display:flex; align-items:center; justify-content:center;
-    font-size:22px; cursor:pointer; z-index:200;
-    box-shadow:0 2px 12px rgba(0,0,0,0.45);
-    transition:0.18s;
-  }
-  #compass:active { transform:scale(0.92); }
-
-  /* PAINEL INFERIOR */
+  /* ── PAINEL INFERIOR ── */
   #paradasPanel {
     position:fixed; bottom:0; left:0; right:0;
     background:rgba(12,12,26,0.97);
-    backdrop-filter:blur(22px);
-    -webkit-backdrop-filter:blur(22px);
+    backdrop-filter:blur(22px); -webkit-backdrop-filter:blur(22px);
     border-top:1px solid rgba(255,255,255,0.07);
-    border-radius:22px 22px 0 0;
-    z-index:150;
-    display:none; flex-direction:column;
-    max-height:78vh;
+    border-radius:22px 22px 0 0; z-index:150;
+    display:none; flex-direction:column; max-height:80vh;
     box-shadow:0 -6px 40px rgba(0,0,0,0.6);
     transform:translateY(100%);
     transition:transform 0.32s cubic-bezier(0.32,0.72,0,1);
   }
   #paradasPanel.show { display:flex; transform:translateY(0); }
 
-  #panelHandle {
-    width:38px; height:4px;
-    background:rgba(255,255,255,0.18);
-    border-radius:2px;
-    margin:10px auto 0; flex-shrink:0;
-  }
-  #panelTitle {
-    padding:12px 16px 8px;
-    font-size:15px; font-weight:800; color:white;
-    flex-shrink:0; display:flex; align-items:center; justify-content:space-between;
-  }
-  #panelClose {
-    background:rgba(255,255,255,0.09); border:none; color:rgba(255,255,255,0.7);
-    border-radius:8px; padding:4px 11px; font-size:13px; cursor:pointer;
-  }
+  #panelHandle { width:38px; height:4px; background:rgba(255,255,255,0.18); border-radius:2px; margin:10px auto 0; flex-shrink:0; }
+  #panelTitle  { padding:12px 16px 8px; font-size:15px; font-weight:800; color:white; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; }
+  #panelClose  { background:rgba(255,255,255,0.09); border:none; color:rgba(255,255,255,0.7); border-radius:8px; padding:4px 11px; font-size:13px; cursor:pointer; }
 
-  /* PROGRESS */
-  #progressBar {
-    height:4px; background:rgba(255,255,255,0.07);
-    flex-shrink:0; margin:0 16px 10px; border-radius:2px; overflow:hidden;
-  }
-  #progressFill {
-    height:100%;
-    background:linear-gradient(90deg,#27ae60,#2ecc71);
-    transition:width 0.5s ease; width:0%; border-radius:2px;
-  }
+  #progressBar { height:4px; background:rgba(255,255,255,0.07); flex-shrink:0; margin:0 16px 10px; border-radius:2px; overflow:hidden; }
+  #progressFill { height:100%; background:linear-gradient(90deg,#27ae60,#2ecc71); transition:width 0.5s ease; width:0%; border-radius:2px; }
 
-  /* STATUS */
-  #statusBar {
-    display:flex; justify-content:space-around;
-    padding:0 16px 10px; flex-shrink:0;
-    border-bottom:1px solid rgba(255,255,255,0.06);
-    margin-bottom:6px;
-  }
+  #statusBar { display:flex; justify-content:space-around; padding:0 16px 10px; flex-shrink:0; border-bottom:1px solid rgba(255,255,255,0.06); margin-bottom:6px; }
   .status-item { text-align:center; }
   .status-num  { font-size:20px; font-weight:900; color:white; }
   .status-label{ font-size:9px; color:rgba(255,255,255,0.38); font-weight:700; text-transform:uppercase; letter-spacing:0.5px; }
 
-  /* LISTA */
-  #paradasList {
-    overflow-y:auto; padding:6px 12px 28px;
-    -webkit-overflow-scrolling:touch;
-  }
-  #loadingState {
-    display:flex; flex-direction:column; align-items:center;
-    padding:40px; color:rgba(255,255,255,0.35); gap:12px;
-  }
-  .spinner {
-    width:32px; height:32px;
-    border:3px solid rgba(255,255,255,0.08);
-    border-top-color:#c75b24;
-    border-radius:50%;
-    animation:spin 0.8s linear infinite;
-  }
-  @keyframes spin { to{ transform:rotate(360deg); } }
-  #emptyState {
-    display:none; flex-direction:column; align-items:center;
-    padding:40px 20px; text-align:center; color:rgba(255,255,255,0.35);
-  }
-  #emptyState .emoji { font-size:52px; margin-bottom:12px; }
-  #emptyState h3 { font-size:16px; color:rgba(255,255,255,0.65); margin-bottom:6px; }
-  #emptyState p  { font-size:12px; line-height:1.6; }
+  #paradasList { overflow-y:auto; padding:6px 12px 28px; -webkit-overflow-scrolling:touch; }
 
-  /* CARD */
-  .parada-card {
-    background:rgba(255,255,255,0.045);
-    border-radius:14px; padding:12px 14px; margin-bottom:8px;
-    border-left:3px solid rgba(241,196,15,0.5);
-    transition:0.2s;
+  .spinner { width:32px; height:32px; border:3px solid rgba(255,255,255,0.08); border-top-color:#c75b24; border-radius:50%; animation:spin 0.8s linear infinite; margin:40px auto 12px; display:block; }
+  @keyframes spin { to{ transform:rotate(360deg); } }
+
+  /* ── ESTADO VAZIO ── */
+  .empty-state {
+    display:flex; flex-direction:column; align-items:center;
+    padding:40px 20px; text-align:center;
   }
+  .empty-state .es-icon { font-size:54px; margin-bottom:14px; }
+  .empty-state h3 { font-size:17px; font-weight:800; color:rgba(255,255,255,0.65); margin-bottom:8px; }
+  .empty-state p  { font-size:13px; line-height:1.6; color:rgba(255,255,255,0.35); }
+
+  /* ── CARDS DE ROTA (aba Rota) ── */
+  .rota-card {
+    background:rgba(255,255,255,0.045);
+    border-radius:14px; padding:14px 16px; margin-bottom:10px;
+    border-left:4px solid rgba(241,196,15,0.4);
+    cursor:pointer; transition:0.2s;
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+  }
+  .rota-card.selecionada {
+    border-left-color:#c75b24;
+    background:rgba(199,91,36,0.1);
+    box-shadow:0 0 0 1px rgba(199,91,36,0.28);
+  }
+  .rota-card-left { flex:1; min-width:0; }
+  .rota-card-nome { font-size:16px; font-weight:900; color:white; margin-bottom:5px; }
+  .rota-card-meta { font-size:11px; color:rgba(255,255,255,0.45); display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .rota-card-meta span { display:flex; align-items:center; gap:3px; }
+  .rota-status-badge {
+    padding:7px 14px; border-radius:20px; font-size:12px; font-weight:800;
+    white-space:nowrap; flex-shrink:0; display:flex; align-items:center; gap:5px;
+  }
+  .rota-status-badge.aguardando  { background:rgba(241,196,15,0.15); color:#f1c40f; border:1px solid rgba(241,196,15,0.3); }
+  .rota-status-badge.em_andamento{ background:rgba(39,174,96,0.15); color:#2ecc71; border:1px solid rgba(39,174,96,0.3); }
+  .rota-status-badge.criada      { background:rgba(93,173,226,0.13); color:#5dade2; border:1px solid rgba(93,173,226,0.25); }
+
+  /* ── CARDS DE PARADA ── */
+  .parada-card { background:rgba(255,255,255,0.045); border-radius:14px; padding:12px 14px; margin-bottom:8px; border-left:3px solid rgba(241,196,15,0.5); transition:0.2s; }
   .parada-card.entregue { border-left-color:rgba(39,174,96,0.5); opacity:0.55; }
   .parada-card.ativa    { border-left-color:#c75b24; background:rgba(199,91,36,0.1); box-shadow:0 0 0 1px rgba(199,91,36,0.28); }
   .parada-header { display:flex; align-items:center; gap:10px; margin-bottom:6px; }
-  .parada-num {
-    width:28px; height:28px; border-radius:50%;
-    display:flex; align-items:center; justify-content:center;
-    font-weight:900; font-size:12px; flex-shrink:0;
-    background:rgba(241,196,15,0.22); color:#f1c40f;
-  }
+  .parada-num { width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:12px; flex-shrink:0; background:rgba(241,196,15,0.22); color:#f1c40f; }
   .parada-card.entregue .parada-num { background:rgba(39,174,96,0.22); color:#2ecc71; }
   .parada-card.ativa    .parada-num { background:rgba(199,91,36,0.4); color:#fff; }
   .parada-nome { font-size:14px; font-weight:800; color:white; flex:1; }
@@ -254,60 +167,22 @@
   .badge-entregue { background:rgba(39,174,96,0.13); color:#2ecc71; }
   .badge-eta      { background:rgba(52,152,219,0.13); color:#5dade2; }
   .parada-actions { display:flex; gap:6px; }
-  .btn-nav {
-    flex:1; padding:9px; border:none; border-radius:10px;
-    font-size:12px; font-weight:700; cursor:pointer; transition:0.15s;
-    display:flex; align-items:center; justify-content:center; gap:4px;
-  }
+  .btn-nav { flex:1; padding:9px; border:none; border-radius:10px; font-size:12px; font-weight:700; cursor:pointer; transition:0.15s; display:flex; align-items:center; justify-content:center; gap:4px; }
   .btn-nav:active { transform:scale(0.96); }
   .btn-maps    { background:rgba(52,152,219,0.14); color:#5dade2; border:1px solid rgba(52,152,219,0.28); }
   .btn-waze    { background:rgba(39,174,96,0.14); color:#2ecc71; border:1px solid rgba(39,174,96,0.28); }
   .btn-entregue{ background:#25d366; color:white; border:none; }
   .btn-entregue:disabled { background:rgba(255,255,255,0.08); color:rgba(255,255,255,0.28); cursor:not-allowed; }
 
-  /* ROTA CHIPS */
-  #rotaBar {
-    padding:0 12px 10px; flex-shrink:0;
-    overflow-x:auto; gap:6px; align-items:center;
-    display:none;
-  }
-  #rotaBar.show { display:flex; }
-  .rota-chip {
-    white-space:nowrap; padding:5px 12px; border-radius:20px;
-    font-size:11px; font-weight:700; cursor:pointer; flex-shrink:0;
-    background:rgba(255,255,255,0.06); color:rgba(255,255,255,0.55);
-    border:1px solid rgba(255,255,255,0.09); transition:0.15s;
-  }
-  .rota-chip.active { background:rgba(199,91,36,0.45); color:white; border-color:rgba(199,91,36,0.65); }
-
-  /* TOAST */
-  .toast-msg {
-    position:fixed; bottom:100px; left:50%; transform:translateX(-50%);
-    background:rgba(16,16,36,0.95); color:white;
-    padding:11px 18px; border-radius:20px; font-size:13px; font-weight:600;
-    z-index:9999; backdrop-filter:blur(14px);
-    opacity:0; transition:opacity 0.25s; white-space:nowrap; pointer-events:none;
-    border:1px solid rgba(255,255,255,0.09);
-    box-shadow:0 3px 14px rgba(0,0,0,0.4);
-  }
+  /* ── TOAST ── */
+  .toast-msg { position:fixed; bottom:100px; left:50%; transform:translateX(-50%); background:rgba(16,16,36,0.95); color:white; padding:11px 18px; border-radius:20px; font-size:13px; font-weight:600; z-index:9999; backdrop-filter:blur(14px); opacity:0; transition:opacity 0.25s; white-space:nowrap; pointer-events:none; border:1px solid rgba(255,255,255,0.09); box-shadow:0 3px 14px rgba(0,0,0,0.4); }
   .toast-msg.show { opacity:1; }
 
-  /* MARCADORES CLIENTES — mesmo estilo avatar das paradas */
-  .marker-client-wrap {
-    display:flex; flex-direction:column; align-items:center;
-    cursor:pointer; user-select:none;
-  }
-
-  /* POPUP MapLibre */
-  .maplibregl-popup-content {
-    background:rgba(16,16,36,0.97); color:white;
-    border-radius:13px; padding:10px 14px; font-size:13px;
-    box-shadow:0 4px 22px rgba(0,0,0,0.55);
-    border:1px solid rgba(255,255,255,0.09);
-  }
+  /* ── POPUP ── */
+  .maplibregl-popup-content { background:rgba(16,16,36,0.97); color:white; border-radius:13px; padding:10px 14px; font-size:13px; box-shadow:0 4px 22px rgba(0,0,0,0.55); border:1px solid rgba(255,255,255,0.09); }
   .maplibregl-popup-close-button { color:rgba(255,255,255,0.45); font-size:17px; right:6px; top:4px; }
   .maplibregl-ctrl-attrib { display:none !important; }
-  .maplibregl-ctrl-bottom-right { bottom:92px !important; right:70px !important; }
+  .maplibregl-ctrl-bottom-right { bottom:92px !important; right:16px !important; }
 </style>
 </head>
 <body>
@@ -316,288 +191,267 @@
 
 <!-- ABAS -->
 <div id="tabBar">
-  <button class="tab-btn active"   id="tabRota"    onclick="setTab('rota')">   🗺️ Rota   </button>
+  <button class="tab-btn active"   id="tabRota"    onclick="setTab('rota')">🗺️ Rota</button>
   <button class="tab-btn inactive" id="tabParadas" onclick="setTab('paradas')">📋 Paradas</button>
-  <button class="tab-btn inactive" id="tabTodas"   onclick="setTab('todas')">  📁 Todas  </button>
+  <button class="tab-btn inactive" id="tabTodas"   onclick="setTab('todas')">📁 Todas</button>
 </div>
 
 <!-- GPS -->
 <div id="gpsIndicator"><div class="gps-dot"></div>GPS<br>erro</div>
 
-<!-- BÚSSOLA -->
-<div id="compass" onclick="resetNorth()">🧭</div>
-
-<!-- FAB MOTO -->
+<!-- FAB -->
 <button id="fabMoto" onclick="abrirParadas()">🛵</button>
 
-<!-- PAINEL PARADAS -->
+<!-- PAINEL -->
 <div id="paradasPanel">
   <div id="panelHandle"></div>
   <div id="panelTitle">
-    <span>📦 Entregas</span>
+    <span id="panelTitleText">📦 Entregas</span>
     <button id="panelClose" onclick="fecharParadas()">✕ Fechar</button>
   </div>
-  <div id="rotaBar"></div>
   <div id="progressBar"><div id="progressFill"></div></div>
   <div id="statusBar">
-    <div class="status-item">
-      <div class="status-num" id="statTotal">0</div>
-      <div class="status-label">Total</div>
-    </div>
-    <div class="status-item">
-      <div class="status-num" id="statPendente" style="color:#e67e22">0</div>
-      <div class="status-label">Pendentes</div>
-    </div>
-    <div class="status-item">
-      <div class="status-num" id="statEntregue" style="color:#2ecc71">0</div>
-      <div class="status-label">Entregues</div>
-    </div>
-    <div class="status-item">
-      <div class="status-num" id="statEta" style="color:#5dade2">--</div>
-      <div class="status-label">Min rest.</div>
-    </div>
+    <div class="status-item"><div class="status-num" id="statTotal">0</div><div class="status-label" id="labelTotal">Total</div></div>
+    <div class="status-item"><div class="status-num" id="statPendente" style="color:#e67e22">0</div><div class="status-label" id="labelPendente">Pendentes</div></div>
+    <div class="status-item"><div class="status-num" id="statEntregue" style="color:#2ecc71">0</div><div class="status-label" id="labelEntregue">Entregues</div></div>
+    <div class="status-item"><div class="status-num" id="statEta" style="color:#5dade2">--</div><div class="status-label">Min rest.</div></div>
   </div>
   <div id="paradasList">
-    <div id="loadingState">
-      <div class="spinner"></div>
-      <div style="font-size:13px">Carregando rotas...</div>
-    </div>
-    <div id="emptyState">
-      <div class="emoji">🛵</div>
-      <h3>Sem entregas hoje</h3>
-      <p>Nenhuma rota em andamento.</p>
-    </div>
+    <div class="spinner"></div>
   </div>
 </div>
-
 
 <div class="toast-msg" id="toastMsg"></div>
 
 <script>
-// ── CONFIG ──
 const SUPABASE_URL = "https://vpeyqgijajywgswmezlh.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZwZXlxZ2lqYWp5d2dzd21lemxoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEyNTM1MDIsImV4cCI6MjA4NjgyOTUwMn0.LA5Cbof7IKWAA7l8YbCuPzANpCy0rX_Dro4l9fcDgoQ";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// ── STATE ──
 let map;
 let rotaAtual = null, paradasAtuais = [], rotasDisponiveis = [];
-let marcadoresMapLibre = [];
-let marcadoresClientes = [];   // marcadores de todos os clientes
-let todosClientes = [];        // cache dos clientes carregados
-let minhaPosicao = null;       // [lng, lat]
-let meuMarcador = null, meuMarcadorEl = null;
-let paradaAtivIdx = -1;
-let tabAtual = 'rota';
-let ultimaPosicao = null;      // {lat, lng} para calcular ângulo
-let ultimaDirecao = 0;
+let marcadoresMapLibre = [], marcadoresClientes = [], todosClientes = [];
+let minhaPosicao = null, meuMarcador = null, meuMarcadorEl = null;
+let paradaAtivIdx = -1, tabAtual = 'rota', ultimaPosicao = null;
 
 // ── MAPA ──
 function initMap() {
   map = new maplibregl.Map({
     container: 'map',
     style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-    center: [-34.9, -8.05],
-    zoom: 14,
-    pitch: 0,
-    bearing: 0,
+    center: [-34.9, -8.05], zoom: 14, pitch: 0, bearing: 0,
     attributionControl: false
   });
-
   map.on('load', () => {
-    map.addSource('rota-line', {
-      type: 'geojson',
-      data: { type:'FeatureCollection', features:[] }
-    });
-    map.addLayer({
-      id: 'rota-line-layer',
-      type: 'line',
-      source: 'rota-line',
-      paint: {
-        'line-color': '#c75b24',
-        'line-width': 2.5,
-        'line-opacity': 0.5,
-        'line-dasharray': [3, 3]
-      }
-    });
+    map.addSource('rota-line', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
+    map.addLayer({ id:'rota-line-layer', type:'line', source:'rota-line',
+      paint:{ 'line-color':'#c75b24', 'line-width':2.5, 'line-opacity':0.5, 'line-dasharray':[3,3] } });
   });
-
-  // ── AJUSTE NO GPS PARA INICIAR JÁ EM 3D ──
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
-      pos => {
-        setGpsStatus(true);
-        // Forçamos o mapa a iniciar com o pitch correto antes de mover
-        map.setPitch(65);
-        moverEntregador(pos.coords.latitude, pos.coords.longitude, null);
-      },
+      pos => { setGpsStatus(true); map.setPitch(65); moverEntregador(pos.coords.latitude, pos.coords.longitude); },
       () => setGpsStatus(false)
     );
     navigator.geolocation.watchPosition(
-      pos => {
-        setGpsStatus(true);
-        moverEntregador(pos.coords.latitude, pos.coords.longitude, null);
-      },
+      pos => { setGpsStatus(true); moverEntregador(pos.coords.latitude, pos.coords.longitude); },
       () => setGpsStatus(false),
-      { enableHighAccuracy: true, maximumAge: 3000 }
+      { enableHighAccuracy:true, maximumAge:3000 }
     );
-  } else {
-    setGpsStatus(false);
-  }
+  } else { setGpsStatus(false); }
 }
 
 function setGpsStatus(ok) {
   const el = document.getElementById('gpsIndicator');
   el.className = ok ? 'ok' : '';
-  el.innerHTML = `<div class="gps-dot"></div>GPS<br>${ok ? 'ok' : 'erro'}`;
+  el.innerHTML = `<div class="gps-dot"></div>GPS<br>${ok?'ok':'erro'}`;
 }
 
-// ── CÁLCULO DE ÂNGULO (bearing entre dois pontos) ──
-function calcularAngulo(lat1, lng1, lat2, lng2) {
-  const toRad = d => d * Math.PI / 180;
-  const dLng = toRad(lng2 - lng1);
-  const lat1r = toRad(lat1), lat2r = toRad(lat2);
-  const y = Math.sin(dLng) * Math.cos(lat2r);
-  const x = Math.cos(lat1r) * Math.sin(lat2r) - Math.sin(lat1r) * Math.cos(lat2r) * Math.cos(dLng);
-  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
-}
-
-// ── MOVER ENTREGADOR (PERSPECTIVA 3D FIXA TOTAL) ──
-function moverEntregador(novaLat, novaLng, headingGPS) {
+// ── MOVER ENTREGADOR (3D FIXO) ──
+function moverEntregador(novaLat, novaLng) {
   minhaPosicao = [novaLng, novaLat];
-
-  // 1. Atualiza ou cria o marcador da moto
   if (!meuMarcador) {
     const el = document.createElement('div');
-    el.className = 'moto-wrap';
-    el.innerHTML = '🛵';
-    meuMarcadorEl = el;
-    meuMarcador = new maplibregl.Marker({ element: el, anchor: 'center' })
-      .setLngLat([novaLng, novaLat])
-      .addTo(map);
-  } else {
-    meuMarcador.setLngLat([novaLng, novaLat]);
-  }
-
-  // 2. Trava a câmera no modo Navegação 3D
-  // Norte sempre fixo (bearing: 0) para evitar que o mapa gire
-  map.easeTo({
-    center: [novaLng, novaLat],
-    pitch: 65,            // Inclinação 3D fixa (Perspectiva de estrada)
-    bearing: 0,           // Norte sempre fixo para evitar que o mapa gire
-    zoom: 17,             // Zoom de proximidade para entregas
-    offset: [0, 150],     // Coloca a moto na parte de baixo para ver o caminho à frente
-    duration: 1500,       // Suavização do movimento entre pontos GPS
-    easing: t => t,
-    essential: true
-  });
-
-  ultimaPosicao = { lat: novaLat, lng: novaLng };
-}
-
-function resetNorth() {
-  map.easeTo({ bearing: 0, pitch: 0, duration: 600 });
+    el.className = 'moto-wrap'; el.innerHTML = '🛵'; meuMarcadorEl = el;
+    meuMarcador = new maplibregl.Marker({ element:el, anchor:'center' }).setLngLat([novaLng, novaLat]).addTo(map);
+  } else { meuMarcador.setLngLat([novaLng, novaLat]); }
+  map.easeTo({ center:[novaLng, novaLat], pitch:65, bearing:0, zoom:17, offset:[0,150], duration:1500, easing:t=>t, essential:true });
+  ultimaPosicao = { lat:novaLat, lng:novaLng };
 }
 
 // ── ABAS ──
 function setTab(tab) {
   tabAtual = tab;
   ['rota','paradas','todas'].forEach(t => {
-    const id = 'tab' + t.charAt(0).toUpperCase() + t.slice(1);
-    document.getElementById(id).className = 'tab-btn ' + (t === tab ? 'active' : 'inactive');
+    document.getElementById('tab'+t.charAt(0).toUpperCase()+t.slice(1)).className = 'tab-btn '+(t===tab?'active':'inactive');
   });
   renderMarcadores();
-  if (document.getElementById('paradasPanel').classList.contains('show')) {
-    renderParadas();
-  }
+  renderPainel();
 }
 
-// ── DADOS SUPABASE ──
+// ── CARREGAR ROTAS ──
 async function carregarRotas() {
-  const dia = diaHoje();
+  const dia  = diaHoje();
   const hoje = new Date().toISOString().split('T')[0];
-  const { data: todasRotas } = await sb.from("delivery_routes").select("*").order("hora_saida", { ascending: true });
+  const { data: todasRotas } = await sb.from("delivery_routes").select("*").order("hora_saida", { ascending:true });
 
-  const rotasDia = (todasRotas || []).filter(r => r.dias_semana && r.dias_semana.includes(dia));
+  const rotasDia = (todasRotas||[]).filter(r => r.dias_semana && r.dias_semana.includes(dia));
 
-  rotasDisponiveis = rotasDia.filter(r => {
-    return (r.status === 'em_andamento' || r.status === 'criada' || r.status === 'aguardando')
-      && (r.paradas || []).length > 0;
-  }).map(r => {
+  rotasDisponiveis = rotasDia.filter(r =>
+    r.status === 'em_andamento' || r.status === 'criada' || r.status === 'aguardando'
+  ).map(r => {
     const emAndamentoHoje = r.saida_em && r.saida_em.startsWith(hoje);
-    if (r.status === 'em_andamento' && !emAndamentoHoje) return { ...r, status: 'criada' };
+    if (r.status === 'em_andamento' && !emAndamentoHoje) return { ...r, status:'criada' };
     return r;
   });
 
-  document.getElementById('loadingState').style.display = 'none';
+  // Seleciona automaticamente a primeira rota em andamento com paradas
+  const emAndamento = rotasDisponiveis.find(r => r.status === 'em_andamento' && (r.paradas||[]).length > 0);
+  if (emAndamento) selecionarRota(emAndamento.id, false);
 
-  if (rotasDisponiveis.length === 0) {
-    document.getElementById('emptyState').style.display = 'flex';
-    return;
-  }
-
-  renderRotaBar();
-  selecionarRota(rotasDisponiveis[0].id);
+  renderPainel();
 }
 
 function diaHoje() {
   return ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][new Date().getDay()];
 }
 
-function renderRotaBar() {
-  const bar = document.getElementById('rotaBar');
-  if (rotasDisponiveis.length <= 1) { bar.className = ''; return; }
-  bar.className = 'show';
-  bar.innerHTML = rotasDisponiveis.map(r =>
-    `<div class="rota-chip" id="chip-${r.id}" onclick="selecionarRota('${r.id}')">${r.nome}</div>`
-  ).join('');
+function veiculoIcone(v) {
+  if (!v) return '🛵';
+  const s = String(v).toLowerCase();
+  if (s.includes('bici')||s.includes('bike')||s.includes('bicicleta')) return '🚲';
+  if (s.includes('carro')||s.includes('car')) return '🚗';
+  if (s.includes('van')||s.includes('furgão')||s.includes('furgao')) return '🚐';
+  if (s.includes('caminhão')||s.includes('caminhao')||s.includes('truck')) return '🚚';
+  return '🛵';
 }
 
-function selecionarRota(rotaId) {
+function selecionarRota(rotaId, ajustarMapa = true) {
   rotaAtual = rotasDisponiveis.find(r => r.id === rotaId);
   if (!rotaAtual) return;
-
-  document.querySelectorAll('.rota-chip').forEach(c => c.classList.remove('active'));
-  const chip = document.getElementById(`chip-${rotaId}`);
-  if (chip) chip.classList.add('active');
-
-  paradasAtuais = (rotaAtual.paradas || []).filter(p => p.status !== undefined);
+  paradasAtuais = (rotaAtual.paradas||[]).filter(p => p.status !== undefined);
   paradaAtivIdx = paradasAtuais.findIndex(p => p.status !== 'entregue');
-
-  renderParadas();
   renderMarcadores();
   renderMarcadoresClientes();
   atualizarStatus();
-  ajustarMapaBounds();
+  if (ajustarMapa) ajustarMapaBounds();
+  // Ao selecionar rota, muda para aba Paradas se já estava no painel
+  if (document.getElementById('paradasPanel').classList.contains('show')) {
+    setTab('paradas');
+  } else {
+    renderPainel();
+  }
 }
 
-// ── RENDER PARADAS ──
-function renderParadas() {
+// ── PAINEL: decide o que mostrar por aba ──
+function renderPainel() {
   const list = document.getElementById('paradasList');
-  let exibir = paradasAtuais;
-  if (tabAtual === 'rota') exibir = paradasAtuais.filter(p => p.status !== 'entregue');
-  list.innerHTML = '';
 
-  if (exibir.length === 0) {
-    list.innerHTML = `<div style="text-align:center;padding:32px;color:rgba(255,255,255,0.28);font-size:13px">Nenhuma parada nesta aba</div>`;
-    return;
+  if (tabAtual === 'rota') {
+    // ── ABA ROTA: lista de rotas disponíveis ──
+    document.getElementById('panelTitleText').textContent = '🗺️ Rotas Disponíveis';
+    document.getElementById('labelPendente').textContent = 'Aguard.';
+    document.getElementById('labelEntregue').textContent = 'Ativas';
+
+    const total   = rotasDisponiveis.length;
+    const ativas  = rotasDisponiveis.filter(r => r.status === 'em_andamento').length;
+    const aguard  = rotasDisponiveis.filter(r => r.status !== 'em_andamento').length;
+    document.getElementById('statTotal').textContent    = total;
+    document.getElementById('statPendente').textContent = aguard;
+    document.getElementById('statEntregue').textContent = ativas;
+    document.getElementById('statEta').textContent      = '--';
+    document.getElementById('progressFill').style.width = total > 0 ? (ativas/total)*100+'%' : '0%';
+
+    if (rotasDisponiveis.length === 0) {
+      list.innerHTML = `
+        <div class="empty-state">
+          <div class="es-icon">🏭</div>
+          <h3>Nenhuma rota ativa</h3>
+          <p>Quando uma rota for iniciada pelo admin, ela aparecerá aqui automaticamente.</p>
+        </div>`;
+      return;
+    }
+
+    const stLabel = { em_andamento:'▶ Em andamento', criada:'⏳ Criada', aguardando:'⏸ Aguardando' };
+    list.innerHTML = rotasDisponiveis.map(r => {
+      const veiculo = r.veiculo || r.moto || r.tipo_veiculo || '';
+      const icone   = veiculoIcone(veiculo);
+      const hora    = r.hora_saida ? r.hora_saida.substring(0,5) : null;
+      const dias    = Array.isArray(r.dias_semana) ? r.dias_semana.join(' ') : (r.dias_semana||'');
+      const qtd     = (r.paradas||[]).length;
+      const ativa   = rotaAtual && rotaAtual.id === r.id;
+      return `
+        <div class="rota-card${ativa?' selecionada':''}" onclick="selecionarRota('${r.id}')">
+          <div class="rota-card-left">
+            <div class="rota-card-nome">${icone} ${r.nome}</div>
+            <div class="rota-card-meta">
+              ${hora  ? `<span>🕐 ${hora}</span>` : ''}
+              <span>📦 ${qtd} parada${qtd!==1?'s':''}</span>
+              ${dias  ? `<span>📅 ${dias}</span>` : ''}
+              ${veiculo ? `<span>${icone} ${veiculo}</span>` : ''}
+            </div>
+          </div>
+          <div class="rota-status-badge ${r.status}">${stLabel[r.status]||r.status}</div>
+        </div>`;
+    }).join('');
+
+  } else if (tabAtual === 'paradas') {
+    // ── ABA PARADAS: apenas pendentes da rota ativa ──
+    document.getElementById('labelPendente').textContent = 'Pendentes';
+    document.getElementById('labelEntregue').textContent = 'Entregues';
+    const veiculo = rotaAtual ? (rotaAtual.veiculo||rotaAtual.moto||rotaAtual.tipo_veiculo||'') : '';
+    document.getElementById('panelTitleText').textContent = rotaAtual
+      ? `${veiculoIcone(veiculo)} ${rotaAtual.nome}` : '📋 Paradas';
+    atualizarStatus();
+
+    const pendentes = paradasAtuais.filter(p => p.status !== 'entregue');
+    if (!rotaAtual || pendentes.length === 0) {
+      list.innerHTML = `
+        <div class="empty-state">
+          <div class="es-icon">📋</div>
+          <h3>Sem paradas</h3>
+          <p>As paradas aparecerão aqui quando a rota for iniciada.</p>
+        </div>`;
+      return;
+    }
+    renderCards(pendentes, list);
+
+  } else {
+    // ── ABA TODAS: todas as paradas (inclusive entregues) ──
+    document.getElementById('labelPendente').textContent = 'Pendentes';
+    document.getElementById('labelEntregue').textContent = 'Entregues';
+    const veiculo = rotaAtual ? (rotaAtual.veiculo||rotaAtual.moto||rotaAtual.tipo_veiculo||'') : '';
+    document.getElementById('panelTitleText').textContent = rotaAtual
+      ? `${veiculoIcone(veiculo)} ${rotaAtual.nome} — Todas` : '📁 Todas';
+    atualizarStatus();
+
+    if (!rotaAtual || paradasAtuais.length === 0) {
+      list.innerHTML = `
+        <div class="empty-state">
+          <div class="es-icon">🏭</div>
+          <h3>Nenhuma rota ativa</h3>
+          <p>Quando uma rota for iniciada pelo admin, ela aparecerá aqui automaticamente.</p>
+        </div>`;
+      return;
+    }
+    renderCards(paradasAtuais, list);
   }
+}
 
-  exibir.forEach(p => {
+function renderCards(lista, container) {
+  container.innerHTML = '';
+  lista.forEach(p => {
     const i = paradasAtuais.indexOf(p);
     const entregue = p.status === 'entregue';
-    const ativa = i === paradaAtivIdx;
+    const ativa    = i === paradaAtivIdx;
     const card = document.createElement('div');
     card.className = `parada-card${entregue?' entregue':''}${ativa?' ativa':''}`;
     card.id = `parada-card-${p.id}`;
-
-    const [lat, lon] = p.coords || [null, null];
-    const temCoords = lat && lon;
-    const endLabel = p.endereco || (temCoords ? `${lat.toFixed(4)}, ${lon.toFixed(4)}` : 'Sem endereço');
-
+    const [lat, lon] = p.coords || [null,null];
+    const temCoords  = lat && lon;
+    const endLabel   = p.endereco || (temCoords ? `${lat.toFixed(4)}, ${lon.toFixed(4)}` : 'Sem endereço');
     card.innerHTML = `
       <div class="parada-header">
-        <div class="parada-num">${entregue ? '✓' : i + 1}</div>
+        <div class="parada-num">${entregue ? '✓' : i+1}</div>
         <div class="parada-nome">${p.nome}</div>
         ${ativa ? '<span style="font-size:9px;font-weight:800;background:rgba(199,91,36,0.38);color:#ffaa66;padding:2px 7px;border-radius:20px">▶ ATUAL</span>' : ''}
       </div>
@@ -611,14 +465,54 @@ function renderParadas() {
           <button class="btn-nav btn-maps" onclick="navegarMaps(${lat},${lon})">🗺️ Maps</button>
           <button class="btn-nav btn-waze" onclick="navegarWaze(${lat},${lon})">🚗 Waze</button>
         ` : '<span style="font-size:11px;color:#e74c3c">⚠️ Sem coordenadas</span>'}
-        <button class="btn-nav btn-entregue" id="btn-e-${p.id}" onclick="marcarEntregue('${p.id}')" ${entregue?'disabled':''}>${entregue?'✅ Entregue':'✔ Marcar Entregue'}</button>
-      </div>
-    `;
-    list.appendChild(card);
+        <button class="btn-nav btn-entregue" onclick="marcarEntregue('${p.id}')" ${entregue?'disabled':''}>${entregue?'✅ Entregue':'✔ Marcar Entregue'}</button>
+      </div>`;
+    container.appendChild(card);
   });
 }
 
-// ── MARCADORES AVATAR ──
+function atualizarStatus() {
+  const total     = paradasAtuais.length;
+  const entregues = paradasAtuais.filter(p => p.status === 'entregue').length;
+  const pendentes = total - entregues;
+  const eta = pendentes > 0 ? pendentes * 12 : 0;
+  document.getElementById('statTotal').textContent    = total;
+  document.getElementById('statPendente').textContent = pendentes;
+  document.getElementById('statEntregue').textContent = entregues;
+  document.getElementById('statEta').textContent      = eta > 0 ? eta : (total > 0 ? '✓' : '--');
+  document.getElementById('progressFill').style.width = (total > 0 ? (entregues/total)*100 : 0) + '%';
+}
+
+function abrirParadas()  { renderPainel(); document.getElementById('paradasPanel').classList.add('show'); }
+function fecharParadas() { document.getElementById('paradasPanel').classList.remove('show'); }
+
+async function marcarEntregue(paradaId) {
+  const p = paradasAtuais.find(x => x.id === paradaId);
+  if (!p || p.status === 'entregue') return;
+  p.status = 'entregue';
+  const { error } = await sb.from("delivery_routes").update({ paradas:paradasAtuais }).eq("id", rotaAtual.id);
+  if (error) { toast('❌ Erro ao salvar. Tente novamente.'); p.status = 'pendente'; return; }
+  paradaAtivIdx = paradasAtuais.findIndex(p2 => p2.status !== 'entregue');
+  renderPainel(); renderMarcadores(); atualizarStatus();
+  if (paradaAtivIdx >= 0) {
+    const coords = paradasAtuais[paradaAtivIdx].coords;
+    if (coords?.[0]) map.easeTo({ center:[coords[1],coords[0]], zoom:15, duration:700 });
+  }
+  toast(`✅ ${p.nome} marcado como entregue!`);
+}
+
+function navegarMaps(lat,lon) { window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}&travelmode=driving`,'_blank'); }
+function navegarWaze(lat,lon) { window.open(`https://waze.com/ul?ll=${lat},${lon}&navigate=yes`,'_blank'); }
+
+let toastTimer = null;
+function toast(msg) {
+  const el = document.getElementById('toastMsg');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ── MARCADORES ──
 function avatarSVG() {
   return `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
     <circle cx="20" cy="14" r="9" fill="rgba(255,255,255,0.5)"/>
@@ -634,201 +528,77 @@ function limparMarcadores() {
 
 function renderMarcadores() {
   limparMarcadores();
-
-  let exibir = paradasAtuais;
-  if (tabAtual === 'rota') exibir = paradasAtuais.filter(p => p.status !== 'entregue');
+  // Na aba 'todas' mostra todos, nas outras só pendentes
+  let exibir = tabAtual === 'todas' ? paradasAtuais : paradasAtuais.filter(p => p.status !== 'entregue');
 
   exibir.forEach(p => {
     const i = paradasAtuais.indexOf(p);
     const [lat, lon] = p.coords || [];
     if (!lat || !lon) return;
-
     const entregue = p.status === 'entregue';
-    const ativa = i === paradaAtivIdx;
-    const cls = entregue ? 'entregue' : ativa ? 'ativa' : 'pendente';
-
+    const ativa    = i === paradaAtivIdx;
+    const cls      = entregue ? 'entregue' : ativa ? 'ativa' : 'pendente';
     const el = document.createElement('div');
     el.className = 'marker-avatar-wrap';
-    el.innerHTML = `
-      <div class="marker-name">${p.nome}</div>
-      <div class="marker-avatar ${cls}">${avatarSVG()}</div>
-    `;
-
+    el.innerHTML = `<div class="marker-name">${p.nome}</div><div class="marker-avatar ${cls}">${avatarSVG()}</div>`;
     const popup = new maplibregl.Popup({ offset:[0,-52], closeButton:true, maxWidth:'230px' })
-      .setHTML(`
-        <b style="color:white">${p.nome}</b><br>
-        <span style="color:rgba(255,255,255,0.55);font-size:11px">${p.endereco || ''}</span><br>
-        <span style="color:${entregue?'#2ecc71':'#e67e22'};font-size:12px">${entregue?'✅ Entregue':'📦 Pendente'}</span>
-      `);
-
-    const marker = new maplibregl.Marker({ element:el, anchor:'bottom' })
-      .setLngLat([lon, lat])
-      .setPopup(popup)
-      .addTo(map);
-
+      .setHTML(`<b style="color:white">${p.nome}</b><br>
+        <span style="color:rgba(255,255,255,0.55);font-size:11px">${p.endereco||''}</span><br>
+        <span style="color:${entregue?'#2ecc71':'#e67e22'};font-size:12px">${entregue?'✅ Entregue':'📦 Pendente'}</span>`);
+    const marker = new maplibregl.Marker({ element:el, anchor:'bottom' }).setLngLat([lon,lat]).setPopup(popup).addTo(map);
     el.addEventListener('click', () => {
+      tabAtual !== 'todas' && setTab('paradas');
       abrirParadas();
       setTimeout(() => {
         const cardEl = document.getElementById(`parada-card-${p.id}`);
         if (cardEl) cardEl.scrollIntoView({ behavior:'smooth', block:'center' });
-      }, 250);
+      }, 300);
     });
-
     marcadoresMapLibre.push({ marker, idx:i });
   });
 
-  // Linha de rota
   const pendentes = paradasAtuais.filter(p => p.status !== 'entregue' && p.coords?.[0]);
   if (pendentes.length >= 2) {
-    try {
-      map.getSource('rota-line').setData({
-        type:'Feature',
-        geometry:{ type:'LineString', coordinates: pendentes.map(p => [p.coords[1], p.coords[0]]) }
-      });
-    } catch(e){}
+    try { map.getSource('rota-line').setData({ type:'Feature', geometry:{ type:'LineString', coordinates:pendentes.map(p=>[p.coords[1],p.coords[0]]) } }); } catch(e){}
   }
 }
 
 function ajustarMapaBounds() {
-  const pts = paradasAtuais.filter(p => p.coords?.[0]).map(p => [p.coords[1], p.coords[0]]);
+  const pts = paradasAtuais.filter(p => p.coords?.[0]).map(p => [p.coords[1],p.coords[0]]);
   if (minhaPosicao) pts.push(minhaPosicao);
   if (pts.length === 0) return;
-  const bounds = pts.reduce((b,p) => b.extend(p), new maplibregl.LngLatBounds(pts[0], pts[0]));
-  map.fitBounds(bounds, { padding:55, maxZoom:16, duration:900 });
-}
-
-// ── STATUS ──
-function atualizarStatus() {
-  const total    = paradasAtuais.length;
-  const entregues = paradasAtuais.filter(p => p.status === 'entregue').length;
-  const pendentes = total - entregues;
-  const eta = pendentes > 0 ? pendentes * 12 : 0;
-
-  document.getElementById('statTotal').textContent    = total;
-  document.getElementById('statPendente').textContent = pendentes;
-  document.getElementById('statEntregue').textContent = entregues;
-  document.getElementById('statEta').textContent      = eta > 0 ? eta : '✓';
-
-  const pct = total > 0 ? (entregues/total)*100 : 0;
-  document.getElementById('progressFill').style.width = pct + '%';
-}
-
-// ── PAINEL ──
-function abrirParadas() {
-  renderParadas();
-  document.getElementById('paradasPanel').classList.add('show');
-}
-function fecharParadas() {
-  document.getElementById('paradasPanel').classList.remove('show');
-}
-
-// ── AÇÕES ──
-async function marcarEntregue(paradaId) {
-  const p = paradasAtuais.find(x => x.id === paradaId);
-  if (!p || p.status === 'entregue') return;
-
-  p.status = 'entregue';
-  const { error } = await sb.from("delivery_routes")
-    .update({ paradas: paradasAtuais })
-    .eq("id", rotaAtual.id);
-
-  if (error) {
-    toast('❌ Erro ao salvar. Tente novamente.');
-    p.status = 'pendente';
-    return;
-  }
-
-  paradaAtivIdx = paradasAtuais.findIndex(p2 => p2.status !== 'entregue');
-  renderParadas();
-  renderMarcadores();
-  atualizarStatus();
-
-  if (paradaAtivIdx >= 0) {
-    const next = document.getElementById(`parada-card-${paradasAtuais[paradaAtivIdx].id}`);
-    if (next) setTimeout(() => next.scrollIntoView({ behavior:'smooth', block:'center' }), 200);
-    const coords = paradasAtuais[paradaAtivIdx].coords;
-    if (coords?.[0]) map.easeTo({ center:[coords[1],coords[0]], zoom:15, duration:700 });
-  }
-  toast(`✅ ${p.nome} marcado como entregue!`);
-}
-
-function navegarMaps(lat, lon) {
-  window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}&travelmode=driving`,'_blank');
-}
-function navegarWaze(lat, lon) {
-  window.open(`https://waze.com/ul?ll=${lat},${lon}&navigate=yes`,'_blank');
-}
-
-// ── TOAST ──
-let toastTimer = null;
-function toast(msg) {
-  const el = document.getElementById('toastMsg');
-  el.textContent = msg;
-  el.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+  const bounds = pts.reduce((b,p) => b.extend(p), new maplibregl.LngLatBounds(pts[0],pts[0]));
+  map.fitBounds(bounds, { padding:60, maxZoom:16, duration:900 });
 }
 
 // ── CLIENTES ──
 async function carregarClientes() {
   const { data, error } = await sb.from("clients")
     .select("id,name,delivery_lat,delivery_lon,delivery_address,phone,fiado,debt")
-    .not("delivery_lat", "is", null)
-    .not("delivery_lon", "is", null);
-
+    .not("delivery_lat","is",null).not("delivery_lon","is",null);
   if (error) { console.warn("Erro ao carregar clientes:", error); return; }
   todosClientes = data || [];
-
-  if (map.isStyleLoaded()) {
-    renderMarcadoresClientes();
-  } else {
-    map.once('load', () => renderMarcadoresClientes());
-  }
+  if (map.isStyleLoaded()) renderMarcadoresClientes();
+  else map.once('load', () => renderMarcadoresClientes());
 }
 
-function limparMarcadoresClientes() {
-  marcadoresClientes.forEach(m => m.remove());
-  marcadoresClientes = [];
-}
+function limparMarcadoresClientes() { marcadoresClientes.forEach(m => m.remove()); marcadoresClientes = []; }
 
 function renderMarcadoresClientes() {
   limparMarcadoresClientes();
-
-  // IDs que já estão nas paradas da rota (evita duplicar marcador)
   const idsNaRota = new Set(paradasAtuais.map(p => p.client_id).filter(Boolean));
-
   todosClientes.forEach(c => {
-    const lat = c.delivery_lat;
-    const lng = c.delivery_lon;
-    if (!lat || !lng) return;
-    if (idsNaRota.has(c.id)) return;
-
-    // Mesmo markup dos avatares de parada
+    const lat = c.delivery_lat, lng = c.delivery_lon;
+    if (!lat || !lng || idsNaRota.has(c.id)) return;
     const el = document.createElement('div');
     el.className = 'marker-client-wrap';
-    el.innerHTML = `
-      <div class="marker-name">${c.name || 'Cliente'}</div>
-      <div class="marker-avatar pendente">${avatarSVG()}</div>
-    `;
-
-    const enderecoStr = c.delivery_address
-      ? `<span style="color:rgba(255,255,255,0.5);font-size:11px">📍 ${c.delivery_address}</span><br>` : '';
-    const fiadoStr = c.fiado
-      ? `<span style="color:#e74c3c;font-size:11px">⚠️ Fiado: R$ ${parseFloat(c.debt||0).toFixed(2)}</span><br>` : '';
-    const telStr = c.phone
-      ? `<span style="color:rgba(255,255,255,0.45);font-size:11px">📞 ${c.phone}</span>` : '';
-
+    el.innerHTML = `<div class="marker-name">${c.name||'Cliente'}</div><div class="marker-avatar pendente">${avatarSVG()}</div>`;
+    const endStr   = c.delivery_address ? `<span style="color:rgba(255,255,255,0.5);font-size:11px">📍 ${c.delivery_address}</span><br>` : '';
+    const fiadoStr = c.fiado ? `<span style="color:#e74c3c;font-size:11px">⚠️ Fiado: R$ ${parseFloat(c.debt||0).toFixed(2)}</span><br>` : '';
+    const telStr   = c.phone ? `<span style="color:rgba(255,255,255,0.45);font-size:11px">📞 ${c.phone}</span>` : '';
     const popup = new maplibregl.Popup({ offset:[0,-52], closeButton:true, maxWidth:'240px' })
-      .setHTML(`
-        <b style="color:white;font-size:13px">${c.name || 'Cliente'}</b><br>
-        ${enderecoStr}${fiadoStr}${telStr}
-      `);
-
-    const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
-      .setLngLat([lng, lat])
-      .setPopup(popup)
-      .addTo(map);
-
+      .setHTML(`<b style="color:white;font-size:13px">${c.name||'Cliente'}</b><br>${endStr}${fiadoStr}${telStr}`);
+    const marker = new maplibregl.Marker({ element:el, anchor:'bottom' }).setLngLat([lng,lat]).setPopup(popup).addTo(map);
     marcadoresClientes.push(marker);
   });
 }
@@ -838,30 +608,20 @@ window.onload = async () => {
   initMap();
   await Promise.all([carregarRotas(), carregarClientes()]);
 
-  // Sync Supabase a cada 30s
   setInterval(async () => {
-    if (!rotaAtual) return;
+    if (!rotaAtual) { await carregarRotas(); return; }
     const { data } = await sb.from("delivery_routes")
       .select("paradas,entregador_lat,entregador_lng")
       .eq("id", rotaAtual.id).single();
     if (!data) return;
-
-    // Posição do entregador vinda do admin
-    if (data.entregador_lat && data.entregador_lng) {
-      moverEntregador(data.entregador_lat, data.entregador_lng, null);
-    }
-
-    // Sync status paradas
-    (data.paradas || []).forEach(np => {
+    if (data.entregador_lat && data.entregador_lng) moverEntregador(data.entregador_lat, data.entregador_lng);
+    (data.paradas||[]).forEach(np => {
       const local = paradasAtuais.find(p => p.id === np.id);
-      if (local && local.status !== np.status && local.status !== 'entregue') {
-        local.status = np.status;
-      }
+      if (local && local.status !== np.status && local.status !== 'entregue') local.status = np.status;
     });
     paradaAtivIdx = paradasAtuais.findIndex(p => p.status !== 'entregue');
-    atualizarStatus();
-    renderMarcadores();
-    if (document.getElementById('paradasPanel').classList.contains('show')) renderParadas();
+    atualizarStatus(); renderMarcadores();
+    if (document.getElementById('paradasPanel').classList.contains('show')) renderPainel();
   }, 30000);
 };
 </script>
