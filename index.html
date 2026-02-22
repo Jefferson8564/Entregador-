@@ -768,7 +768,20 @@ function inicializarMapa() {
     }).addTo(mapaObj);
 
     L.control.zoom({ position: 'topright' }).addTo(mapaObj);
-    mapaObj.on('dragstart', () => { seguindoMoto = false; });
+
+    // Só libera arrastar (e desativa seguimento) quando NÃO estiver em modo giroscópio
+    mapaObj.on('dragstart', () => {
+        if (!giroAtivo) seguindoMoto = false;
+    });
+
+    // Começa com drag desativado pois giroAtivo = true por padrão
+    mapaObj.dragging.disable();
+    mapaObj.touchZoom.disable();
+    mapaObj.doubleClickZoom.disable();
+    mapaObj.scrollWheelZoom.disable();
+    mapaObj.boxZoom.disable();
+    mapaObj.keyboard.disable();
+    if (mapaObj.tap) mapaObj.tap.disable();
 
     iniciarLoopGiro();
 }
@@ -837,6 +850,16 @@ function toggleGiroMode() {
         seguindoMoto = true;
         if (motoFixaEl) motoFixaEl.style.display = 'flex';
         if (motoMarker) { try { mapaObj.removeLayer(motoMarker); } catch(e){} motoMarker = null; }
+
+        // Bloqueia interação manual — mapa só segue GPS e rotação automática
+        mapaObj.dragging.disable();
+        mapaObj.touchZoom.disable();
+        mapaObj.doubleClickZoom.disable();
+        mapaObj.scrollWheelZoom.disable();
+        mapaObj.boxZoom.disable();
+        mapaObj.keyboard.disable();
+        if (mapaObj.tap) mapaObj.tap.disable();
+
         showToast('🗺️ Mapa rotacional ativado', 'success');
     } else {
         // Zera a rotação de todos os panes
@@ -851,6 +874,16 @@ function toggleGiroMode() {
         btn.style.background  = 'rgba(10,10,15,0.85)';
         if (needle)    needle.style.transform = 'rotate(0deg)';
         if (motoFixaEl) motoFixaEl.style.display = 'none';
+
+        // Libera interação manual no modo normal
+        mapaObj.dragging.enable();
+        mapaObj.touchZoom.enable();
+        mapaObj.doubleClickZoom.enable();
+        mapaObj.scrollWheelZoom.enable();
+        mapaObj.boxZoom.enable();
+        mapaObj.keyboard.enable();
+        if (mapaObj.tap) mapaObj.tap.enable();
+
         showToast('🗺️ Mapa fixo (Norte)', '');
     }
 }
@@ -1341,18 +1374,23 @@ function posicionarMoto(pos) {
 
         // A moto aparece em bottom:22% da tela = 78% do topo.
         // O Leaflet centraliza o mapa no centro (50%).
-        // Precisamos que o GPS caia exatamente na posição da moto (78%).
-        // → deslocamos o centro do mapa 28% da altura para CIMA do GPS.
-        // Fazemos isso com panBy APÓS o setView no ponto GPS.
+        // Precisamos que o GPS caia exatamente na posição visual da moto (78% do topo).
+        // → calculamos um ponto geográfico deslocado 28% para cima da posição GPS
+        //   e usamos um único setView nesse ponto, evitando animações conflitantes.
         const zoom = mapaObj.getZoom() || 17;
         const H = mapaObj.getContainer().clientHeight;
-        const offsetPx = Math.round(H * 0.28); // px para subir o mapa
+        const offsetPx = H * 0.28; // pixels para deslocar o centro para cima
 
-        // setView no ponto GPS primeiro (sem animação para não competir)
-        mapaObj.setView(pos, zoom, { animate: false });
+        // Converte o offset em pixels para graus usando a escala do zoom atual
+        // 1 tile = 256px, escala = 256 * 2^zoom pixels por 360 graus de longitude
+        const metrosPorPx = 40075016.686 / (256 * Math.pow(2, zoom));
+        const offsetMetros = offsetPx * metrosPorPx;
+        const offsetLat = offsetMetros / 111319.9; // 1 grau lat ≈ 111319.9 metros
 
-        // Depois sobe o mapa o offset necessário para a moto ficar no pixel certo
-        mapaObj.panBy([0, -offsetPx], { animate: true, duration: 0.5, easeLinearity: 0.5, noMoveStart: true });
+        // Centro deslocado: move o ponto de referência para cima geograficamente
+        const centroDeslocado = [pos[0] + offsetLat, pos[1]];
+
+        mapaObj.setView(centroDeslocado, zoom, { animate: true, duration: 0.4, easeLinearity: 0.5, noMoveStart: true });
 
     } else {
         // MODO NORMAL: marcador completo com imagem da moto
@@ -1558,8 +1596,14 @@ async function renderizarMapaCompleto() {
 function recentrarMapa() {
     seguindoMoto = true;
     if (giroAtivo) {
-        // Em modo giroscópio, o mapa já segue automaticamente — só confirma zoom
-        if (posAtual) mapaObj.setView(posAtual, 17, { animate: true });
+        if (posAtual) {
+            const zoom = mapaObj.getZoom() || 17;
+            const H = mapaObj.getContainer().clientHeight;
+            const offsetPx = H * 0.28;
+            const metrosPorPx = 40075016.686 / (256 * Math.pow(2, zoom));
+            const offsetLat = (offsetPx * metrosPorPx) / 111319.9;
+            mapaObj.setView([posAtual[0] + offsetLat, posAtual[1]], zoom, { animate: true, duration: 0.4 });
+        }
     } else {
         if (posAtual) mapaObj.setView(posAtual, 16, { animate: true });
         else mapaObj.setView(FABRICA, 14, { animate: true });
