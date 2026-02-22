@@ -1355,9 +1355,7 @@ function posicionarMoto(pos) {
     if (!mapaObj || !window.L) return;
 
     if (giroAtivo) {
-        // Modo giroscópio: overlay #motoFixa está fixo na tela (CSS position:fixed).
-        // O mapa segue o GPS com um offset para que o ponto GPS fique
-        // visualmente em 78% do topo (onde a moto aparece na tela).
+        // Remove marcador Leaflet — usa overlay fixo #motoFixa
         if (motoMarker) {
             try { mapaObj.removeLayer(motoMarker); } catch(e) {}
             motoMarker = null;
@@ -1365,22 +1363,19 @@ function posicionarMoto(pos) {
 
         if (!seguindoMoto) return;
 
-        const zoom = mapaObj.getZoom() || 17;
-        const H    = mapaObj.getContainer().clientHeight;
-        const W    = mapaObj.getContainer().clientWidth;
+        // A moto fica em position:fixed, bottom:22%, center X.
+        // O Leaflet tem um método nativo para centralizar com padding:
+        // flyTo/panTo com paddingTopLeft/paddingBottomRight faz exatamente isso.
+        // paddingBottomRight=[0, alturaAbaixoDaMoto] empurra o centro para cima.
+        const H = window.innerHeight;
+        const offsetAbaixo = Math.round(H * 0.22); // 22% abaixo da moto
 
-        // Calcula o centro do mapa para que `pos` apareça em 78% do topo da tela,
-        // usando a projeção nativa do Leaflet (precisa de latitude correta).
-        const motoPx   = L.point(W / 2, H * 0.78);   // pixel alvo da moto
-        const centroPx = L.point(W / 2, H / 2);       // centro atual da tela
-        const delta    = motoPx.subtract(centroPx);    // deslocamento em px
-
-        const posProj      = mapaObj.options.crs.latLngToPoint(L.latLng(pos[0], pos[1]), zoom);
-        const centroProj   = posProj.subtract(delta);
-        const centroLatLng = mapaObj.options.crs.pointToLatLng(centroProj, zoom);
-
-        mapaObj.setView(centroLatLng, zoom, {
-            animate: true, duration: 0.6, easeLinearity: 0.25, noMoveStart: true
+        mapaObj.panTo(L.latLng(pos[0], pos[1]), {
+            animate: true,
+            duration: 0.5,
+            easeLinearity: 0.3,
+            paddingTopLeft:     [0, 0],
+            paddingBottomRight: [0, offsetAbaixo * 2]
         });
 
     } else {
@@ -1588,16 +1583,13 @@ function recentrarMapa() {
     seguindoMoto = true;
     if (posAtual) {
         if (giroAtivo) {
-            // Reposiciona com offset para moto ficar em 78% do topo
-            const zoom = mapaObj.getZoom() || 17;
-            const H    = mapaObj.getContainer().clientHeight;
-            const W    = mapaObj.getContainer().clientWidth;
-            const motoPx   = L.point(W / 2, H * 0.78);
-            const centroPx = L.point(W / 2, H / 2);
-            const delta    = motoPx.subtract(centroPx);
-            const posProj      = mapaObj.options.crs.latLngToPoint(L.latLng(posAtual[0], posAtual[1]), zoom);
-            const centroLatLng = mapaObj.options.crs.pointToLatLng(posProj.subtract(delta), zoom);
-            mapaObj.setView(centroLatLng, zoom, { animate: true, duration: 0.5 });
+            const H = window.innerHeight;
+            const offsetAbaixo = Math.round(H * 0.22);
+            mapaObj.panTo(L.latLng(posAtual[0], posAtual[1]), {
+                animate: true, duration: 0.5,
+                paddingTopLeft: [0, 0],
+                paddingBottomRight: [0, offsetAbaixo * 2]
+            });
         } else {
             mapaObj.setView(posAtual, 16, { animate: true });
         }
