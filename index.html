@@ -379,6 +379,16 @@
     from { transform:scale(1); }
     to   { transform:scale(1.14); box-shadow:0 0 0 8px rgba(0,232,122,0.22), 0 3px 14px rgba(0,0,0,0.55); }
   }
+  /* Cliente selecionado na fila de rota */
+  .nav-ativo .marker-avatar {
+    border-color:var(--green) !important;
+    box-shadow:0 0 0 5px rgba(0,232,122,0.3), 0 3px 14px rgba(0,0,0,0.55) !important;
+  }
+  .nav-ativo .marker-name {
+    background:rgba(0,232,122,0.18);
+    border-color:rgba(0,232,122,0.4);
+    color:var(--green);
+  }
 
   /* POPUP MapLibre — desativado, não usado */
   .maplibregl-popup { display:none !important; }
@@ -1113,6 +1123,7 @@ function renderMarcadoresClientes() {
 
     const el = document.createElement('div');
     el.className = 'marker-client-wrap';
+    el.dataset.id = c.id;
     el.innerHTML = `
       <div class="marker-name">${c.name || 'Cliente'}</div>
       <div class="marker-avatar-container">
@@ -1175,241 +1186,187 @@ function renderMarcadoresClientes() {
     el.addEventListener('mouseup',    endPress);
     el.addEventListener('mouseleave', endPress);
 
-    const enderecoStr = c.delivery_address
-      ? `<span style="color:var(--text-dim);font-size:11px">📍 ${c.delivery_address}</span><br>` : '';
-    const fiadoStr = c.fiado
-      ? `<span style="color:var(--red);font-size:11px">⚠️ Fiado: R$ ${parseFloat(c.debt||0).toFixed(2)}</span><br>` : '';
-    const telStr = c.phone
-      ? `<span style="color:var(--text-muted);font-size:11px">📞 ${c.phone}</span><br>` : '';
-
-    const popup = new maplibregl.Popup({ offset:[0,-52], closeButton:true, maxWidth:'240px' })
-      .setHTML(`
-        <b style="color:var(--text);font-size:13px">${c.name || 'Cliente'}</b><br>
-        ${enderecoStr}${fiadoStr}${telStr}
-        <span style="color:var(--text-muted);font-size:10px">Segure 2s para navegar 🛵</span>
-      `);
-
+    // Sem popup — long-press abre rota direto
     const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
       .setLngLat([lng, lat])
-      .setPopup(popup)
       .addTo(map);
 
     marcadoresClientes.push(marker);
   });
-
-  console.log(`[Clientes] ${marcadoresClientes.length} clientes visíveis no mapa`);
 }
 
-// ── NAVEGAÇÃO AVULSA — OSRM + auto-recalc ──
-let navAvulsaAtiva  = null;   // objeto cliente ativo
-let navDistTimer    = null;   // intervalo de atualização
-let navRotaCoords   = null;   // coords da rota OSRM atual [[lng,lat],...]
-let navRecalcando   = false;  // flag para evitar chamadas simultâneas
-const OSRM_DESVIO_M = 40;     // metros fora da rota para recalcular
+// ── NAVEGAÇÃO AVULSA — múltiplos clientes, OSRM, badge no header ──
+let navFila       = [];   // lista de clientes selecionados na ordem
+let navRotaCoords = null; // coords OSRM da rota atual
+let navTimer      = null; // intervalo de verificação de desvio
+let navRecalc     = false;
+const NAV_DESVIO  = 40;   // metros para recalcular
 
-// Inicia navegação para um cliente
+// Chamado pelo long-press — adiciona cliente à fila ou inicia nova
 function iniciarNavAvulsa(cliente) {
-  cancelarNavAvulsa(true);
+  // Marca o avatar do cliente como selecionado
+  _marcarClienteNaFila(cliente);
 
-  navAvulsaAtiva = cliente;
-  navRotaCoords  = null;
+  navFila.push(cliente);
+  navRotaCoords = null;
 
-  // Chip
-  document.getElementById('nacNome').textContent = cliente.name || 'Cliente';
-  document.getElementById('nacDist').textContent  = '⏳ Calculando rota...';
-  document.getElementById('navAvulsaChip').classList.add('visivel');
+  _atualizarBadge();
+  _calcularRotaFila();
 
-  document.getElementById('nacBtnMaps').onclick = () =>
-    window.open(`https://www.google.com/maps/dir/?api=1&destination=${cliente.delivery_lat},${cliente.delivery_lon}&travelmode=driving`, '_blank');
-  document.getElementById('nacBtnWaze').onclick = () =>
-    window.open(`https://waze.com/ul?ll=${cliente.delivery_lat},${cliente.delivery_lon}&navigate=yes`, '_blank');
-
-  // 1ª rota imediata
-  _calcularOSRM();
-
-  // Checa posição a cada 4s — recalcula se saiu da rota
-  navDistTimer = setInterval(_verificarDesvio, 4000);
-
-  toast(`🧭 Navegando até ${cliente.name || 'cliente'}!`);
+  if (navFila.length === 1) {
+    // Primeiro cliente — inicia o timer de desvio
+    clearInterval(navTimer);
+    navTimer = setInterval(_checarDesvio, 4000);
+    toast(`🧭 Rota para ${cliente.name || 'cliente'}!`);
+  } else {
+    toast(`➕ ${cliente.name || 'cliente'} adicionado à rota!`);
+  }
 }
 
-// Cancela e limpa tudo
-function cancelarNavAvulsa(silencioso = false) {
-  if (!navAvulsaAtiva && !navDistTimer) return;
-  navAvulsaAtiva = null;
-  navRotaCoords  = null;
-  clearInterval(navDistTimer);
-  navDistTimer = null;
+// Cancela tudo
+function cancelarNavAvulsa() {
+  navFila = [];
+  navRotaCoords = null;
+  clearInterval(navTimer);
+  navTimer = null;
 
-  document.getElementById('navAvulsaChip').classList.remove('visivel');
+  document.getElementById('rotaBadge').classList.remove('visivel');
   try { map.getSource('nav-avulsa-line').setData({ type:'FeatureCollection', features:[] }); } catch(e){}
 
-  if (!silencioso) toast('🛵 Navegação encerrada');
+  // Remove marcação visual dos clientes
+  document.querySelectorAll('.marker-client-wrap.nav-ativo').forEach(el => el.classList.remove('nav-ativo'));
+  toast('🛵 Rota encerrada');
 }
 
-// Botão 👤 — força recalculo imediato
-function recalcularRotaAvulsa() {
-  if (!navAvulsaAtiva) return;
-  navRotaCoords = null; // invalida cache para centralizar novamente
-  _calcularOSRM(true);
+// Atualiza o badge no header com nomes + quantidade
+function _atualizarBadge() {
+  const badge = document.getElementById('rotaBadge');
+  if (navFila.length === 0) { badge.classList.remove('visivel'); return; }
+
+  const nomes = navFila.map(c => c.name || 'Cliente').join(' → ');
+  document.getElementById('rbNome').textContent = nomes;
+  document.getElementById('rbDist').textContent = '⏳ Calculando...';
+  badge.classList.add('visivel');
 }
 
-// Calcula rota real via OSRM
-async function _calcularOSRM(forcar = false) {
-  if (!navAvulsaAtiva) return;
-  if (navRecalcando && !forcar) return;
-  navRecalcando = true;
-
-  // Mostra spinner no botão recalc
-  const btnRec = document.getElementById('nacBtnRecalc');
-  if (btnRec) btnRec.classList.add('girando');
+// Monta a URL OSRM com todos os waypoints: moto → c1 → c2 → ...
+async function _calcularRotaFila() {
+  if (navFila.length === 0 || navRecalc) return;
+  navRecalc = true;
 
   const origem = minhaPosicao;
-  const c = navAvulsaAtiva;
-
   if (!origem) {
-    // Sem GPS — linha reta provisória
-    _aplicarRota([[c.delivery_lon, c.delivery_lat], [c.delivery_lon, c.delivery_lat]]);
-    document.getElementById('nacDist').textContent = '📡 Aguardando GPS...';
-    navRecalcando = false;
-    if (btnRec) btnRec.classList.remove('girando');
+    document.getElementById('rbDist').textContent = '📡 Aguardando GPS...';
+    navRecalc = false;
     return;
   }
 
-  const [oLng, oLat] = origem;
-  const url = `https://router.project-osrm.org/route/v1/driving/${oLng},${oLat};${c.delivery_lon},${c.delivery_lat}?overview=full&geometries=geojson`;
+  // Monta waypoints: origem + cada cliente na fila
+  const pts = [
+    `${origem[0]},${origem[1]}`,
+    ...navFila.map(c => `${c.delivery_lon},${c.delivery_lat}`)
+  ].join(';');
+
+  const url = `https://router.project-osrm.org/route/v1/driving/${pts}?overview=full&geometries=geojson`;
 
   try {
-    const res  = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    const res  = await fetch(url, { signal: AbortSignal.timeout(7000) });
     const json = await res.json();
-
     if (json.code !== 'Ok' || !json.routes?.length) throw new Error('sem rota');
 
-    const rota   = json.routes[0];
-    const coords = rota.geometry.coordinates;
-    const distM  = rota.distance;
+    const rota    = json.routes[0];
+    const coords  = rota.geometry.coordinates;
+    const distM   = rota.distance;
     const minutos = Math.ceil(rota.duration / 60);
 
     navRotaCoords = coords;
     _aplicarRota(coords);
 
-    // Só centraliza na primeira vez ou após recalc forçado
-    if (forcar || !navRotaCoords) {
-      _centralizarBounds(coords, origem);
-    }
+    // Centraliza primeira vez
+    _fitBounds(coords, origem);
 
-    const distLabel = distM < 1000
-      ? `${Math.round(distM)} m`
-      : `${(distM/1000).toFixed(1)} km`;
-    document.getElementById('nacDist').textContent = `🛣️ ${distLabel} · ⏱️ ~${minutos} min`;
+    const distLabel = distM < 1000 ? `${Math.round(distM)} m` : `${(distM/1000).toFixed(1)} km`;
+    document.getElementById('rbDist').textContent = `🛣️ ${distLabel} · ⏱️ ~${minutos} min`;
 
-  } catch (err) {
-    // Fallback linha reta
-    const [oLng2, oLat2] = origem;
-    _aplicarRota([origem, [c.delivery_lon, c.delivery_lat]]);
-    const dist = _calcDistM(oLat2, oLng2, c.delivery_lat, c.delivery_lon);
-    const label = dist < 1000 ? `~${Math.round(dist)} m` : `~${(dist/1000).toFixed(1)} km`;
-    document.getElementById('nacDist').textContent = `📏 ${label} (linha reta)`;
-    console.warn('[OSRM]', err.message);
+  } catch(err) {
+    // Fallback linha reta passando por todos
+    const coords = [origem, ...navFila.map(c => [c.delivery_lon, c.delivery_lat])];
+    _aplicarRota(coords);
+    document.getElementById('rbDist').textContent = '📏 Linha reta (sem conexão)';
   }
 
-  navRecalcando = false;
-  if (btnRec) btnRec.classList.remove('girando');
+  navRecalc = false;
 }
 
-// Atualiza a linha no mapa
+// Verifica a cada 4s se saiu da rota → recalcula
+function _checarDesvio() {
+  if (navFila.length === 0) return;
+  if (!minhaPosicao || !navRotaCoords) { _calcularRotaFila(); return; }
+
+  const [lng, lat] = minhaPosicao;
+  let minDist = Infinity;
+  for (let i = 0; i < navRotaCoords.length - 1; i++) {
+    const [aLng, aLat] = navRotaCoords[i];
+    const [bLng, bLat] = navRotaCoords[i+1];
+    const dx = bLng-aLng, dy = bLat-aLat;
+    const len2 = dx*dx+dy*dy;
+    let t = len2 === 0 ? 0 : Math.max(0,Math.min(1,((lng-aLng)*dx+(lat-aLat)*dy)/len2));
+    const d = _distM(lat, lng, aLat+t*dy, aLng+t*dx);
+    if (d < minDist) minDist = d;
+  }
+
+  if (minDist > NAV_DESVIO) {
+    toast('↩️ Recalculando rota...');
+    navRotaCoords = null;
+    _calcularRotaFila();
+  } else {
+    // Verifica chegada ao próximo destino
+    const prox = navFila[0];
+    const dist = _distM(lat, lng, prox.delivery_lat, prox.delivery_lon);
+    if (dist < 35) {
+      toast(`📍 Chegou em ${prox.name || 'cliente'}!`);
+      document.querySelectorAll(`.marker-client-wrap[data-id="${prox.id}"]`).forEach(el => el.classList.remove('nav-ativo'));
+      navFila.shift(); // remove o primeiro
+      navRotaCoords = null;
+      if (navFila.length === 0) {
+        cancelarNavAvulsa();
+      } else {
+        _atualizarBadge();
+        _calcularRotaFila();
+      }
+    }
+  }
+}
+
 function _aplicarRota(coords) {
   try {
     map.getSource('nav-avulsa-line').setData({
-      type: 'Feature',
-      geometry: { type: 'LineString', coordinates: coords }
+      type:'Feature', geometry:{ type:'LineString', coordinates:coords }
     });
   } catch(e) {}
 }
 
-// A cada 4s: checa se saiu da rota e recalcula se necessário
-function _verificarDesvio() {
-  if (!navAvulsaAtiva || !minhaPosicao || !navRotaCoords) {
-    _calcularOSRM();
-    return;
-  }
+function _fitBounds(coords, origem) {
+  const todos = [origem, ...coords];
+  const bounds = todos.reduce((b,p) => b.extend(p), new maplibregl.LngLatBounds(todos[0],todos[0]));
+  map.fitBounds(bounds, { padding:{ top:60,bottom:80,left:40,right:40 }, maxZoom:17, duration:800 });
+}
 
-  const [mLng, mLat] = minhaPosicao;
-
-  // Distância ao ponto mais próximo da rota
-  const desvioM = _distAoSegmentoMaisProximo(mLat, mLng, navRotaCoords);
-
-  if (desvioM > OSRM_DESVIO_M) {
-    toast('↩️ Saiu da rota — recalculando...');
-    navRotaCoords = null;
-    _calcularOSRM();
-  } else {
-    // Só atualiza distância linear ao destino
-    const c = navAvulsaAtiva;
-    const dist = _calcDistM(mLat, mLng, c.delivery_lat, c.delivery_lon);
-    if (dist < 30) {
-      toast('📍 Você chegou!');
-      cancelarNavAvulsa(true);
-      return;
+function _marcarClienteNaFila(cliente) {
+  marcadoresClientes.forEach(m => {
+    const el = m.getElement();
+    if (el && el.dataset.id === String(cliente.id)) {
+      el.classList.add('nav-ativo');
     }
-    // Atualiza o ponto de origem na linha (corta a parte já percorrida)
-    const coordsAtualizados = _cortarRotaPercorrida(minhaPosicao, navRotaCoords);
-    _aplicarRota(coordsAtualizados);
-  }
-}
-
-// Centraliza o mapa mostrando a rota completa (só 1ª vez / recalc)
-function _centralizarBounds(coords, origem) {
-  const todos = origem ? [origem, ...coords] : coords;
-  const bounds = todos.reduce(
-    (b, c) => b.extend(c),
-    new maplibregl.LngLatBounds(todos[0], todos[0])
-  );
-  map.fitBounds(bounds, {
-    padding: { top:80, bottom:170, left:40, right:40 },
-    maxZoom: 17, duration: 900
   });
 }
 
-// Distância em metros do ponto [lat,lng] ao segmento mais próximo da rota
-function _distAoSegmentoMaisProximo(lat, lng, coords) {
-  let minDist = Infinity;
-  for (let i = 0; i < coords.length - 1; i++) {
-    const d = _distPontoASegmento(lat, lng, coords[i], coords[i+1]);
-    if (d < minDist) minDist = d;
-  }
-  return minDist;
-}
-
-// Distância de ponto P ao segmento AB (retorna metros)
-function _distPontoASegmento(pLat, pLng, A, B) {
-  const [aLng, aLat] = A;
-  const [bLng, bLat] = B;
-  const dx = bLng - aLng, dy = bLat - aLat;
-  const len2 = dx*dx + dy*dy;
-  if (len2 === 0) return _calcDistM(pLat, pLng, aLat, aLng);
-  let t = ((pLng - aLng)*dx + (pLat - aLat)*dy) / len2;
-  t = Math.max(0, Math.min(1, t));
-  return _calcDistM(pLat, pLng, aLat + t*dy, aLng + t*dx);
-}
-
-// Remove da polyline a parte já percorrida (ponto mais próximo em diante)
-function _cortarRotaPercorrida(posicao, coords) {
-  const [pLng, pLat] = posicao;
-  let minDist = Infinity, minIdx = 0;
-  coords.forEach(([cLng, cLat], i) => {
-    const d = _calcDistM(pLat, pLng, cLat, cLng);
-    if (d < minDist) { minDist = d; minIdx = i; }
-  });
-  return [posicao, ...coords.slice(minIdx)];
-}
-
-function _calcDistM(lat1, lon1, lat2, lon2) {
+function _distM(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const dLat = (lat2-lat1)*Math.PI/180;
   const dLon = (lon2-lon1)*Math.PI/180;
   const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-  return R*2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 
 // ── SYNC SUPABASE (polling 15s) ──
