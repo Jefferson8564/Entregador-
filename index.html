@@ -151,16 +151,20 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); col
 .confirm-cancel { width:100%; padding:14px; border:1px solid var(--border); border-radius:16px; background:transparent; color:var(--text-muted); font-size:14px; font-weight:700; cursor:pointer; font-family:'DM Sans',sans-serif; }
 
 /* PAGAMENTO MODAL */
-#pagamentoModal { position:fixed; inset:0; z-index:8500; background:rgba(0,0,0,0.8); backdrop-filter:blur(10px); display:none; align-items:flex-end; justify-content:center; }
-#pagamentoModal.show { display:flex; }
-.pag-box { background:var(--surface); border-radius:28px 28px 0 0; padding:28px 20px 40px; width:100%; max-width:500px; border-top:1px solid var(--border); animation:slideUp 0.35s cubic-bezier(0.34,1.4,0.64,1); }
-.pag-icon { font-size:46px; text-align:center; margin-bottom:10px; }
-.pag-title { font-family:'Syne',sans-serif; font-size:19px; font-weight:900; text-align:center; margin-bottom:4px; }
-.pag-sub { font-size:13px; color:var(--text-dim); text-align:center; margin-bottom:22px; line-height:1.5; }
-.pag-valor { font-family:'Syne',sans-serif; font-size:32px; font-weight:900; text-align:center; color:var(--primary); margin-bottom:22px; }
+#pagamentoModal { position:fixed; top:16px; left:12px; right:12px; z-index:8500; display:none; max-width:420px; margin:0 auto; }
+#pagamentoModal.show { display:block; animation:slideDown 0.45s cubic-bezier(0.34,1.4,0.64,1); }
+@keyframes slideDown { from{transform:translateY(-120%);opacity:0;} to{transform:translateY(0);opacity:1;} }
+.pag-box { background:rgba(18,18,26,0.97); border:1px solid rgba(245,166,35,0.35); border-radius:22px; padding:16px 16px 14px; box-shadow:0 8px 40px rgba(0,0,0,0.7); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); }
+.pag-top { display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+.pag-icon { width:44px; height:44px; border-radius:14px; background:rgba(245,166,35,0.15); border:1px solid rgba(245,166,35,0.3); display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; }
+.pag-info { flex:1; min-width:0; }
+.pag-title { font-family:'Syne',sans-serif; font-size:15px; font-weight:800; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pag-sub { font-size:12px; color:var(--text-muted); margin-top:2px; }
+.pag-valor { font-family:'Syne',sans-serif; font-size:20px; font-weight:900; color:var(--primary); flex-shrink:0; }
+
 .pag-btns { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-.pag-sim { padding:16px; border:none; border-radius:16px; font-size:15px; font-weight:800; cursor:pointer; font-family:'DM Sans',sans-serif; background:var(--green); color:#000; }
-.pag-nao { padding:16px; border:1px solid rgba(255,71,87,0.35); border-radius:16px; font-size:15px; font-weight:800; cursor:pointer; font-family:'DM Sans',sans-serif; background:rgba(255,71,87,0.15); color:var(--red); }
+.pag-sim { padding:13px; border:none; border-radius:14px; font-size:15px; font-weight:800; cursor:pointer; font-family:'DM Sans',sans-serif; background:var(--green); color:#000; }
+.pag-nao { padding:13px; border:1.5px solid rgba(255,71,87,0.4); border-radius:14px; font-size:15px; font-weight:800; cursor:pointer; font-family:'DM Sans',sans-serif; background:rgba(255,71,87,0.1); color:var(--red); }
 
 /* MAPLIBRE POPUP */
 .maplibregl-popup-content { background:rgba(16,16,36,0.97) !important; color:white !important; border-radius:16px !important; padding:12px 16px !important; font-size:13px !important; box-shadow:0 8px 32px rgba(0,0,0,0.6) !important; border:1px solid rgba(255,255,255,0.09) !important; font-family:'DM Sans',sans-serif !important; }
@@ -186,13 +190,18 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); col
 <!-- PAGAMENTO MODAL -->
 <div id="pagamentoModal">
   <div class="pag-box">
-    <div class="pag-icon">💰</div>
-    <div class="pag-title" id="pagNome">Cliente pagou?</div>
-    <div class="pag-sub" id="pagSub">Este cliente escolheu pagar na entrega.</div>
-    <div class="pag-valor" id="pagValor">R$ 0,00</div>
+    <div class="pag-top">
+      <div class="pag-icon">💰</div>
+      <div class="pag-info">
+        <div class="pag-title" id="pagNome">Cliente pagou?</div>
+        <div class="pag-sub">Pagar na entrega</div>
+      </div>
+      <div class="pag-valor" id="pagValor">R$ 0,00</div>
+    </div>
+
     <div class="pag-btns">
-      <button class="pag-sim" onclick="responderPagamento(true)">✅ Sim, pagou</button>
-      <button class="pag-nao" onclick="responderPagamento(false)">❌ Não pagou</button>
+      <button class="pag-nao" onclick="responderPagamento(false)">❌ Não</button>
+      <button class="pag-sim" onclick="responderPagamento(true)">✅ Sim</button>
     </div>
   </div>
 </div>
@@ -288,6 +297,19 @@ const FABRICA = [-8.1837523, -34.9383004]; // [lat, lng]
 const RAIO_ENTREGA = 40; // metros
 const OSRM_BASE = 'https://router.project-osrm.org/route/v1/driving/';
 
+// ===== FUSO HORÁRIO BRASÍLIA (GMT-3) =====
+function agoraISO() {
+  // Retorna ISO string no horário de Brasília
+  const now = new Date();
+  const offset = -3 * 60; // GMT-3 em minutos
+  const local = new Date(now.getTime() + (offset - now.getTimezoneOffset()) * 60000);
+  return local.toISOString().replace('Z', '-03:00');
+}
+function hojeStr() {
+  // Retorna "YYYY-MM-DD" no horário de Brasília
+  return agoraISO().split('T')[0];
+}
+
 // ===== ESTADO =====
 let map, meuMarcador = null, meuMarcadorEl = null;
 let minhaPosicao = null; // [lng, lat] MapLibre
@@ -311,12 +333,19 @@ let navAvulsaDestino = null, navAvulsaInterval = null, navAvulsaMarcador = null;
 let gpsOk = false, ultimoEnvioGPS = 0;
 const THROTTLE_GPS_MS = 3000;
 
+// ===== ROTA ESPECIAL =====
+let _reConfig = null;            // config carregada do app_config
+let _dentroFabrica = true;       // começa assumindo que está na fábrica
+let _rotaEspecialId = null;      // id da rota especial em andamento
+let _realtimePedidos = null;     // canal realtime de pedidos
+
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
   initMap();
   carregarDados().catch(e => console.warn('Dados:', e));
   iniciarGPS();
   iniciarRealtime();
+  iniciarRotaEspecial(); // monitor de pedidos + GPS da fábrica
 });
 
 // ===== MAPA =====
@@ -471,10 +500,12 @@ async function processarPosicao(pos) {
     const prox = paradasList.find(p => p.status==='pendente' && p.coords);
     if (prox) { ultimaProximaId = null; desenharRotaProxima([lat,lon], prox); }
   }
+  // Detectar saída/chegada da fábrica para rota especial
+  await tickRotaEspecial(lat, lon);
 }
 async function enviarPosicaoSupabase(lat, lon, acc=0) {
   try {
-    const ts = new Date().toISOString();
+    const ts = agoraISO();
     if (rotaAtual?.id) {
       // GPS direto na delivery_routes — cardápio lê via Realtime
       await sb.from("delivery_routes")
@@ -503,7 +534,7 @@ async function verificarProximidade(lat, lon) {
       const rotaId = rotaAtual.id;
       rotaAtual = null; setGJ('rota-completa',null); setGJ('rota-proxima',null);
       await sb.from("delivery_routes").update({
-        status:'concluido', fim_em:new Date().toISOString(),
+        status:'concluido', fim_em:agoraISO(),
         gps_lat:null, gps_lon:null, gps_ts:null
       }).eq("id", rotaId);
       chip.style.display = 'none';
@@ -548,7 +579,7 @@ let pagamentoEmAndamento = false;
 
 async function verificarPagamentoEntrega(parada) {
   if (!parada.cliente_phone) return;
-  const hoje = new Date().toISOString().split('T')[0];
+  const hoje = hojeStr();
   const { data: pedidos } = await sb.from("orders")
     .select("id,total,payment_method,customer_name")
     .eq("customer_phone", parada.cliente_phone)
@@ -620,7 +651,7 @@ async function executarMarcarEntregue(id, nome) {
   const p = paradasList.find(x => x.id===id);
   if (!p || p.status==='entregue') return;
   p.status = 'entregue';
-  p.entregue_em = new Date().toISOString();
+  p.entregue_em = agoraISO();
   cacheRotaCompleta = null; cacheRotaCompletaKey = ''; ultimaProximaId = null;
   setGJ('rota-proxima', null);
 
@@ -649,7 +680,7 @@ async function executarMarcarEntregue(id, nome) {
 
 async function confirmarChegadaFabrica() {
   await sb.from("delivery_routes").update({
-    status:'concluido', fim_em:new Date().toISOString(),
+    status:'concluido', fim_em:agoraISO(),
     gps_lat:null, gps_lon:null, gps_ts:null
   }).eq("id", rotaAtual.id);
   showToast('🏭 Rota finalizada! Bem-vindo de volta.', 'success');
@@ -744,7 +775,7 @@ function _onMoveNavAvulsa() {
 // ===== DADOS =====
 async function carregarDados() {
   await calcularMediaEta();
-  const hoje = new Date().toISOString().split('T')[0];
+  const hoje = hojeStr();
   const agora = new Date();
   const horaAgora = agora.getHours() * 60 + agora.getMinutes(); // minutos desde meia-noite
   const diaSemana = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][agora.getDay()];
@@ -827,8 +858,8 @@ async function carregarDados() {
   todosOsClientes = (clientes||[]).map(c => {
     const coords = c.delivery_lat&&c.delivery_lon
       ? [parseFloat(c.delivery_lat),parseFloat(c.delivery_lon)] : null;
-    return {...c, nome:c.name, coords};
-  }).filter(c => c.coords && phonesComPedido.has(c.phone)); // só quem tem pedido hoje
+    return {...c, nome:c.name, coords, temPedidoHoje: phonesComPedido.has(c.phone)};
+  }).filter(c => c.coords); // todos com endereço cadastrado aparecem no mapa
 
   // Verifica se alguma rota do dia deve ser iniciada automaticamente
   await verificarAutoInicioRotas(horaAgora);
@@ -869,10 +900,10 @@ async function verificarAutoInicioRotas(horaAgoraMin) {
 }
 
 async function iniciarRota(rota) {
-  const ts = new Date().toISOString();
+  const ts = agoraISO();
   const agora = new Date();
-  const hoje = agora.toISOString().split('T')[0];
-  const ontem = new Date(agora - 86400000).toISOString().split('T')[0];
+  const hoje = hojeStr();
+  const ontem = new Date(new Date().getTime() - 86400000 + (-3*60 - new Date().getTimezoneOffset())*60000).toISOString().split('T')[0];
   const depoisDas1130 = agora.getHours() > 11 || (agora.getHours() === 11 && agora.getMinutes() >= 30);
   const janela_inicio = depoisDas1130 ? hoje + 'T11:30:00' : ontem + 'T11:30:00';
 
@@ -953,7 +984,7 @@ function mostrarModalSelecaoRota(rotas) {
 
 async function calcularMediaEta() {
   const ontem = new Date(); ontem.setDate(ontem.getDate()-1);
-  const base = ontem.toISOString().split('T')[0];
+  const base = new Date(ontem.getTime() + (-3*60 - ontem.getTimezoneOffset())*60000).toISOString().split('T')[0];
   const {data:hist} = await sb.from("delivery_routes").select("paradas,saida_em,fim_em")
     .gte("created_at",base+'T00:00:00').lte("created_at",base+'T23:59:59').eq("status","concluido").limit(5);
   if (hist?.length) {
@@ -1007,12 +1038,13 @@ function renderizarMarcadores() {
     const R=17, C=2*Math.PI*R;
     const clientesHTML = clientes.map((p,ci) => {
       const pa = paradasList.find(x => x.coords && x.coords[0]===p.coords[0] && x.coords[1]===p.coords[1] && (x.nome===(p.name||p.nome)||x.client_id===p.id||x.cliente_phone===p.phone));
-      const entregue=pa?.status==='entregue', isProx=prox&&pa?.id===prox.id, isRota=!!pa;
+      const entregue=pa?.status==='entregue', isProx=prox&&pa?.id===prox.id, isPendente=pa&&pa.status==='pendente';
+      // 🟡 Amarelo=próxima parada | 🟣 Roxo=pendente na rota | 🟢 Verde=entregue | 🔵 Azul=sem rota ativa
       let bg,bc,lb,lc,rc;
-      if(entregue){bg='#00e87a';bc='rgba(0,232,122,0.4)';lb='rgba(0,0,0,0.65)';lc='#aaa';rc='#00e87a';}
-      else if(isProx){bg='#f5a623';bc='rgba(245,166,35,0.6)';lb='rgba(245,166,35,0.92)';lc='#000';rc='#f5a623';}
-      else if(isRota){bg='#3d9cff';bc='rgba(61,156,255,0.4)';lb='rgba(10,10,15,0.85)';lc='#f0f0f8';rc='#3d9cff';}
-      else{bg='#7c5cbf';bc='rgba(124,92,191,0.4)';lb='rgba(20,10,40,0.85)';lc='rgba(240,240,248,0.7)';rc='#00e87a';}
+      if(entregue){bg='#00e87a';bc='rgba(0,232,122,0.4)';lb='rgba(0,0,0,0.65)';lc='#00e87a';rc='#00e87a';}
+      else if(isProx){bg='#f5e623';bc='rgba(245,230,35,0.7)';lb='rgba(100,80,0,0.92)';lc='#1a1200';rc='#f5e623';}
+      else if(isPendente){bg='#3d9cff';bc='rgba(61,156,255,0.4)';lb='rgba(10,10,15,0.85)';lc='#f0f0f8';rc='#3d9cff';}
+      else{bg='#9b59b6';bc='rgba(155,89,182,0.45)';lb='rgba(40,10,60,0.85)';lc='rgba(240,220,255,0.85)';rc='#9b59b6';}
       const pulse=isProx?'animation:paradaPulse 1.5s ease-in-out infinite;':'';
       const nome=p.name||p.nome;
       const uid=`cm_${coords[0].toFixed(5).replace('.','')}_${coords[1].toFixed(5).replace('.','')}_${ci}`;
@@ -1034,10 +1066,10 @@ function renderizarMarcadores() {
 
     // Popup
     const popupHTML = clientes.map(p => {
-      const pa=paradasList.find(x=>x.coords&&x.coords[0]===p.coords[0]&&x.coords[1]===p.coords[1]&&(x.nome===(p.name||p.nome)||x.client_id===p.id));
-      const ent=pa?.status==='entregue', isP=prox&&pa?.id===prox.id, isR=!!pa;
-      const sl=ent?'✅ Entregue hoje':isP?'▶ Próxima parada':isR?'⏳ Pendente':'📍 Cliente cadastrado';
-      const sc=ent?'#00e87a':isP?'#f5a623':isR?'#3d9cff':'#7c5cbf';
+      const pa=paradasList.find(x=>x.coords&&x.coords[0]===p.coords[0]&&x.coords[1]===p.coords[1]&&(x.nome===(p.name||p.nome)||x.client_id===p.id||x.cliente_phone===p.phone));
+      const ent=pa?.status==='entregue', isP=prox&&pa?.id===prox.id, isPend=pa&&pa.status==='pendente';
+      const sl=ent?'✅ Entregue':isP?'🟡 Próxima parada':isPend?'🟣 Pendente na rota':'🔵 Sem rota ativa';
+      const sc=ent?'#00e87a':isP?'#f5e623':isPend?'#9b59b6':'#3d9cff';
       return `<div style="padding:6px 0;${clientes.length>1?'border-bottom:1px solid rgba(255,255,255,0.08);':''}">
         <div style="font-weight:800;font-size:13px;">${p.name||p.nome}</div>
         <div style="font-size:11px;color:rgba(240,240,248,0.55);">📍 ${p.delivery_address||p.endereco||''}</div>
@@ -1253,10 +1285,10 @@ function abrirFinalizarRota() {
 async function executarFinalizarRota() {
   document.getElementById('finalizarModal').style.display = 'none';
   if (!rotaAtual) return;
-  const paradasFinal = paradasList.map(p => ({...p, status: 'entregue', entregue_em: p.entregue_em || new Date().toISOString()}));
+  const paradasFinal = paradasList.map(p => ({...p, status: 'entregue', entregue_em: p.entregue_em || agoraISO()}));
   await sb.from("delivery_routes").update({
     status: 'concluido',
-    fim_em: new Date().toISOString(),
+    fim_em: agoraISO(),
     paradas: paradasFinal,
     entregas_realizadas: paradasFinal.length,
     gps_lat: null, gps_lon: null, gps_ts: null
@@ -1312,6 +1344,142 @@ function navegarWaze(lat,lon){window.open(`https://waze.com/ul?ll=${lat},${lon}&
 function showToast(msg, type='') {
   const t=document.getElementById('toast'); t.textContent=msg; t.className='show '+type;
   clearTimeout(toastTimer); toastTimer=setTimeout(()=>{t.className='';},4000);
+}
+
+// ===== ROTA ESPECIAL — LÓGICA COMPLETA =====
+
+async function carregarConfigRE() {
+  try {
+    const { data } = await sb.from('app_config').select('valor').eq('chave','rota_especial').maybeSingle();
+    _reConfig = data ? JSON.parse(data.valor) : null;
+  } catch(e) { console.warn('RE config:', e); _reConfig = null; }
+}
+
+function reAtiva() {
+  if (!_reConfig?.ativo) return false;
+  const agora = agoraISO();
+  const hora  = agora.substring(11, 16);
+  const dias  = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  const hoje  = dias[new Date().getDay()];
+  if (_reConfig.dias?.length && !_reConfig.dias.includes(hoje)) return false;
+  return hora >= _reConfig.hora_inicio && hora <= _reConfig.hora_fim;
+}
+
+async function tickRotaEspecial(lat, lon) {
+  const dist = calcDistM(lat, lon, FABRICA[0], FABRICA[1]);
+  const dentroAgora = dist <= 60;
+
+  // Saiu da fábrica
+  if (_dentroFabrica && !dentroAgora) {
+    _dentroFabrica = false;
+    await carregarConfigRE();
+    if (reAtiva()) {
+      const rota = await criarRotaEspecial();
+      if (rota) {
+        _rotaEspecialId = rota.id;
+        await carregarDados(); // atualiza UI
+      }
+    }
+  }
+
+  // Voltou à fábrica — finaliza rota especial e limpa fila
+  if (!_dentroFabrica && dentroAgora) {
+    _dentroFabrica = true;
+    if (_rotaEspecialId) {
+      await sb.from('delivery_routes').update({ status:'concluido', fim_em:agoraISO(), gps_lat:null, gps_lon:null, gps_ts:null }).eq('id', _rotaEspecialId);
+      _rotaEspecialId = null;
+      rotaAtual = null; paradasList = [];
+      setGJ('rota-completa',null); setGJ('rota-proxima',null);
+    }
+    // Limpa clientes em_rota da fila → libera para pedir de novo
+    await carregarConfigRE();
+    if (_reConfig) {
+      _reConfig.clientes_fila = (_reConfig.clientes_fila || []).filter(c => c.status === 'pendente');
+      await sb.from('app_config').upsert({ chave:'rota_especial', valor:JSON.stringify(_reConfig) }, { onConflict:'chave' });
+    }
+    const filaAcum = (_reConfig?.clientes_fila || []).filter(c => c.status === 'pendente').length;
+    showToast(filaAcum > 0 ? `🏭 Voltou! ${filaAcum} cliente(s) aguardando` : '🏭 Voltou à fábrica!', 'success');
+    await carregarDados();
+  }
+}
+
+async function criarRotaEspecial() {
+  const fila = (_reConfig?.clientes_fila || []).filter(c => c.status === 'pendente' && c.coords);
+  if (!fila.length) { showToast('⚡ Saiu — nenhum cliente na fila', 'warn'); return null; }
+
+  const paradas = fila.map((c, i) => ({
+    id: Date.now().toString() + '_' + i,
+    cliente_phone: c.phone,
+    nome: c.nome,
+    endereco: c.endereco,
+    coords: c.coords,
+    status: 'pendente',
+    eta_min: (i + 1) * mediaMinPorParada
+  }));
+
+  const agora = agoraISO();
+  const { data: rota, error } = await sb.from('delivery_routes').insert({
+    nome: '⚡ Rota Especial',
+    status: 'em_andamento',
+    saida_em: agora,
+    hora_saida: agora.substring(11, 16),
+    janela_inicio: agora,
+    paradas,
+    total_paradas_dia: paradas.length,
+    entregas_realizadas: 0,
+    phones_entregues: [],
+    gps_lat: FABRICA[0], gps_lon: FABRICA[1], gps_ts: agora
+  }).select().single();
+
+  if (error) { console.error('Erro criar rota especial:', error); return null; }
+
+  // Marca clientes como em_rota
+  _reConfig.clientes_fila = (_reConfig.clientes_fila || []).map(c =>
+    fila.find(f => f.phone === c.phone) ? { ...c, status: 'em_rota' } : c
+  );
+  await sb.from('app_config').upsert({ chave:'rota_especial', valor:JSON.stringify(_reConfig) }, { onConflict:'chave' });
+
+  showToast(`⚡ Rota especial criada! ${paradas.length} entrega(s)`, 'success');
+  return rota;
+}
+
+async function adicionarNaFilaRE(pedido) {
+  await carregarConfigRE();
+  if (!_reConfig || !reAtiva()) return;
+
+  const { data: cli } = await sb.from('clients').select('name,phone,delivery_lat,delivery_lon,delivery_address').eq('phone', pedido.customer_phone).maybeSingle();
+  if (!cli?.delivery_lat || !cli?.delivery_lon) return;
+
+  const fila = _reConfig.clientes_fila || [];
+  // Só bloqueia se já tiver pendente
+  if (fila.find(x => x.phone === pedido.customer_phone && x.status === 'pendente')) return;
+
+  const agora = agoraISO();
+  fila.push({
+    id: Date.now().toString(),
+    phone: cli.phone,
+    nome: cli.name || pedido.customer_name,
+    endereco: cli.delivery_address || `${cli.delivery_lat}, ${cli.delivery_lon}`,
+    coords: [parseFloat(cli.delivery_lat), parseFloat(cli.delivery_lon)],
+    hora_pedido: agora.substring(11, 16),
+    status: 'pendente'
+  });
+  _reConfig.clientes_fila = fila;
+  await sb.from('app_config').upsert({ chave:'rota_especial', valor:JSON.stringify(_reConfig) }, { onConflict:'chave' });
+  showToast(`⚡ ${cli.name} entrou na fila!`, 'success');
+}
+
+function iniciarRotaEspecial() {
+  // Carrega config inicial
+  carregarConfigRE();
+
+  // Escuta novos pedidos em tempo real
+  if (_realtimePedidos) { try { sb.removeChannel(_realtimePedidos); } catch(e) {} }
+  _realtimePedidos = sb.channel('re_pedidos')
+    .on('postgres_changes', { event:'INSERT', schema:'public', table:'orders' }, async (payload) => {
+      await adicionarNaFilaRE(payload.new);
+    })
+    .subscribe();
 }
 
 // ===== UTILS =====
