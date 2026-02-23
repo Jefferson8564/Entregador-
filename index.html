@@ -197,6 +197,18 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); col
   </div>
 </div>
 
+<!-- FINALIZAR ROTA MODAL -->
+<div id="finalizarModal" style="position:fixed;inset:0;z-index:8300;background:rgba(0,0,0,0.78);backdrop-filter:blur(8px);display:none;align-items:flex-end;justify-content:center;">
+  <div style="background:var(--surface);border-radius:28px 28px 0 0;padding:28px 20px 40px;width:100%;max-width:500px;border-top:1px solid rgba(0,232,122,0.3);animation:slideUp 0.35s cubic-bezier(0.34,1.4,0.64,1);">
+    <div style="font-size:44px;text-align:center;margin-bottom:12px;">🏁</div>
+    <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:900;text-align:center;margin-bottom:6px;">Finalizar rota?</div>
+    <div style="font-size:13px;color:var(--text-dim);text-align:center;margin-bottom:8px;line-height:1.6;" id="finalizarSub">Todas as paradas serão marcadas como entregues e a rota será concluída.</div>
+    <div style="font-size:12px;color:var(--primary);text-align:center;margin-bottom:24px;font-weight:700;" id="finalizarInfo"></div>
+    <button onclick="executarFinalizarRota()" style="width:100%;padding:16px;border:none;border-radius:16px;font-size:15px;font-weight:800;cursor:pointer;font-family:'DM Sans',sans-serif;background:var(--green);color:#000;margin-bottom:10px;">🏁 Sim, finalizar rota</button>
+    <button onclick="document.getElementById('finalizarModal').style.display='none'" style="width:100%;padding:14px;border:1px solid var(--border);border-radius:16px;background:transparent;color:var(--text-muted);font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Cancelar</button>
+  </div>
+</div>
+
 <!-- DESISTIR MODAL -->
 <div id="desistirModal" style="position:fixed;inset:0;z-index:8200;background:rgba(0,0,0,0.75);backdrop-filter:blur(8px);display:none;align-items:flex-end;justify-content:center;">
   <div style="background:var(--surface);border-radius:28px 28px 0 0;padding:28px 20px 40px;width:100%;max-width:500px;border-top:1px solid rgba(255,71,87,0.3);animation:slideUp 0.35s cubic-bezier(0.34,1.4,0.64,1);">
@@ -274,9 +286,6 @@ const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const FABRICA = [-8.1837523, -34.9383004]; // [lat, lng]
 const RAIO_ENTREGA = 40; // metros
-const RAIO_AUTO_ENTREGA = 30;   // metros — entrega automática qualquer cliente
-const RAIO_RECALCULO = 40;      // metros — recalcula se saiu da rota
-const RAIO_AUTO_INICIO = 25;    // metros — auto-inicia ao sair da fábrica
 const OSRM_BASE = 'https://router.project-osrm.org/route/v1/driving/';
 
 // ===== ESTADO =====
@@ -286,6 +295,7 @@ let posAtual = null;     // [lat, lng] cálculos
 let ultimaPosicao = null, ultimaDirecao = 0;
 let seguindoMoto = true, modo3DAtivo = true;
 let bearingHistorico = [];
+let autoResumeTimer = null;
 const MAX_HIST = 5;
 
 let rotaAtual = null, paradasList = [], todasAsRotas = [], todosOsClientes = [];
@@ -295,7 +305,6 @@ let paradaPagamentoPendente = null;
 
 let marcadoresMapLibre = [];
 let cacheRotaCompleta = null, cacheRotaCompletaKey = '';
-let ultimoRecalculo = 0, entregasAutoFeitas = new Set();
 let ultimaProximaId = null;
 
 let navAvulsaDestino = null, navAvulsaInterval = null, navAvulsaMarcador = null;
@@ -331,7 +340,14 @@ function initMap() {
     document.getElementById('loadingScreen').style.display = 'none';
     if (todosOsClientes.length || paradasList.length) renderizarMarcadores();
   });
-  map.on('dragstart', () => { seguindoMoto = false; });
+  map.on('dragstart', () => { 
+    seguindoMoto = false;
+    if (autoResumeTimer) clearTimeout(autoResumeTimer);
+    autoResumeTimer = setTimeout(() => {
+      seguindoMoto = true;
+      if (posAtual) moverEntregador(posAtual[0], posAtual[1], null);
+    }, 5000); // volta a seguir após 5s sem interação
+  });
 }
 
 // ===== GPS-STYLE MOVER MOTO — NÃO ALTERAR =====
@@ -376,7 +392,7 @@ function moverEntregador(novaLat, novaLng, headingGPS) {
     meuMarcadorEl = el;
     meuMarcador = new maplibregl.Marker({ element: el, anchor: 'center' })
       .setLngLat([novaLng, novaLat]).addTo(map);
-    map.setPitch(70);
+    map.setPitch(65);
   } else {
     meuMarcador.setLngLat([novaLng, novaLat]);
   }
@@ -387,7 +403,11 @@ function moverEntregador(novaLat, novaLng, headingGPS) {
   if (badge) { badge.textContent = `${Math.round(((angulo%360)+360)%360)}°`; badge.style.display = modo3DAtivo ? 'block' : 'none'; }
 
   if (seguindoMoto && modo3DAtivo) {
-    map.easeTo({ center:[novaLng,novaLat], bearing:angulo, pitch:70, zoom:17, offset:[0,120], duration:700, easing:t=>t, essential:true });
+    map.easeTo({ center:[novaLng,novaLat], bearing:angulo, pitch:65, zoom:17, duration:800, easing:t=>t, essential:true });
+    // Garante que o marcador está visível após o easeTo
+    setTimeout(() => {
+      if (meuMarcador && posAtual) meuMarcador.setLngLat([posAtual[1], posAtual[0]]);
+    }, 850);
   } else if (seguindoMoto) {
     map.easeTo({ center:[novaLng,novaLat], pitch:0, bearing:0, zoom:17, duration:1000 });
   }
@@ -398,7 +418,7 @@ function toggle3D() {
   modo3DAtivo = !modo3DAtivo;
   document.getElementById('btnToggle3D').classList.toggle('ativo', modo3DAtivo);
   if (!modo3DAtivo) {
-    map.easeTo({ pitch:0, bearing:0, duration:500 });
+    map.easeTo({ pitch:0, bearing:0, duration:600 });
     document.getElementById('headingBadge').style.display = 'none';
   } else {
     seguindoMoto = true;
@@ -407,12 +427,13 @@ function toggle3D() {
 }
 function resetarRotacao() {
   ultimaDirecao = 0; bearingHistorico = [];
-  map.easeTo({ bearing:0, pitch:modo3DAtivo?70:0, duration:600 });
+  map.easeTo({ bearing:0, pitch:modo3DAtivo?65:0, duration:600 });
   document.getElementById('setaNorte').style.transform = 'rotate(0deg)';
   document.getElementById('headingBadge').textContent = '0°';
   seguindoMoto = true;
 }
 function recentrarMapa() {
+  if (autoResumeTimer) { clearTimeout(autoResumeTimer); autoResumeTimer = null; }
   seguindoMoto = true; modo3DAtivo = true;
   document.getElementById('btnToggle3D').classList.add('ativo');
   if (posAtual) moverEntregador(posAtual[0], posAtual[1], null);
@@ -437,7 +458,6 @@ async function processarPosicao(pos) {
   let distMovida = 999;
   if (posAtual) distMovida = calcDistM(posAtual[0],posAtual[1],lat,lon);
 
-  // ── Navegação 3D Suave (pitch 70, bearing acompanha direção)
   moverEntregador(lat, lon, heading);
   _onMoveNavAvulsa();
 
@@ -446,132 +466,20 @@ async function processarPosicao(pos) {
     ultimoEnvioGPS = agora;
     await enviarPosicaoSupabase(lat, lon, acc);
   }
-
-  // ── Auto-Início da Rota
-  await verificarAutoInicio(lat, lon);
-
-  if (rotaAtual && paradasList.length) {
-    // ── Auto-Entrega por Proximidade (todas as paradas)
-    await verificarProximidadeTodas(lat, lon);
-
-    // ── Recálculo Dinâmico (saiu da rota)
-    if (distMovida > 5 && agora - ultimoRecalculo > 8000) {
-      await verificarRecalculoRota(lat, lon);
-    }
+  if (rotaAtual && paradasList.length) await verificarProximidade(lat, lon);
+  if (rotaAtual && distMovida > 50) {
+    const prox = paradasList.find(p => p.status==='pendente' && p.coords);
+    if (prox) { ultimaProximaId = null; desenharRotaProxima([lat,lon], prox); }
   }
-}
-
-// ── AUTO-INÍCIO: sai da fábrica com rota 'criada' → inicia
-async function verificarAutoInicio(lat, lon) {
-  if (rotaAtual) return;
-  const distFab = calcDistM(lat, lon, FABRICA[0], FABRICA[1]);
-  if (distFab <= RAIO_AUTO_INICIO) return;
-  const candidata = todasAsRotas.find(r =>
-    r.status === 'criada' && r.paradas?.some(p => p.status === 'pendente')
-  );
-  if (!candidata) return;
-  await iniciarRota(candidata);
-  mostrarFeedbackEntrega(`🛵 Rota "${candidata.nome}" iniciada!`, '#f5a623');
-}
-
-// ── AUTO-ENTREGA: percorre TODAS as paradas, entrega quem estiver no raio
-async function verificarProximidadeTodas(lat, lon) {
-  const chip = document.getElementById('proximidadeChip');
-  const pendentes = paradasList.filter(p => p.status === 'pendente' && p.coords);
-  if (!pendentes.length) { chip.style.display = 'none'; return; }
-
-  for (const parada of pendentes) {
-    const dist = calcDistM(lat, lon, parada.coords[0], parada.coords[1]);
-    if (dist <= RAIO_AUTO_ENTREGA && !entregasAutoFeitas.has(parada.id)) {
-      entregasAutoFeitas.add(parada.id);
-      chip.style.display = 'block';
-      chip.className = 'proximidadeChip chegando';
-      chip.textContent = `✅ Entregando ${parada.nome}...`;
-      mostrarFeedbackEntrega(`📦 Entregue: ${parada.nome}`, '#00e87a');
-      verificarPagamentoEntrega(parada);
-      await executarMarcarEntregue(parada.id, parada.nome);
-      ultimaProximaId = null;
-      ultimoRecalculo = 0;
-    }
-  }
-
-  // Chip de proximidade para a parada mais próxima
-  const proxInfo = pendentes.reduce((best, p) => {
-    const d = calcDistM(lat, lon, p.coords[0], p.coords[1]);
-    return (!best || d < best.dist) ? { p, dist: d } : best;
-  }, null);
-
-  if (proxInfo && proxInfo.dist > RAIO_AUTO_ENTREGA) {
-    chip.style.display = 'block';
-    chip.className = 'proximidadeChip longe';
-    chip.textContent = proxInfo.dist <= 200
-      ? `🛵 ${Math.round(proxInfo.dist)}m de ${proxInfo.p.nome}`
-      : `🏁 ${Math.round(proxInfo.dist)}m — ${proxInfo.p.nome}`;
-    renderProximaCard(proxInfo.p, proxInfo.dist);
-
-    // Desenha rota ao próximo pendente
-    const proxPendente = paradasList.find(p => p.status === 'pendente' && p.coords);
-    if (proxPendente && ultimaProximaId !== proxPendente.id) {
-      desenharRotaProxima([lat, lon], proxPendente);
-    }
-  }
-}
-
-// ── RECÁLCULO DINÂMICO: se saiu >40m da linha da rota, recalcula
-async function verificarRecalculoRota(lat, lon) {
-  const prox = paradasList.find(p => p.status === 'pendente' && p.coords);
-  if (!prox) return;
-  if (cacheRotaCompleta && cacheRotaCompleta.length > 1) {
-    const distRota = cacheRotaCompleta.reduce((min, pt) => {
-      const d = calcDistM(lat, lon, pt[1], pt[0]);
-      return d < min ? d : min;
-    }, Infinity);
-    if (distRota > RAIO_RECALCULO) {
-      ultimoRecalculo = Date.now();
-      ultimaProximaId = null;
-      await desenharRotaProxima([lat, lon], prox);
-    }
-  }
-}
-
-// ── FEEDBACK VISUAL de entrega automática
-function mostrarFeedbackEntrega(msg, cor = '#00e87a') {
-  let el = document.getElementById('feedbackEntrega');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'feedbackEntrega';
-    el.style.cssText = [
-      'position:fixed','top:50%','left:50%',
-      'transform:translate(-50%,-50%) scale(0)',
-      'background:rgba(10,10,15,0.96)',
-      'border-radius:22px','padding:20px 32px',
-      'font-family:Syne,sans-serif','font-size:20px','font-weight:900',
-      'z-index:9999','text-align:center','pointer-events:none',
-      'box-shadow:0 8px 40px rgba(0,0,0,0.7)',
-      'transition:all 0.35s cubic-bezier(0.34,1.56,0.64,1)'
-    ].join(';');
-    document.body.appendChild(el);
-  }
-  el.textContent = msg;
-  el.style.color = cor;
-  el.style.border = `2px solid ${cor}`;
-  el.style.boxShadow = `0 8px 40px rgba(0,0,0,0.7), 0 0 30px ${cor}55`;
-  el.style.transform = 'translate(-50%,-50%) scale(1)';
-  clearTimeout(el._timer);
-  el._timer = setTimeout(() => {
-    el.style.transform = 'translate(-50%,-50%) scale(0)';
-  }, 2500);
 }
 async function enviarPosicaoSupabase(lat, lon, acc=0) {
   try {
     const ts = new Date().toISOString();
-    await sb.from("config").upsert(
-      { key:"admin_gps", value:JSON.stringify({ lat, lon, ts, precisao:acc, rota_id:rotaAtual?.id||null }) },
-      { onConflict:'key' }
-    );
     if (rotaAtual?.id) {
+      // GPS direto na delivery_routes — cardápio lê via Realtime
       await sb.from("delivery_routes")
-        .update({ posicao_entregador:{lat,lon,ts,precisao:acc}, entregador_lat:lat, entregador_lng:lon })
+        .update({ gps_lat:lat, gps_lon:lon, gps_ts:ts, gps_precisao:acc,
+                  posicao_entregador:{lat,lon,ts,precisao:acc} })
         .eq("id", rotaAtual.id);
     }
   } catch(e) { console.warn('GPS send:', e); }
@@ -583,6 +491,31 @@ function setBadge(on, txt) {
 
 // ===== PROXIMIDADE =====
 async function verificarProximidade(lat, lon) {
+  // Se todas entregues, verifica se chegou na fábrica
+  if (rotaAtual && paradasList.length && paradasList.every(p => p.status==='entregue')) {
+    const distFab = calcDistM(lat, lon, FABRICA[0], FABRICA[1]);
+    const chip = document.getElementById('proximidadeChip');
+    chip.style.display = 'block';
+    if (distFab <= RAIO_ENTREGA * 3) { // raio maior para fábrica (120m)
+      chip.className = 'proximidadeChip chegando';
+      chip.textContent = '🏭 Chegou na fábrica!';
+      // Finaliza a rota automaticamente
+      const rotaId = rotaAtual.id;
+      rotaAtual = null; setGJ('rota-completa',null); setGJ('rota-proxima',null);
+      await sb.from("delivery_routes").update({
+        status:'concluido', fim_em:new Date().toISOString(),
+        gps_lat:null, gps_lon:null, gps_ts:null
+      }).eq("id", rotaId);
+      chip.style.display = 'none';
+      showToast('🏭 Rota finalizada! Próxima rota disponível.', 'success');
+      renderTudo(); renderizarMarcadores();
+    } else {
+      chip.className = 'proximidadeChip longe';
+      chip.textContent = `🏭 ${Math.round(distFab)}m da fábrica`;
+    }
+    return;
+  }
+
   let continuar = true;
   while (continuar) {
     continuar = false;
@@ -687,17 +620,40 @@ async function executarMarcarEntregue(id, nome) {
   const p = paradasList.find(x => x.id===id);
   if (!p || p.status==='entregue') return;
   p.status = 'entregue';
+  p.entregue_em = new Date().toISOString();
   cacheRotaCompleta = null; cacheRotaCompletaKey = ''; ultimaProximaId = null;
   setGJ('rota-proxima', null);
-  await sb.from("delivery_routes").update({ paradas:paradasList }).eq("id", rotaAtual.id);
+
+  // Busca phones_entregues atual e adiciona o novo
+  const { data: rotaAtual_db } = await sb.from("delivery_routes")
+    .select("phones_entregues, entregas_realizadas")
+    .eq("id", rotaAtual.id).single();
+  const phonesAtuais = rotaAtual_db?.phones_entregues || [];
+  const jaEsta = phonesAtuais.includes(p.cliente_phone);
+  const novosPhones = jaEsta ? phonesAtuais : [...phonesAtuais, p.cliente_phone];
+  const novasEntregas = (rotaAtual_db?.entregas_realizadas || 0) + (jaEsta ? 0 : 1);
+
+  await sb.from("delivery_routes").update({
+    paradas: paradasList,
+    phones_entregues: novosPhones,
+    entregas_realizadas: novasEntregas
+  }).eq("id", rotaAtual.id);
+
   const proxNome = paradasList.find(x => x.status==='pendente')?.nome;
   showToast(proxNome ? `✅ ${nome} entregue! Próximo: ${proxNome}` : `✅ ${nome} entregue! Rota concluída!`, 'success');
   if (paradasList.every(p2 => p2.status==='entregue')) {
-    await sb.from("delivery_routes").update({ status:'concluido', fim_em:new Date().toISOString() }).eq("id", rotaAtual.id);
-    await sb.from("config").upsert({ key:"admin_gps", value:JSON.stringify({lat:null,lon:null,ts:null}) },{onConflict:'key'});
-    showToast('🏁 Todas as entregas concluídas!', 'success');
-    rotaAtual = null; setGJ('rota-completa',null); setGJ('rota-proxima',null);
+    showToast('🏁 Todas as entregas concluídas! Retornando à fábrica...', 'success');
   }
+  renderTudo(); renderizarMarcadores();
+}
+
+async function confirmarChegadaFabrica() {
+  await sb.from("delivery_routes").update({
+    status:'concluido', fim_em:new Date().toISOString(),
+    gps_lat:null, gps_lon:null, gps_ts:null
+  }).eq("id", rotaAtual.id);
+  showToast('🏭 Rota finalizada! Bem-vindo de volta.', 'success');
+  rotaAtual = null; setGJ('rota-completa',null); setGJ('rota-proxima',null);
   renderTudo(); renderizarMarcadores();
 }
 
@@ -872,7 +828,7 @@ async function carregarDados() {
     const coords = c.delivery_lat&&c.delivery_lon
       ? [parseFloat(c.delivery_lat),parseFloat(c.delivery_lon)] : null;
     return {...c, nome:c.name, coords};
-  }).filter(c=>c.coords);
+  }).filter(c => c.coords && phonesComPedido.has(c.phone)); // só quem tem pedido hoje
 
   // Verifica se alguma rota do dia deve ser iniciada automaticamente
   await verificarAutoInicioRotas(horaAgora);
@@ -914,9 +870,25 @@ async function verificarAutoInicioRotas(horaAgoraMin) {
 
 async function iniciarRota(rota) {
   const ts = new Date().toISOString();
+  const agora = new Date();
+  const hoje = agora.toISOString().split('T')[0];
+  const ontem = new Date(agora - 86400000).toISOString().split('T')[0];
+  const depoisDas1130 = agora.getHours() > 11 || (agora.getHours() === 11 && agora.getMinutes() >= 30);
+  const janela_inicio = depoisDas1130 ? hoje + 'T11:30:00' : ontem + 'T11:30:00';
+
+  // Rotas ainda não iniciadas (proximas_rotas para o cardápio calcular ETA)
+  const proximas = todasAsRotas
+    .filter(r => r.id !== rota.id && r.status === 'criada' && r.paradas?.length > 0)
+    .map(r => ({ id: r.id, nome: r.nome, hora_saida: r.hora_saida, qtd_paradas: r.paradas.length }));
+
   await sb.from("delivery_routes").update({
     status: 'em_andamento',
-    saida_em: ts
+    saida_em: ts,
+    janela_inicio,
+    proximas_rotas: proximas,
+    total_paradas_dia: rota.paradas?.length || 0,
+    entregas_realizadas: 0,
+    phones_entregues: []
   }).eq("id", rota.id);
 
   rota.status = 'em_andamento';
@@ -1135,16 +1107,27 @@ function renderTudo() { renderRotaAtiva(); renderParadas(); renderTodasRotas(); 
 function renderRotaAtiva() {
   const el=document.getElementById('rotaAtivaContent');
   if(!rotaAtual){
+    const agora = new Date();
+    const horaAgoraMin = agora.getHours()*60 + agora.getMinutes();
     const disponiveis=todasAsRotas.filter(r=>(r.status==='criada'||r.status==='aguardando')&&r.paradas?.length);
     if(disponiveis.length>0){
       el.innerHTML=`<div style="text-align:center;padding:32px 20px 16px;">
         <div style="font-size:48px;margin-bottom:12px;">🛵</div>
         <div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:900;color:var(--text);margin-bottom:6px;">Pronto para sair?</div>
         <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px;line-height:1.6;">${disponiveis.length} rota${disponiveis.length>1?'s disponíveis':' disponível'} com pedidos de hoje.</div>
-        ${disponiveis.map(r=>`<button onclick="iniciarRotaManual('${r.id}')" style="display:block;width:100%;padding:16px;margin-bottom:10px;background:linear-gradient(135deg,rgba(245,166,35,0.18),rgba(255,140,0,0.1));border:1px solid rgba(245,166,35,0.45);border-radius:16px;color:var(--primary);font-family:'Syne',sans-serif;font-size:15px;font-weight:900;cursor:pointer;text-align:left;">
-          <div>🛵 ${r.nome}</div>
-          <div style="font-size:11px;font-weight:700;color:var(--text-muted);margin-top:4px;">📦 ${r.paradas.length} entrega${r.paradas.length!==1?'s':''} ${r.hora_saida?'· ⏰ '+r.hora_saida.substring(0,5):''}</div>
-        </button>`).join('')}
+        ${disponiveis.map(r=>{
+          const horaSaidaMin = r.hora_saida ? (Number(r.hora_saida.split(':')[0])*60 + Number(r.hora_saida.split(':')[1])) : 0;
+          const liberado = !r.hora_saida || horaAgoraMin >= horaSaidaMin;
+          return liberado
+            ? `<button onclick="iniciarRotaManual('${r.id}')" style="display:block;width:100%;padding:16px;margin-bottom:10px;background:linear-gradient(135deg,rgba(245,166,35,0.18),rgba(255,140,0,0.1));border:1px solid rgba(245,166,35,0.45);border-radius:16px;color:var(--primary);font-family:'Syne',sans-serif;font-size:15px;font-weight:900;cursor:pointer;text-align:left;">
+                <div>🛵 ${r.nome}</div>
+                <div style="font-size:11px;font-weight:700;color:var(--text-muted);margin-top:4px;">📦 ${r.paradas.length} entrega${r.paradas.length!==1?'s':''} ${r.hora_saida?'· ⏰ '+r.hora_saida.substring(0,5):''}</div>
+              </button>`
+            : `<div style="display:block;width:100%;padding:16px;margin-bottom:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:16px;text-align:left;box-sizing:border-box;">
+                <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:900;color:var(--text-muted);">🕐 ${r.nome}</div>
+                <div style="font-size:11px;font-weight:700;color:var(--text-muted);margin-top:4px;">📦 ${r.paradas.length} entrega${r.paradas.length!==1?'s':''} · Disponível às ${r.hora_saida.substring(0,5)}</div>
+              </div>`;
+        }).join('')}
       </div>`;
     } else {
       el.innerHTML=`<div class="empty-state"><div class="empty-icon">🏭</div><div class="empty-title">Nenhuma rota disponível</div><div class="empty-sub">Não há pedidos para hoje ou a rota ainda não foi configurada.</div></div>`;
@@ -1165,13 +1148,18 @@ function renderRotaAtiva() {
     </div>
   </div>
   <button onclick="confirmarDesistirRota()" style="width:100%;margin-top:4px;margin-bottom:4px;padding:11px;border:1px solid rgba(255,71,87,0.3);border-radius:14px;background:rgba(255,71,87,0.08);color:var(--red);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.2px;">⚠️ Desistir da rota</button>
+  <button onclick="abrirFinalizarRota()" style="width:100%;margin-top:0;margin-bottom:8px;padding:11px;border:1px solid rgba(0,232,122,0.3);border-radius:14px;background:rgba(0,232,122,0.08);color:var(--green);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.2px;">🏁 Finalizar rota</button>
   ${prox?`<div class="proxima-card" id="proximaCard">
     <div class="proxima-lbl">▶ Próxima parada</div>
     <div class="proxima-nome">${prox.nome}</div>
     <div class="proxima-end">📍 ${prox.endereco}</div>
     <div class="proxima-dist"><div class="dist-badge" id="distBadge">📡 aguardando GPS...</div><div class="eta-badge">⏱️ ~${prox.eta_min}min</div></div>
     ${navBtns}
-  </div>`:`<div style="text-align:center;padding:20px;color:var(--green);"><div style="font-size:32px;">🏁</div><div style="font-family:'Syne',sans-serif;font-weight:900;font-size:16px;margin-top:8px;">Todas as entregas concluídas!</div></div>`}`;
+  </div>`:`<div style="text-align:center;padding:20px;">
+    <div style="font-size:32px;">🏭</div>
+    <div style="font-family:'Syne',sans-serif;font-weight:900;font-size:16px;margin-top:8px;color:var(--green);">Todas as entregas concluídas!</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-top:6px;">Retornando à fábrica — a rota finaliza automaticamente ao chegar.</div>
+  </div>`}`;
 }
 function renderProximaCard(parada, dist) {
   const b=document.getElementById('distBadge'); if(!b)return;
@@ -1194,8 +1182,16 @@ function renderTodasRotas() {
   const labels={criada:'⏳ Aguardando',aguardando:'🏭 Na fábrica',em_andamento:'🛵 Em andamento',concluido:'✅ Concluída'};
   el.innerHTML=todasAsRotas.map(r=>{
     const ent=(r.paradas||[]).filter(p=>p.status==='entregue').length, tot=(r.paradas||[]).length, cor=cores[r.status]||'#555';
-    const podeIniciar=(r.status==='criada'||r.status==='aguardando')&&tot>0&&r.id!==rotaAtual?.id;
-    const btnIniciar=podeIniciar?`<button onclick="iniciarRotaManual('${r.id}')" style="margin-top:12px;width:100%;padding:12px;border:1px solid rgba(245,166,35,0.45);border-radius:12px;background:rgba(245,166,35,0.12);color:var(--primary);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:800;cursor:pointer;">🛵 Iniciar esta rota</button>`:'';
+    const agora = new Date();
+    const horaAgoraMin = agora.getHours()*60 + agora.getMinutes();
+    const horaSaidaMin = r.hora_saida ? (Number(r.hora_saida.split(':')[0])*60 + Number(r.hora_saida.split(':')[1])) : 0;
+    const horarioLiberado = !r.hora_saida || horaAgoraMin >= horaSaidaMin;
+    const podeIniciar=(r.status==='criada'||r.status==='aguardando')&&tot>0&&r.id!==rotaAtual?.id&&horarioLiberado&&!rotaAtual;
+    const btnIniciar=podeIniciar
+      ? `<button onclick="iniciarRotaManual('${r.id}')" style="margin-top:12px;width:100%;padding:12px;border:1px solid rgba(245,166,35,0.45);border-radius:12px;background:rgba(245,166,35,0.12);color:var(--primary);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:800;cursor:pointer;">🛵 Iniciar esta rota</button>`
+      : (r.status==='criada'||r.status==='aguardando')&&tot>0&&r.hora_saida&&!horarioLiberado
+        ? `<div style="margin-top:10px;font-size:12px;color:var(--text-muted);text-align:center;">⏰ Disponível às ${r.hora_saida.substring(0,5)}</div>`
+        : '';
     return `<div style="background:var(--surface2);border-radius:16px;padding:14px;margin-bottom:8px;border-left:3px solid ${cor};">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;">
         <div><div style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;">${r.nome}</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px;">⏰ ${r.hora_saida||'--'} · ${(r.dias_semana||[]).join(' ')}</div></div>
@@ -1229,19 +1225,65 @@ async function executarDesistirRota() {
   await sb.from("delivery_routes").update({
     status: 'criada',
     saida_em: null,
-    paradas: paradasReset
+    paradas: paradasReset,
+    gps_lat: null, gps_lon: null, gps_ts: null
   }).eq("id", rotaAtual.id);
   showToast(`❌ Rota "${rotaAtual.nome}" abandonada.`, 'warn');
   rotaAtual = null; paradasList = [];
   cacheRotaCompleta = null; cacheRotaCompletaKey = ''; ultimaProximaId = null;
   setGJ('rota-completa', null); setGJ('rota-proxima', null);
-  await sb.from("config").upsert({ key:"admin_gps", value:JSON.stringify({lat:null,lon:null,ts:null}) },{onConflict:'key'});
+  await carregarDados();
+}
+
+// ===== FINALIZAR ROTA MANUAL =====
+function abrirFinalizarRota() {
+  if (!rotaAtual) return;
+  fecharPainel();
+  const ent = paradasList.filter(p => p.status === 'entregue').length;
+  const pend = paradasList.length - ent;
+  document.getElementById('finalizarSub').textContent =
+    pend > 0
+      ? `Ainda há ${pend} parada${pend>1?'s':''} pendente${pend>1?'s':''}. Ao confirmar, todas serão marcadas como entregues e a rota será finalizada.`
+      : 'Todas as paradas já estão entregues. A rota será marcada como concluída.';
+  document.getElementById('finalizarInfo').textContent =
+    `📦 ${ent}/${paradasList.length} entregues`;
+  document.getElementById('finalizarModal').style.display = 'flex';
+}
+
+async function executarFinalizarRota() {
+  document.getElementById('finalizarModal').style.display = 'none';
+  if (!rotaAtual) return;
+  const paradasFinal = paradasList.map(p => ({...p, status: 'entregue', entregue_em: p.entregue_em || new Date().toISOString()}));
+  await sb.from("delivery_routes").update({
+    status: 'concluido',
+    fim_em: new Date().toISOString(),
+    paradas: paradasFinal,
+    entregas_realizadas: paradasFinal.length,
+    gps_lat: null, gps_lon: null, gps_ts: null
+  }).eq("id", rotaAtual.id);
+  showToast(`🏁 Rota "${rotaAtual.nome}" finalizada!`, 'success');
+  rotaAtual = null; paradasList = [];
+  cacheRotaCompleta = null; cacheRotaCompletaKey = ''; ultimaProximaId = null;
+  setGJ('rota-completa', null); setGJ('rota-proxima', null);
   await carregarDados();
 }
 
 async function iniciarRotaManual(rotaId) {
   const rota = todasAsRotas.find(r=>r.id===rotaId);
   if (!rota) return;
+
+  // Verifica horário — nunca inicia antes do horário definido
+  if (rota.hora_saida) {
+    const agora = new Date();
+    const horaAgoraMin = agora.getHours()*60 + agora.getMinutes();
+    const [h,m] = rota.hora_saida.split(':').map(Number);
+    const horaSaidaMin = h*60 + m;
+    if (horaAgoraMin < horaSaidaMin) {
+      showToast(`⏰ Esta rota só pode iniciar às ${rota.hora_saida.substring(0,5)}`, 'error');
+      return;
+    }
+  }
+
   await iniciarRota(rota);
   fecharPainel();
 }
