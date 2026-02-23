@@ -309,6 +309,10 @@ function hojeStr() {
   // Retorna "YYYY-MM-DD" no horário de Brasília
   return agoraISO().split('T')[0];
 }
+function horasBRT(d) {
+  const offset = -3 * 60;
+  return new Date((d || new Date()).getTime() + (offset - (d || new Date()).getTimezoneOffset()) * 60000);
+}
 
 // ===== ESTADO =====
 let map, meuMarcador = null, meuMarcadorEl = null;
@@ -630,13 +634,6 @@ async function responderPagamento(pagou) {
   }
 }
 
-// ===== CONFIRM MODAL =====
-function mostrarConfirmModal(parada) {
-  paradaEmConfirmacao = parada;
-  document.getElementById('confirmTitle').textContent = `Chegou em ${parada.nome}!`;
-  document.getElementById('confirmSub').textContent = `📍 ${parada.endereco}`;
-  document.getElementById('confirmModal').classList.add('show');
-}
 function fecharConfirmModal() { document.getElementById('confirmModal').classList.remove('show'); }
 async function confirmarEntregaModal() {
   fecharConfirmModal();
@@ -675,16 +672,6 @@ async function executarMarcarEntregue(id, nome) {
   if (paradasList.every(p2 => p2.status==='entregue')) {
     showToast('🏁 Todas as entregas concluídas! Retornando à fábrica...', 'success');
   }
-  renderTudo(); renderizarMarcadores();
-}
-
-async function confirmarChegadaFabrica() {
-  await sb.from("delivery_routes").update({
-    status:'concluido', fim_em:agoraISO(),
-    gps_lat:null, gps_lon:null, gps_ts:null
-  }).eq("id", rotaAtual.id);
-  showToast('🏭 Rota finalizada! Bem-vindo de volta.', 'success');
-  rotaAtual = null; setGJ('rota-completa',null); setGJ('rota-proxima',null);
   renderTudo(); renderizarMarcadores();
 }
 
@@ -777,8 +764,9 @@ async function carregarDados() {
   await calcularMediaEta();
   const hoje = hojeStr();
   const agora = new Date();
-  const horaAgora = agora.getHours() * 60 + agora.getMinutes(); // minutos desde meia-noite
-  const diaSemana = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][agora.getDay()];
+  const agoraBRT = horasBRT(agora);
+  const horaAgora = agoraBRT.getHours() * 60 + agoraBRT.getMinutes(); // minutos desde meia-noite (BRT)
+  const diaSemana = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][agoraBRT.getDay()];
 
   const [{ data:rotas },{ data:clientes },{ data:pedidosHoje }] = await Promise.all([
     sb.from("delivery_routes").select("*").order("hora_saida",{ascending:true}),
@@ -903,9 +891,10 @@ async function verificarAutoInicioRotas(horaAgoraMin) {
 async function iniciarRota(rota) {
   const ts = agoraISO();
   const agora = new Date();
+  const agoraBRT2 = horasBRT(agora);
   const hoje = hojeStr();
   const ontem = new Date(new Date().getTime() - 86400000 + (-3*60 - new Date().getTimezoneOffset())*60000).toISOString().split('T')[0];
-  const depoisDas1130 = agora.getHours() > 11 || (agora.getHours() === 11 && agora.getMinutes() >= 30);
+  const depoisDas1130 = agoraBRT2.getHours() > 11 || (agoraBRT2.getHours() === 11 && agoraBRT2.getMinutes() >= 30);
   const janela_inicio = depoisDas1130 ? hoje + 'T11:30:00' : ontem + 'T11:30:00';
 
   // Rotas ainda não iniciadas (proximas_rotas para o cardápio calcular ETA)
@@ -1141,7 +1130,7 @@ function renderRotaAtiva() {
   const el=document.getElementById('rotaAtivaContent');
   if(!rotaAtual){
     const agora = new Date();
-    const horaAgoraMin = agora.getHours()*60 + agora.getMinutes();
+    const horaAgoraMin = horasBRT(agora).getHours()*60 + horasBRT(agora).getMinutes();
     const disponiveis=todasAsRotas.filter(r=>(r.status==='criada'||r.status==='aguardando')&&r.paradas?.length);
     if(disponiveis.length>0){
       el.innerHTML=`<div style="text-align:center;padding:32px 20px 16px;">
@@ -1246,7 +1235,7 @@ function renderTodasRotas() {
   el.innerHTML=reCardHTML+todasAsRotas.map(r=>{
     const ent=(r.paradas||[]).filter(p=>p.status==='entregue').length, tot=(r.paradas||[]).length, cor=cores[r.status]||'#555';
     const agora = new Date();
-    const horaAgoraMin = agora.getHours()*60 + agora.getMinutes();
+    const horaAgoraMin = horasBRT(agora).getHours()*60 + horasBRT(agora).getMinutes();
     const horaSaidaMin = r.hora_saida ? (Number(r.hora_saida.split(':')[0])*60 + Number(r.hora_saida.split(':')[1])) : 0;
     const horarioLiberado = !r.hora_saida || horaAgoraMin >= horaSaidaMin;
     const podeIniciar=(r.status==='criada'||r.status==='aguardando')&&tot>0&&r.id!==rotaAtual?.id&&horarioLiberado&&!rotaAtual;
@@ -1338,7 +1327,7 @@ async function iniciarRotaManual(rotaId) {
   // Verifica horário — nunca inicia antes do horário definido
   if (rota.hora_saida) {
     const agora = new Date();
-    const horaAgoraMin = agora.getHours()*60 + agora.getMinutes();
+    const horaAgoraMin = horasBRT(agora).getHours()*60 + horasBRT(agora).getMinutes();
     const [h,m] = rota.hora_saida.split(':').map(Number);
     const horaSaidaMin = h*60 + m;
     if (horaAgoraMin < horaSaidaMin) {
