@@ -1243,7 +1243,7 @@ function renderTodasRotas() {
   if(!todasAsRotas.length){el.innerHTML=reCardHTML+`<div class="empty-state"><div class="empty-icon">📁</div><div class="empty-title">Sem rotas</div><div class="empty-sub">Nenhuma rota cadastrada para hoje.</div></div>`;return;}
   const cores={criada:'#f5a623',aguardando:'#3d9cff',em_andamento:'#00e87a',concluido:'#555'};
   const labels={criada:'⏳ Aguardando',aguardando:'🏭 Na fábrica',em_andamento:'🛵 Em andamento',concluido:'✅ Concluída'};
-  el.innerHTML=todasAsRotas.map(r=>{
+  el.innerHTML=reCardHTML+todasAsRotas.map(r=>{
     const ent=(r.paradas||[]).filter(p=>p.status==='entregue').length, tot=(r.paradas||[]).length, cor=cores[r.status]||'#555';
     const agora = new Date();
     const horaAgoraMin = agora.getHours()*60 + agora.getMinutes();
