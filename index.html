@@ -802,6 +802,7 @@ async function carregarDados() {
   });
 
   // Filtra apenas rotas do dia de hoje
+  // (rota especial não tem dias_semana, mas também não tem paradas_template — é incluída sempre)
   todasAsRotas = todasAsRotas.filter(r =>
     !r.dias_semana || r.dias_semana.length===0 || r.dias_semana.includes(diaSemana)
   );
@@ -1209,7 +1210,37 @@ function renderParadas() {
 }
 function renderTodasRotas() {
   const el=document.getElementById('todasRotasContent');
-  if(!todasAsRotas.length){el.innerHTML=`<div class="empty-state"><div class="empty-icon">📁</div><div class="empty-title">Sem rotas</div><div class="empty-sub">Nenhuma rota cadastrada para hoje.</div></div>`;return;}
+
+  // Card de status da Rota Especial sempre visível no topo
+  const pendentes = (_reConfig?.clientes_fila || []).filter(c => c.status === 'pendente');
+  const emRota    = (_reConfig?.clientes_fila || []).filter(c => c.status === 'em_rota');
+  const reAtivaAgora = reAtiva();
+  const reCardHTML = `
+    <div style="background:linear-gradient(135deg,rgba(245,166,35,0.12),rgba(255,140,0,0.06));border:1px solid rgba(245,166,35,0.3);border-radius:16px;padding:14px 16px;margin-bottom:10px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:18px;">⚡</span>
+          <div style="font-family:'Syne',sans-serif;font-weight:900;font-size:14px;color:var(--primary);">Rota Especial</div>
+        </div>
+        <span style="font-size:10px;font-weight:700;padding:4px 10px;border-radius:20px;background:${reAtivaAgora?'rgba(0,232,122,0.15)':'rgba(255,255,255,0.05)'};color:${reAtivaAgora?'var(--green)':'var(--text-muted)'};">${reAtivaAgora?'🟢 Ativa':'⚫ Inativa'}</span>
+      </div>
+      ${_reConfig ? `
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">⏰ ${_reConfig.hora_inicio||'--'} – ${_reConfig.hora_fim||'--'} · ${(_reConfig.dias||[]).join(' ')||'todos os dias'}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:8px;text-align:center;">
+            <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:900;color:var(--primary);">${pendentes.length}</div>
+            <div style="font-size:10px;color:var(--text-muted);">Na fila</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:8px;text-align:center;">
+            <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:900;color:var(--blue);">${emRota.length}</div>
+            <div style="font-size:10px;color:var(--text-muted);">Em rota</div>
+          </div>
+        </div>
+        ${pendentes.length > 0 ? `<div style="margin-top:8px;font-size:11px;color:var(--text-muted);">${pendentes.map(c=>`👤 ${c.nome}`).join(' · ')}</div>` : ''}
+      ` : `<div style="font-size:12px;color:var(--text-muted);">⚠️ Tabela app_config não encontrada no Supabase. Crie-a pelo painel ADM.</div>`}
+    </div>`;
+
+  if(!todasAsRotas.length){el.innerHTML=reCardHTML+`<div class="empty-state"><div class="empty-icon">📁</div><div class="empty-title">Sem rotas</div><div class="empty-sub">Nenhuma rota cadastrada para hoje.</div></div>`;return;}
   const cores={criada:'#f5a623',aguardando:'#3d9cff',em_andamento:'#00e87a',concluido:'#555'};
   const labels={criada:'⏳ Aguardando',aguardando:'🏭 Na fábrica',em_andamento:'🛵 Em andamento',concluido:'✅ Concluída'};
   el.innerHTML=todasAsRotas.map(r=>{
@@ -1333,6 +1364,10 @@ function abrirTab(nome, ev) {
   document.getElementById('tab-'+nome)?.classList.add('active');
   painel.classList.add('aberto');
   document.getElementById('overlayPainel').classList.add('visivel');
+  // Ao abrir "Todas", recarrega config da rota especial e re-renderiza
+  if (nome === 'todas') {
+    carregarConfigRE().then(() => renderTodasRotas());
+  }
 }
 function fecharPainel() { document.getElementById('paradasPanel').classList.remove('aberto'); document.getElementById('overlayPainel').classList.remove('visivel'); }
 
