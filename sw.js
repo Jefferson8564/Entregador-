@@ -2,7 +2,7 @@
 //  SERVICE WORKER — O Rei da Coxinha 🛵
 //
 //  ✅ Para lançar uma atualização:
-//     1. Mude APP_VERSION aqui embaixo (ex: '1.0.0' → '1.1.0')
+//     1. Mude APP_VERSION aqui embaixo (ex: '1.0.0' → '1.2.0')
 //     2. Baixe o arquivo, edite e suba de volta no GitHub
 //     3. O pop-up roxo aparecerá automaticamente para todos!
 // ============================================================

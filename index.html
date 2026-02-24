@@ -670,7 +670,7 @@ function _loopDR(now) {
   _camBrg = (_camBrg + 360) % 360;
 
   if (seguindoMoto) {
-    const offset = [0, Math.round(window.innerHeight * 0.28)];
+    const offset = [0, -Math.round(window.innerHeight * 0.32)];
     if (modo3DAtivo) {
       map.jumpTo({ center:[lng, lat], bearing:_camBrg, pitch:65, zoom:17, offset });
     } else {
