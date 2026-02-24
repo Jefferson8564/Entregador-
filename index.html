@@ -543,7 +543,8 @@ async function verificarProximidade(lat, lon) {
       const rotaId = rotaAtual.id;
       rotaAtual = null; setGJ('rota-completa',null); setGJ('rota-proxima',null);
       await sb.from("delivery_routes").update({
-        status:'concluido', fim_em:agoraISO()
+        status:'concluido', fim_em:agoraISO(),
+        gps_lat:null, gps_lon:null, gps_ts:null
       }).eq("id", rotaId);
       chip.style.display = 'none';
       showToast('🏭 Rota finalizada! Próxima rota disponível.', 'success');
