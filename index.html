@@ -173,6 +173,47 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); col
 
 @keyframes destinoPulse{0%{box-shadow:0 0 0 0 rgba(0,232,122,0.8);}70%{box-shadow:0 0 0 18px rgba(0,232,122,0);}100%{box-shadow:0 0 0 0 rgba(0,232,122,0);}}
 @keyframes paradaPulse{0%,100%{box-shadow:0 0 0 0 rgba(245,166,35,0.7)}70%{box-shadow:0 0 0 12px rgba(245,166,35,0)}}
+
+/* VELOCÍMETRO */
+#velocimetro {
+  position:fixed; bottom:160px; left:18px; z-index:500;
+  width:78px; height:78px; border-radius:50%;
+  background:rgba(10,10,15,0.92); border:2.5px solid rgba(255,255,255,0.12);
+  backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  box-shadow:0 4px 22px rgba(0,0,0,0.6);
+  transition:border-color 0.4s, background 0.4s;
+}
+#velocimetro.vel-ok    { border-color:rgba(0,232,122,0.7); background:rgba(0,232,122,0.1); box-shadow:0 4px 22px rgba(0,232,122,0.2); }
+#velocimetro.vel-alerta { border-color:rgba(245,166,35,0.8); background:rgba(245,166,35,0.12); box-shadow:0 4px 22px rgba(245,166,35,0.2); }
+#velocimetro.vel-acima  { border-color:rgba(255,71,87,0.85); background:rgba(255,71,87,0.14); animation:velPulse 0.8s ease-in-out infinite; }
+@keyframes velPulse{0%,100%{box-shadow:0 4px 22px rgba(255,71,87,0.2);}50%{box-shadow:0 0 32px rgba(255,71,87,0.55);}}
+#velVal {
+  font-family:'Syne',sans-serif; font-size:26px; font-weight:900;
+  line-height:1; display:block; transition:color 0.4s;
+  color:var(--text); margin-bottom:-1px;
+}
+#velocimetro.vel-ok    #velVal { color:var(--green); }
+#velocimetro.vel-alerta #velVal { color:var(--primary); }
+#velocimetro.vel-acima  #velVal { color:var(--red); }
+#velUnit { font-size:9px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; }
+#velLimite { font-size:9px; font-weight:700; color:var(--text-muted); margin-top:2px; display:none; line-height:1; }
+
+/* RUA ATUAL */
+#ruaAtual {
+  position:fixed; bottom:108px; left:18px; z-index:500;
+  background:rgba(10,10,15,0.92); border:1px solid var(--border);
+  backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+  border-radius:14px; padding:8px 13px;
+  max-width:200px; display:none;
+  box-shadow:0 4px 18px rgba(0,0,0,0.5);
+  animation:chipEntrada 0.3s cubic-bezier(0.34,1.56,0.64,1);
+}
+#ruaNome {
+  font-family:'Syne',sans-serif; font-size:12px; font-weight:800;
+  color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+#ruaBairro { font-size:10px; color:var(--text-muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 </style>
 </head>
 <body>
@@ -186,6 +227,19 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); col
 </div>
 
 <div id="toast"></div>
+
+<!-- VELOCÍMETRO -->
+<div id="velocimetro">
+  <span id="velVal">0</span>
+  <span id="velUnit">km/h</span>
+  <div id="velLimite"></div>
+</div>
+
+<!-- RUA ATUAL -->
+<div id="ruaAtual">
+  <div id="ruaNome">—</div>
+  <div id="ruaBairro"></div>
+</div>
 
 <!-- PAGAMENTO MODAL -->
 <div id="pagamentoModal">
@@ -337,6 +391,117 @@ let navAvulsaDestino = null, navAvulsaInterval = null, navAvulsaMarcador = null;
 let gpsOk = false, ultimoEnvioGPS = 0;
 const THROTTLE_GPS_MS = 3000;
 
+// ===== VELOCÍMETRO & RUA ATUAL =====
+let ultimoBuscaRua = 0;
+const THROTTLE_RUA_MS = 8000; // busca nome da rua a cada 8s
+let limiteVelocidadeAtual = null; // null = desconhecido
+
+function atualizarVelocidade(speedMs) {
+  const kmh = speedMs != null && speedMs >= 0 ? Math.round(speedMs * 3.6) : 0;
+  const el = document.getElementById('velocimetro');
+  document.getElementById('velVal').textContent = kmh;
+
+  // Remove todas as classes de cor
+  el.classList.remove('vel-ok', 'vel-alerta', 'vel-acima');
+
+  if (limiteVelocidadeAtual != null) {
+    if (kmh > limiteVelocidadeAtual) {
+      el.classList.add('vel-acima');
+    } else if (kmh > limiteVelocidadeAtual * 0.85) {
+      el.classList.add('vel-alerta');
+    } else {
+      el.classList.add('vel-ok');
+    }
+  }
+  // Atualiza badge do limite
+  const badge = document.getElementById('velLimite');
+  if (limiteVelocidadeAtual != null) {
+    badge.textContent = `lim. ${limiteVelocidadeAtual}`;
+    badge.style.display = 'block';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function parsearLimite(val) {
+  if (!val) return null;
+  // Suporta "50", "50 mph", "BR:urban", etc.
+  if (val === 'BR:urban') return 60;
+  if (val === 'BR:rural') return 100;
+  if (val === 'BR:living_street') return 20;
+  if (val === 'walk') return 10;
+  const match = val.match(/^(\d+)/);
+  if (!match) return null;
+  let v = parseInt(match[1]);
+  if (val.includes('mph')) v = Math.round(v * 1.60934);
+  return v;
+}
+
+async function buscarNomeRua(lat, lon) {
+  const agora = Date.now();
+  if (agora - ultimoBuscaRua < THROTTLE_RUA_MS) return;
+  ultimoBuscaRua = agora;
+
+  // Busca nome da rua via Nominatim
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=17&addressdetails=1`, {
+      headers: { 'Accept-Language': 'pt-BR,pt' }
+    });
+    if (r.ok) {
+      const d = await r.json();
+      const addr = d.address || {};
+      const rua = addr.road || addr.pedestrian || addr.footway || addr.path || addr.residential || '';
+      const bairro = addr.suburb || addr.neighbourhood || addr.city_district || addr.town || addr.city || '';
+      const elRua = document.getElementById('ruaAtual');
+      if (rua) {
+        document.getElementById('ruaNome').textContent = rua;
+        document.getElementById('ruaBairro').textContent = bairro;
+        elRua.style.display = 'block';
+      } else {
+        elRua.style.display = 'none';
+      }
+    }
+  } catch(e) {}
+
+  // Busca limite de velocidade via Overpass API
+  try {
+    const query = `[out:json][timeout:5];way(around:25,${lat},${lon})[highway][maxspeed];out tags 1;`;
+    const r2 = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: 'data=' + encodeURIComponent(query)
+    });
+    if (r2.ok) {
+      const d2 = await r2.json();
+      if (d2.elements && d2.elements.length > 0) {
+        const limite = parsearLimite(d2.elements[0].tags?.maxspeed);
+        limiteVelocidadeAtual = limite;
+      } else {
+        // Sem maxspeed explícito — tenta inferir pelo tipo de via
+        const query2 = `[out:json][timeout:5];way(around:25,${lat},${lon})[highway];out tags 1;`;
+        const r3 = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          body: 'data=' + encodeURIComponent(query2)
+        });
+        if (r3.ok) {
+          const d3 = await r3.json();
+          if (d3.elements?.length > 0) {
+            const tipo = d3.elements[0].tags?.highway;
+            // Limites padrão do Contran por tipo de via
+            const limitesPadrao = {
+              motorway: 120, trunk: 110, primary: 80,
+              secondary: 60, tertiary: 60, residential: 40,
+              living_street: 20, service: 20, unclassified: 40,
+              motorway_link: 80, trunk_link: 60, primary_link: 60,
+              secondary_link: 60, tertiary_link: 40
+            };
+            limiteVelocidadeAtual = limitesPadrao[tipo] || null;
+          }
+        }
+      }
+    }
+  } catch(e) {}
+}
+
 // ===== ROTA ESPECIAL =====
 let _reConfig = null;            // config carregada do app_config
 let _dentroFabrica = true;       // começa assumindo que está na fábrica
@@ -436,13 +601,15 @@ function moverEntregador(novaLat, novaLng, headingGPS) {
   if (badge) { badge.textContent = `${Math.round(((angulo%360)+360)%360)}°`; badge.style.display = modo3DAtivo ? 'block' : 'none'; }
 
   if (seguindoMoto && modo3DAtivo) {
-    map.easeTo({ center:[novaLng,novaLat], bearing:angulo, pitch:65, zoom:17, duration:800, easing:t=>t, essential:true });
+    const offset = [0, -Math.round(window.innerHeight * 0.28)];
+    map.easeTo({ center:[novaLng,novaLat], bearing:angulo, pitch:65, zoom:17, duration:800, easing:t=>t, essential:true, offset });
     // Garante que o marcador está visível após o easeTo
     setTimeout(() => {
       if (meuMarcador && posAtual) meuMarcador.setLngLat([posAtual[1], posAtual[0]]);
     }, 850);
   } else if (seguindoMoto) {
-    map.easeTo({ center:[novaLng,novaLat], pitch:0, bearing:0, zoom:17, duration:1000 });
+    const offset = [0, -Math.round(window.innerHeight * 0.28)];
+    map.easeTo({ center:[novaLng,novaLat], pitch:0, bearing:0, zoom:17, duration:1000, offset });
   }
   ultimaPosicao = { lat: novaLat, lng: novaLng };
 }
@@ -493,6 +660,8 @@ async function processarPosicao(pos) {
 
   moverEntregador(lat, lon, heading);
   _onMoveNavAvulsa();
+  atualizarVelocidade(pos.coords.speed);
+  buscarNomeRua(lat, lon);
 
   const agora = Date.now();
   if (agora - ultimoEnvioGPS >= THROTTLE_GPS_MS) {
