@@ -335,7 +335,9 @@ let ultimaProximaId = null;
 
 let navAvulsaDestino = null, navAvulsaInterval = null, navAvulsaMarcador = null;
 let gpsOk = false, ultimoEnvioGPS = 0;
-const THROTTLE_GPS_MS = 3000;
+const THROTTLE_GPS_MS = 2000; // Reduzido de 3000 para 2000 (mais frequente)
+let gpsWatchId = null;
+let gpsRetryCount = 0;
 
 // ===== ROTA ESPECIAL =====
 let _reConfig = null;            // config carregada do app_config
@@ -475,13 +477,43 @@ function recentrarMapa() {
 
 // ===== GPS =====
 function iniciarGPS() {
-  if (!navigator.geolocation) { setBadge(false,'Sem GPS'); return; }
+  if (!navigator.geolocation) { 
+    console.error('❌ Geolocation não suportado');
+    setBadge(false,'Sem GPS'); 
+    return; 
+  }
+  
+  console.log('🟢 Iniciando GPS...');
   setBadge(true,'Conectando...');
-  navigator.geolocation.watchPosition(
-    pos => processarPosicao(pos),
-    () => setBadge(false,'GPS erro'),
+  
+  // Remover watch anterior se existir
+  if (gpsWatchId !== null) {
+    navigator.geolocation.clearWatch(gpsWatchId);
+    console.log('↻ Watch anterior limpo');
+  }
+  
+  // Inicia novo watch com precisão alta
+  gpsWatchId = navigator.geolocation.watchPosition(
+    pos => {
+      console.log('✓ GPS atualizado:', pos.coords.latitude.toFixed(4), pos.coords.longitude.toFixed(4));
+      gpsRetryCount = 0; // Reset counter
+      processarPosicao(pos);
+    },
+    (err) => {
+      console.warn('⚠️ Erro GPS:', err.message, '(', err.code, ')');
+      setBadge(false, 'GPS erro: ' + err.message);
+      
+      // Retry automático a cada 5 segundos
+      if (gpsRetryCount < 5) {
+        gpsRetryCount++;
+        console.log('↻ Tentando novamente... (' + gpsRetryCount + '/5)');
+        setTimeout(iniciarGPS, 5000);
+      }
+    },
     { enableHighAccuracy:true, timeout:15000, maximumAge:3000 }
   );
+  
+  console.log('✓ GPS watchPosition iniciado');
 }
 async function processarPosicao(pos) {
   const lat = pos.coords.latitude, lon = pos.coords.longitude;
@@ -497,6 +529,7 @@ async function processarPosicao(pos) {
   const agora = Date.now();
   if (agora - ultimoEnvioGPS >= THROTTLE_GPS_MS) {
     ultimoEnvioGPS = agora;
+    console.log('📡 Enviando GPS:', lat.toFixed(4), lon.toFixed(4));
     await enviarPosicaoSupabase(lat, lon, acc);
   }
   if (rotaAtual && paradasList.length) await verificarProximidade(lat, lon);
@@ -510,24 +543,53 @@ async function processarPosicao(pos) {
 async function enviarPosicaoSupabase(lat, lon, acc=0) {
   try {
     const ts = agoraISO();
+    
     if (rotaAtual?.id) {
       // GPS direto na delivery_routes — cardápio lê via Realtime
-      await sb.from("delivery_routes")
+      const { error: errRota } = await sb.from("delivery_routes")
         .update({ gps_lat:lat, gps_lon:lon, gps_ts:ts, gps_precisao:acc,
                   posicao_entregador:{lat,lon,ts,precisao:acc} })
         .eq("id", rotaAtual.id);
+      
+      if (errRota) {
+        console.warn('⚠️ Erro ao enviar GPS para rota:', errRota);
+      } else {
+        console.log('✓ GPS enviado para rota:', rotaAtual.id);
+      }
     }
+    
     // Sempre salva posição avulsa no app_config — cardápio consegue ver mesmo sem rota ativa
-    await sb.from("app_config").upsert(
+    const { error: errConfig } = await sb.from("app_config").upsert(
       { chave: "entregador_gps", valor: JSON.stringify({ lat, lon, ts, precisao: acc }) },
       { onConflict: "chave" }
     );
-  } catch(e) { console.warn("GPS send:", e); }
+    
+    if (errConfig) {
+      console.warn('⚠️ Erro ao salvar GPS avulso:', errConfig);
+    } else {
+      console.log('✓ GPS salvo como avulso');
+    }
+  } catch(e) { 
+    console.error('❌ Erro crítico ao enviar GPS:', e);
+  }
 }
 function setBadge(on, txt) {
   document.getElementById('gpsBadge').className = 'gps-badge' + (on?'':' off');
   document.getElementById('gpsText').textContent = txt;
 }
+
+// ===== FALLBACK: Verificar GPS a cada 30 segundos =====
+setInterval(() => {
+  const agora = Date.now();
+  const segundosSemAtualizar = (agora - ultimoEnvioGPS) / 1000;
+  
+  // Se não houve atualização em 45 segundos, tenta reiniciar GPS
+  if (segundosSemAtualizar > 45 && gpsWatchId !== null) {
+    console.warn('⚠️ GPS não atualizado há ' + Math.round(segundosSemAtualizar) + 's');
+    console.log('↻ Reiniciando GPS...');
+    iniciarGPS();
+  }
+}, 30000);
 
 // ===== PROXIMIDADE =====
 async function verificarProximidade(lat, lon) {
