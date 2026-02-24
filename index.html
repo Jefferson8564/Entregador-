@@ -517,7 +517,12 @@ async function enviarPosicaoSupabase(lat, lon, acc=0) {
                   posicao_entregador:{lat,lon,ts,precisao:acc} })
         .eq("id", rotaAtual.id);
     }
-  } catch(e) { console.warn('GPS send:', e); }
+    // Sempre salva posição avulsa no app_config — cardápio consegue ver mesmo sem rota ativa
+    await sb.from("app_config").upsert(
+      { chave: "entregador_gps", valor: JSON.stringify({ lat, lon, ts, precisao: acc }) },
+      { onConflict: "chave" }
+    );
+  } catch(e) { console.warn("GPS send:", e); }
 }
 function setBadge(on, txt) {
   document.getElementById('gpsBadge').className = 'gps-badge' + (on?'':' off');
