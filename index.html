@@ -1387,13 +1387,11 @@ async function carregarConfigRE() {
 function reAtiva() {
   if (!_reConfig?.ativa) return false;
   const agora = agoraISO();
+  const hora  = agora.substring(11, 16);
   const dias  = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
   const hoje  = dias[new Date().getDay()];
   if (_reConfig.dias?.length && !_reConfig.dias.includes(hoje)) return false;
-  // Compara como minutos para evitar bug de string ("8:00" vs "08:00")
-  const toMin = h => { const [hh, mm] = (h || '00:00').split(':').map(Number); return hh * 60 + mm; };
-  const agoraMin = toMin(agora.substring(11, 16));
-  return agoraMin >= toMin(_reConfig.hora_inicio) && agoraMin <= toMin(_reConfig.hora_fim);
+  return hora >= _reConfig.hora_inicio && hora <= _reConfig.hora_fim;
 }
 
 async function tickRotaEspecial(lat, lon) {
@@ -1413,24 +1411,23 @@ async function tickRotaEspecial(lat, lon) {
     }
   }
 
-  // Voltou à fábrica — DELETA rota especial do Supabase e limpa fila
+  // Voltou à fábrica — finaliza rota especial e limpa fila
   if (!_dentroFabrica && dentroAgora) {
     _dentroFabrica = true;
     if (_rotaEspecialId) {
-      // Deleta a rota para não acumular dados no Supabase
-      await sb.from('delivery_routes').delete().eq('id', _rotaEspecialId);
+      await sb.from('delivery_routes').update({ status:'concluido', fim_em:agoraISO(), gps_lat:null, gps_lon:null, gps_ts:null }).eq('id', _rotaEspecialId);
       _rotaEspecialId = null;
       rotaAtual = null; paradasList = [];
-      setGJ('rota-completa', null); setGJ('rota-proxima', null);
+      setGJ('rota-completa',null); setGJ('rota-proxima',null);
     }
-    // Limpa da fila só os clientes que foram em_rota (já entregues) → mantém os pendentes para próxima saída
+    // Limpa clientes em_rota da fila → libera para pedir de novo
     await carregarConfigRE();
     if (_reConfig) {
       _reConfig.clientes_fila = (_reConfig.clientes_fila || []).filter(c => c.status === 'pendente');
       await sb.from('app_config').upsert({ chave:'rota_especial', valor:JSON.stringify(_reConfig) }, { onConflict:'chave' });
     }
     const filaAcum = (_reConfig?.clientes_fila || []).filter(c => c.status === 'pendente').length;
-    showToast(filaAcum > 0 ? `🏭 Voltou! ${filaAcum} cliente(s) aguardando próxima saída` : '🏭 Voltou à fábrica!', 'success');
+    showToast(filaAcum > 0 ? `🏭 Voltou! ${filaAcum} cliente(s) aguardando` : '🏭 Voltou à fábrica!', 'success');
     await carregarDados();
   }
 }
