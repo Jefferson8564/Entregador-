@@ -72,7 +72,7 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); col
 @keyframes chipPulse{0%,100%{opacity:1;}50%{opacity:0.6;}}
 
 /* NAV AVULSA */
-#navAvulsaChip { position:fixed; bottom:100px; left:50%; transform:translateX(-50%); z-index:600; display:none; align-items:center; gap:10px; padding:10px 16px 10px 14px; border-radius:24px; background:rgba(10,10,15,0.92); border:1.5px solid rgba(0,232,122,0.55); box-shadow:0 4px 24px rgba(0,232,122,0.2); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); white-space:nowrap; }
+#navAvulsaChip { display:none !important; }
 #navAvulsaChip.visivel { display:flex; animation:chipEntrada 0.35s cubic-bezier(0.34,1.56,0.64,1); }
 @keyframes chipEntrada{from{transform:translateX(-50%) translateY(20px);opacity:0;}to{transform:translateX(-50%) translateY(0);opacity:1;}}
 .nav-chip-dot { width:8px; height:8px; border-radius:50%; background:var(--green); animation:gpsDot 1s ease-in-out infinite; flex-shrink:0; }
@@ -174,23 +174,21 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); col
 @keyframes destinoPulse{0%{box-shadow:0 0 0 0 rgba(0,232,122,0.8);}70%{box-shadow:0 0 0 18px rgba(0,232,122,0);}100%{box-shadow:0 0 0 0 rgba(0,232,122,0);}}
 @keyframes paradaPulse{0%,100%{box-shadow:0 0 0 0 rgba(245,166,35,0.7)}70%{box-shadow:0 0 0 12px rgba(245,166,35,0)}}
 
-/* BADGE FLUTUANTE DE EDIÇÃO DE ROTA */
-#editRotaBadge { position:fixed; top:70px; left:50%; transform:translateX(-50%); z-index:600; display:none; align-items:center; gap:8px; padding:8px 16px; border-radius:22px; background:rgba(10,10,15,0.92); border:1.5px solid rgba(245,166,35,0.6); color:var(--primary); font-size:12px; font-weight:800; white-space:nowrap; backdrop-filter:blur(14px); box-shadow:0 4px 20px rgba(245,166,35,0.25); }
-#editRotaBadge.visivel { display:flex; animation:chipEntrada 0.35s cubic-bezier(0.34,1.56,0.64,1); }
-#editRotaBadge .count { background:rgba(245,166,35,0.2); border:1px solid rgba(245,166,35,0.4); border-radius:10px; padding:2px 8px; font-family:'Syne',sans-serif; font-size:13px; font-weight:900; }
+/* VELOCÍMETRO */
+#velocimetro {
+  position:fixed; bottom:90px; left:18px; z-index:500;
+  width:90px; height:90px; border-radius:50%;
+  background:rgba(10,10,15,0.92); border:2px solid rgba(255,255,255,0.1);
+  backdrop-filter:blur(14px); display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  box-shadow:0 4px 20px rgba(0,0,0,0.5);
+}
+#velValor { font-family:'Syne',sans-serif; font-size:26px; font-weight:900; color:var(--text); line-height:1; }
+#velUnidade { font-size:9px; font-weight:700; color:var(--text-muted); letter-spacing:1px; margin-top:1px; }
+#velArc { position:absolute; top:0; left:0; width:90px; height:90px; transform:rotate(-90deg); }
 
-/* MODAL NOVA ROTA TEMPORÁRIA */
-#novaRotaModal { position:fixed; inset:0; z-index:8400; background:rgba(0,0,0,0.78); backdrop-filter:blur(8px); display:none; align-items:flex-end; justify-content:center; }
-#novaRotaModal.show { display:flex; }
-.nova-rota-box { background:var(--surface); border-radius:28px 28px 0 0; padding:24px 20px 40px; width:100%; max-width:500px; border-top:1px solid rgba(245,166,35,0.3); animation:slideUp 0.35s cubic-bezier(0.34,1.4,0.64,1); max-height:85vh; display:flex; flex-direction:column; }
-.nova-rota-list { overflow-y:auto; flex:1; margin:12px 0; }
-.cliente-sel-item { display:flex; align-items:center; gap:12px; padding:11px 14px; border-radius:14px; margin-bottom:6px; background:var(--surface2); border:1.5px solid var(--border); cursor:pointer; transition:all 0.15s; }
-.cliente-sel-item.selecionado { border-color:rgba(245,166,35,0.6); background:rgba(245,166,35,0.08); }
-.cliente-sel-item.na-rota { border-color:rgba(0,232,122,0.4); background:rgba(0,232,122,0.06); opacity:0.6; pointer-events:none; }
-.cliente-check { width:26px; height:26px; border-radius:50%; border:2px solid rgba(255,255,255,0.2); display:flex; align-items:center; justify-content:center; font-size:13px; flex-shrink:0; transition:all 0.15s; }
-.cliente-sel-item.selecionado .cliente-check { background:var(--primary); border-color:var(--primary); color:#000; }
-.cliente-sel-nome { font-size:13px; font-weight:700; flex:1; }
-.cliente-sel-end { font-size:11px; color:var(--text-muted); margin-top:2px; }
+/* INSTRUÇÕES DE VOZ */
+#instrucaoVoz { display:none !important; }
 </style>
 </head>
 <body>
@@ -237,17 +235,6 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); col
 </div>
 
 <!-- DESISTIR MODAL -->
-<div id="desistirModal" style="position:fixed;inset:0;z-index:8200;background:rgba(0,0,0,0.75);backdrop-filter:blur(8px);display:none;align-items:flex-end;justify-content:center;">
-  <div style="background:var(--surface);border-radius:28px 28px 0 0;padding:28px 20px 40px;width:100%;max-width:500px;border-top:1px solid rgba(255,71,87,0.3);animation:slideUp 0.35s cubic-bezier(0.34,1.4,0.64,1);">
-    <div style="font-size:44px;text-align:center;margin-bottom:12px;">⚠️</div>
-    <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:900;text-align:center;margin-bottom:6px;">Desistir da rota?</div>
-    <div style="font-size:13px;color:var(--text-dim);text-align:center;margin-bottom:8px;line-height:1.6;" id="desistirSub">As entregas já realizadas serão mantidas. A rota voltará para o status inicial.</div>
-    <div style="font-size:12px;color:var(--red);text-align:center;margin-bottom:24px;font-weight:700;" id="desistirPendentes"></div>
-    <button onclick="executarDesistirRota()" style="width:100%;padding:16px;border:none;border-radius:16px;font-size:15px;font-weight:800;cursor:pointer;font-family:'DM Sans',sans-serif;background:var(--red);color:#fff;margin-bottom:10px;">⚠️ Sim, desistir</button>
-    <button onclick="document.getElementById('desistirModal').style.display='none'" style="width:100%;padding:14px;border:1px solid var(--border);border-radius:16px;background:transparent;color:var(--text-muted);font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Cancelar</button>
-  </div>
-</div>
-
 <!-- CONFIRM MODAL -->
 <div id="confirmModal">
   <div class="confirm-box">
@@ -293,25 +280,26 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); col
 
 <button id="btnRecentrar" onclick="recentrarMapa()">🛵</button>
 
-<!-- BADGE EDIÇÃO DE ROTA -->
-<div id="editRotaBadge">
-  ✏️ Modo edição · <span class="count" id="editCount">0</span> na rota
-  <div onclick="salvarEdicaoRota()" style="background:var(--primary);color:#000;border-radius:10px;padding:3px 10px;cursor:pointer;font-size:11px;">Salvar</div>
-  <div onclick="cancelarEdicaoRota()" style="background:rgba(255,71,87,0.15);color:var(--red);border:1px solid rgba(255,71,87,0.3);border-radius:10px;padding:3px 10px;cursor:pointer;font-size:11px;">✕</div>
+<!-- VELOCÍMETRO -->
+<div id="velocimetro">
+  <svg id="velArc" viewBox="0 0 90 90">
+    <circle cx="45" cy="45" r="40" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="5"/>
+    <circle id="velArcFill" cx="45" cy="45" r="40" fill="none" stroke="var(--primary)" stroke-width="5"
+      stroke-linecap="round" stroke-dasharray="251.2" stroke-dashoffset="251.2"
+      style="transition:stroke-dashoffset 0.8s ease,stroke 0.5s ease;"/>
+  </svg>
+  <div id="velValor">0</div>
+  <div id="velUnidade">km/h</div>
 </div>
 
-<!-- MODAL NOVA ROTA TEMPORÁRIA -->
-<div id="novaRotaModal">
-  <div class="nova-rota-box">
-    <div style="font-size:36px;text-align:center;margin-bottom:8px;">🛵</div>
-    <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:900;text-align:center;margin-bottom:4px;">Nova Rota</div>
-    <div style="font-size:12px;color:var(--text-muted);text-align:center;margin-bottom:4px;">Toque nos clientes no mapa ou selecione abaixo</div>
-    <input id="buscaClienteInput" type="text" placeholder="🔍 Buscar cliente..." oninput="filtrarClientesModal()" style="width:100%;padding:10px 14px;border-radius:12px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;margin-top:8px;outline:none;">
-    <div class="nova-rota-list" id="novaRotaClientesList"></div>
-    <button onclick="confirmarNovaRota()" style="width:100%;padding:15px;border:none;border-radius:16px;font-size:15px;font-weight:800;cursor:pointer;font-family:'DM Sans',sans-serif;background:var(--primary);color:#000;margin-bottom:8px;">🛵 Criar rota com <span id="novaRotaCount">0</span> parada(s)</button>
-    <button onclick="fecharNovaRotaModal()" style="width:100%;padding:13px;border:1px solid var(--border);border-radius:16px;background:transparent;color:var(--text-muted);font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Cancelar</button>
-  </div>
+<!-- INSTRUÇÃO DE VOZ -->
+<div id="instrucaoVoz">
+  <span id="instrucaoVozIcon">🔊</span>
+  <span id="instrucaoVozTexto">Navegação ativa</span>
 </div>
+
+<!-- BOTÃO VOZ -->
+<button id="btnVoz" onclick="toggleVoz()" style="position:fixed;bottom:192px;left:18px;z-index:500;width:46px;height:46px;border-radius:50%;background:rgba(10,10,15,0.88);border:1px solid rgba(0,232,122,0.4);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;font-size:20px;cursor:pointer;box-shadow:0 2px 14px rgba(0,0,0,0.5);transition:all 0.2s;">🔊</button>
 
 <!-- PAINEL INFERIOR -->
 <div id="paradasPanel">
@@ -524,8 +512,11 @@ function iniciarGPS() {
 async function processarPosicao(pos) {
   const lat = pos.coords.latitude, lon = pos.coords.longitude;
   const acc = pos.coords.accuracy, heading = pos.coords.heading;
+  const speedMs = pos.coords.speed || 0;
+  const speedKmh = Math.round(speedMs * 3.6);
   setBadge(true, `±${Math.round(acc)}m`);
   gpsOk = true;
+  atualizarVelocimetro(speedKmh);
   let distMovida = 999;
   if (posAtual) distMovida = calcDistM(posAtual[0],posAtual[1],lat,lon);
 
@@ -538,11 +529,13 @@ async function processarPosicao(pos) {
     await enviarPosicaoSupabase(lat, lon, acc);
   }
   if (rotaAtual && paradasList.length) await verificarProximidade(lat, lon);
-  if (rotaAtual && distMovida > 50) {
+  if (rotaAtual && distMovida > 80) {
     const prox = paradasList.find(p => p.status==='pendente' && p.coords);
-    if (prox) { ultimaProximaId = null; desenharRotaProxima([lat,lon], prox); }
+    if (prox) {
+      ultimaProximaId = null;
+      desenharRotaProxima([lat,lon], prox);
+    }
   }
-  // Detectar saída/chegada da fábrica para rota especial
   await tickRotaEspecial(lat, lon);
 }
 async function enviarPosicaoSupabase(lat, lon, acc=0) {
@@ -574,10 +567,9 @@ async function verificarProximidade(lat, lon) {
     const distFab = calcDistM(lat, lon, FABRICA[0], FABRICA[1]);
     const chip = document.getElementById('proximidadeChip');
     chip.style.display = 'block';
-    if (distFab <= RAIO_ENTREGA * 3) { // raio maior para fábrica (120m)
+    if (distFab <= RAIO_ENTREGA * 3) {
       chip.className = 'proximidadeChip chegando';
       chip.textContent = '🏭 Chegou na fábrica!';
-      // Finaliza a rota automaticamente
       const rotaId = rotaAtual.id;
       rotaAtual = null; setGJ('rota-completa',null); setGJ('rota-proxima',null);
       await sb.from("rotas").update({
@@ -585,7 +577,8 @@ async function verificarProximidade(lat, lon) {
         gps_lat:null, gps_lon:null, gps_ts:null
       }).eq("id", rotaId);
       chip.style.display = 'none';
-      showToast('🏭 Rota finalizada! Próxima rota disponível.', 'success');
+      falarVoz('Rota finalizada. Você chegou à fábrica.');
+      showToast('🏭 Rota finalizada!', 'success');
       renderTudo(); renderizarMarcadores();
     } else {
       chip.className = 'proximidadeChip longe';
@@ -607,9 +600,8 @@ async function verificarProximidade(lat, lon) {
       chip.textContent = `✅ Entregando ${prox.nome}...`;
       if (paradaAtualId !== prox.id) {
         paradaAtualId = prox.id; estavaNaParada = true;
-        verificarPagamentoEntrega(prox);
-        await executarMarcarEntregue(prox.id, prox.nome);
-        paradaAtualId = null; estavaNaParada = false; continuar = true;
+        // Inicia fluxo: popup de pagamento (se não for fiado) + timer 5s para confirmar
+        iniciarFluxoEntrega(prox);
       }
     } else {
       chip.className = 'proximidadeChip longe';
@@ -620,39 +612,70 @@ async function verificarProximidade(lat, lon) {
   }
 }
 
-// ===== PAGAMENTO NA ENTREGA (FILA) =====
-let filaPagamentos = [];
-let pagamentoEmAndamento = false;
+// ===== FLUXO DE ENTREGA: popup + timer 5s + voz =====
+let _timersEntrega = {}; // guarda timers por parada id
 
-async function verificarPagamentoEntrega(parada) {
-  if (!parada.cliente_phone) return;
+async function iniciarFluxoEntrega(parada) {
+  if (_timersEntrega[parada.id]) return; // já iniciado
+
+  // Busca pedido do dia
   const hoje = hojeStr();
   const { data: pedidos } = await sb.from("pedidos")
     .select("id,total,payment_method,customer_name")
     .eq("customer_phone", parada.cliente_phone)
     .gte("created_at", hoje+'T00:00:00').lte("created_at", hoje+'T23:59:59')
     .order("created_at",{ascending:false}).limit(1);
-  if (!pedidos?.length) return;
-  const pedido = pedidos[0];
-  if ((pedido.payment_method||'').toUpperCase() !== 'PAGA NA ENTREGA') return;
-  // Adiciona na fila em vez de sobrescrever
-  filaPagamentos.push({ parada, pedido });
-  processarFilaPagamentos();
+
+  const pedido = pedidos?.[0] || null;
+  const metodo = (pedido?.payment_method || '').toUpperCase();
+  const eFiado = metodo === 'FIADO' || metodo.includes('FIADO');
+
+  // Abre popup se não for fiado e tiver pedido
+  if (pedido && !eFiado) {
+    filaPagamentos.push({ parada, pedido });
+    processarFilaPagamentos();
+  }
+
+  // Timer de 5 segundos — confirma entrega independente do popup
+  _timersEntrega[parada.id] = setTimeout(async () => {
+    delete _timersEntrega[parada.id];
+    // Fecha popup desta parada se ainda aberto
+    if (paradaPagamentoPendente?.parada?.id === parada.id) {
+      document.getElementById('pagamentoModal').classList.remove('show');
+      paradaPagamentoPendente = null;
+      pagamentoEmAndamento = false;
+      filaPagamentos = filaPagamentos.filter(x => x.parada.id !== parada.id);
+      if (filaPagamentos.length > 0) setTimeout(() => processarFilaPagamentos(), 400);
+    }
+    // Confirma entrega
+    await executarMarcarEntregue(parada.id, parada.nome);
+    paradaAtualId = null; estavaNaParada = false;
+    // Voz: entrega concluída
+    falarVoz(`Entrega de ${parada.nome} concluída`);
+    // Próxima parada
+    setTimeout(() => {
+      const prox = paradasList.find(p => p.status==='pendente');
+      if (prox) falarVoz(`Próxima entrega: ${prox.nome}`);
+    }, 3500);
+  }, 5000);
 }
+
+// ===== PAGAMENTO NA ENTREGA (FILA) =====
+let filaPagamentos = [];
+let pagamentoEmAndamento = false;
 
 function processarFilaPagamentos() {
   if (pagamentoEmAndamento || filaPagamentos.length === 0) return;
   pagamentoEmAndamento = true;
   const { parada, pedido } = filaPagamentos[0];
   paradaPagamentoPendente = { parada, pedido };
-  const total = filaPagamentos.length;
   document.getElementById('pagNome').textContent = `${parada.nome} pagou?`;
-  document.getElementById('pagSub').textContent = `Pagamento: ${pedido.payment_method} · Pedido de hoje${total > 1 ? ` · (${filaPagamentos.indexOf(filaPagamentos[0])+1}/${total} pendentes)` : ''}`;
+  document.getElementById('pagSub').textContent = `${pedido.payment_method} · Compra de hoje`;
   document.getElementById('pagValor').textContent = `R$ ${Number(pedido.total).toFixed(2).replace('.',',')}`;
   setTimeout(() => {
     document.getElementById('confirmModal').classList.remove('show');
     document.getElementById('pagamentoModal').classList.add('show');
-  }, 400);
+  }, 300);
 }
 
 async function responderPagamento(pagou) {
@@ -661,7 +684,7 @@ async function responderPagamento(pagou) {
   const { parada, pedido } = paradaPagamentoPendente;
   paradaPagamentoPendente = null;
   pagamentoEmAndamento = false;
-  filaPagamentos.shift(); // remove o primeiro da fila
+  filaPagamentos.shift();
   if (pagou) {
     await sb.from("pedidos").update({ payment_method: pedido.payment_method+' ✓' }).eq("id", pedido.id);
     showToast(`✅ Pagamento de ${parada.nome} confirmado!`, 'success');
@@ -671,10 +694,7 @@ async function responderPagamento(pagou) {
     await sb.from("cadastros").update({ debt:(cli?.debt||0)+Number(pedido.total) }).eq("phone", parada.cliente_phone);
     showToast(`⚠️ ${parada.nome} lançado no fiado — R$ ${Number(pedido.total).toFixed(2).replace('.',',')}`, 'warn');
   }
-  // Processa o próximo da fila se houver
-  if (filaPagamentos.length > 0) {
-    setTimeout(() => processarFilaPagamentos(), 600);
-  }
+  if (filaPagamentos.length > 0) setTimeout(() => processarFilaPagamentos(), 500);
 }
 
 function fecharConfirmModal() { document.getElementById('confirmModal').classList.remove('show'); }
@@ -749,6 +769,8 @@ async function desenharRotaProxima(pa, prox) {
   ultimaProximaId = prox.id;
   const coords = await buscarOSRM([pa, prox.coords]);
   setGJ('rota-proxima', coords, [pa, prox.coords]);
+  // Fala instrução da próxima manobra
+  setTimeout(() => iniciarNavegacaoVoz(), 800);
 }
 
 // ===== NAVEGAÇÃO AVULSA =====
@@ -1030,10 +1052,6 @@ function renderizarMarcadores() {
       const pulse=isProx?'animation:paradaPulse 1.5s ease-in-out infinite;':'';
       const nome=p.name||p.nome;
       const uid=`cm_${coords[0].toFixed(5).replace('.','')}_${coords[1].toFixed(5).replace('.','')}_${ci}`;
-      // Cor diferente se selecionado na nova rota ou no modo edição
-      const selNR = modoNovaRota && clientesSelecionadosNR.has(p.phone);
-      const selED = modoEdicaoAtivo && paradasEdicaoTemp.findIndex(x=>x.cliente_phone===p.phone) >= 0 && !pa?.status?.includes('entregue');
-      if (selNR || selED) { bg='#f5a623'; bc='rgba(245,166,35,0.7)'; lb='rgba(80,50,0,0.92)'; lc='#1a1200'; rc='#f5a623'; }
       return `<div id="${uid}" data-uid="${uid}" style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;-webkit-user-select:none;user-select:none;">
         <div style="background:${lb};color:${lc};font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis;border:1px solid ${bc};box-shadow:0 2px 8px rgba(0,0,0,0.6);backdrop-filter:blur(6px);pointer-events:none;">${nome}</div>
         <div style="position:relative;width:44px;height:44px;">
@@ -1056,12 +1074,18 @@ function renderizarMarcadores() {
       const ent=pa?.status==='entregue', isP=prox&&pa?.id===prox.id, isPend=pa&&pa.status==='pendente';
       const sl=ent?'✅ Entregue':isP?'🟡 Próxima parada':isPend?'🟣 Pendente na rota':'🔵 Sem rota ativa';
       const sc=ent?'#00e87a':isP?'#f5e623':isPend?'#9b59b6':'#3d9cff';
+      const jaEmRota = ent || isP || isPend;
+      const coordsCli = p.coords || (p.delivery_lat ? [parseFloat(p.delivery_lat), parseFloat(p.delivery_lon)] : []);
+      const btnAdicionar = !jaEmRota
+        ? `<button onclick="adicionarClienteNaRota('${(p.name||p.nome||'').replace(/'/g,"\'")  }','${p.phone||''}',${JSON.stringify(coordsCli)},'${(p.delivery_address||p.endereco||'').replace(/'/g,"\'")}'  )" style="margin-top:8px;width:100%;padding:8px;border:1px solid rgba(245,166,35,0.5);border-radius:10px;background:rgba(245,166,35,0.12);color:#f5a623;font-size:12px;font-weight:800;cursor:pointer;font-family:'DM Sans',sans-serif;">➕ Adicionar à rota</button>`
+        : '';
       return `<div style="padding:6px 0;${clientes.length>1?'border-bottom:1px solid rgba(255,255,255,0.08);':''}">
         <div style="font-weight:800;font-size:13px;">${p.name||p.nome}</div>
         <div style="font-size:11px;color:rgba(240,240,248,0.55);">📍 ${p.delivery_address||p.endereco||''}</div>
         ${p.phone?`<div style="font-size:11px;color:rgba(240,240,248,0.45);">📞 ${p.phone}</div>`:''}
         ${p.debt>0?`<div style="font-size:11px;font-weight:700;color:#ff4757;">💳 Fiado: R$ ${Number(p.debt).toFixed(2).replace('.',',')}</div>`:''}
         <div style="font-size:11px;font-weight:700;color:${sc};margin-top:2px;">${sl}</div>
+        ${btnAdicionar}
       </div>`;
     }).join('');
 
@@ -1075,17 +1099,6 @@ function renderizarMarcadores() {
     const HOLD_MS=2000;
     let pTimer=null,rAF=null,pStart=0,pAtivo=false,uidAtivo=null;
     function iniciarHold(e) {
-      // Se estiver em modo edição ou nova rota: toque simples adiciona/remove
-      if (modoEdicaoAtivo || modoNovaRota) {
-        const ci = clientes.length === 1 ? 0 : (() => {
-          let elT = e.target||e;
-          for(let i=0;i<6&&elT;i++){if(elT.dataset?.uid){const parts=elT.dataset.uid.split('_');return parseInt(parts[parts.length-1])||0;}elT=elT.parentElement;}
-          return 0;
-        })();
-        const cliente = clientes[Math.min(ci, clientes.length-1)];
-        toggleClienteNaRota(cliente);
-        return;
-      }
       let elT=e.target||e; let uid=null;
       for(let i=0;i<6&&elT;i++){if(elT.dataset?.uid){uid=elT.dataset.uid;break;}elT=elT.parentElement;}
       if(!uid) uid=`cm_${coords[0].toFixed(5).replace('.','')}_${coords[1].toFixed(5).replace('.','')}_0`;
@@ -1159,7 +1172,7 @@ function renderRotaAtiva() {
         }).join('')}
       </div>`;
     } else {
-      el.innerHTML=`<div class="empty-state"><div class="empty-icon">🏭</div><div class="empty-title">Nenhuma rota disponível</div><div class="empty-sub">Não há pedidos para hoje ou a rota ainda não foi configurada.</div><button onclick="abrirNovaRotaModal()" style="margin-top:16px;padding:13px 24px;border:none;border-radius:14px;background:var(--primary);color:#000;font-size:14px;font-weight:800;cursor:pointer;font-family:'DM Sans',sans-serif;">🛵 Criar rota temporária</button></div>`;
+      el.innerHTML=`<div class="empty-state"><div class="empty-icon">🏭</div><div class="empty-title">Nenhuma rota disponível</div><div class="empty-sub">Não há pedidos para hoje ou a rota ainda não foi configurada.</div></div>`;
     }
     return;
   }
@@ -1176,8 +1189,6 @@ function renderRotaAtiva() {
       <div class="rota-stat"><div class="rota-stat-val" style="color:var(--blue);">${min}</div><div class="rota-stat-lbl">min est.</div></div>
     </div>
   </div>
-  <button onclick="ativarModoEdicaoRota()" style="width:100%;margin-top:4px;margin-bottom:4px;padding:11px;border:1px solid rgba(245,166,35,0.3);border-radius:14px;background:rgba(245,166,35,0.08);color:var(--primary);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.2px;">✏️ Editar paradas da rota</button>
-  <button onclick="confirmarDesistirRota()" style="width:100%;margin-top:0;margin-bottom:4px;padding:11px;border:1px solid rgba(255,71,87,0.3);border-radius:14px;background:rgba(255,71,87,0.08);color:var(--red);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.2px;">⚠️ Desistir da rota</button>
   <button onclick="abrirFinalizarRota()" style="width:100%;margin-top:0;margin-bottom:8px;padding:11px;border:1px solid rgba(0,232,122,0.3);border-radius:14px;background:rgba(0,232,122,0.08);color:var(--green);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.2px;">🏁 Finalizar rota</button>
   ${prox?`<div class="proxima-card" id="proximaCard">
     <div class="proxima-lbl">▶ Próxima parada</div>
@@ -1264,37 +1275,6 @@ function renderTodasRotas() {
 }
 
 // ===== DESISTIR DA ROTA =====
-function confirmarDesistirRota() {
-  if (!rotaAtual) return;
-  const pend = paradasList.filter(p => p.status === 'pendente').length;
-  const ent  = paradasList.filter(p => p.status === 'entregue').length;
-  document.getElementById('desistirPendentes').textContent =
-    pend > 0 ? `⚠️ Ainda há ${pend} entrega${pend>1?'s':''} pendente${pend>1?'s':''}.` : '';
-  document.getElementById('desistirSub').textContent =
-    ent > 0
-      ? `${ent} entrega${ent>1?'s foram':' foi'} realizada${ent>1?'s':''}. A rota voltará ao status inicial.`
-      : 'Nenhuma entrega foi realizada. A rota voltará ao status inicial.';
-  document.getElementById('desistirModal').style.display = 'flex';
-  fecharPainel();
-}
-async function executarDesistirRota() {
-  document.getElementById('desistirModal').style.display = 'none';
-  if (!rotaAtual) return;
-  // Reseta paradas pendentes mantendo as entregues
-  const paradasReset = paradasList.map(p => ({...p, status: p.status === 'entregue' ? 'entregue' : 'pendente'}));
-  await sb.from("rotas").update({
-    status: 'criada',
-    saida_em: null,
-    paradas: paradasReset,
-    gps_lat: null, gps_lon: null, gps_ts: null
-  }).eq("id", rotaAtual.id);
-  showToast(`❌ Rota "${rotaAtual.nome}" abandonada.`, 'warn');
-  rotaAtual = null; paradasList = [];
-  cacheRotaCompleta = null; cacheRotaCompletaKey = ''; ultimaProximaId = null;
-  setGJ('rota-completa', null); setGJ('rota-proxima', null);
-  await carregarDados();
-}
-
 // ===== FINALIZAR ROTA MANUAL =====
 function abrirFinalizarRota() {
   if (!rotaAtual) return;
@@ -1517,209 +1497,170 @@ function iniciarRotaEspecial() {
     .subscribe();
 }
 
+// ===== ADICIONAR CLIENTE À ROTA =====
+async function adicionarClienteNaRota(nome, phone, coords, endereco) {
+  await carregarConfigRE();
+  // Fecha popups abertos
+  marcadoresMapLibre.forEach(m => { try { m.getPopup()?.remove(); } catch(e){} });
+
+  // CASO 1: Tem rota ativa → adiciona como parada imediata
+  if (rotaAtual) {
+    const jaExiste = paradasList.find(p => p.cliente_phone === phone && p.status === "pendente");
+    if (jaExiste) { showToast("⚠️ " + nome + " já está na rota", "warn"); return; }
+    const novaParada = {
+      id: Date.now().toString(),
+      cliente_phone: phone,
+      nome, endereco, coords,
+      status: "pendente",
+      eta_min: (paradasList.filter(p => p.status === "pendente").length + 1) * mediaMinPorParada
+    };
+    const novasParadas = [...(rotaAtual.paradas || []), novaParada];
+    const { error } = await sb.from("rotas").update({ paradas: novasParadas }).eq("id", rotaAtual.id);
+    if (error) { showToast("❌ Erro ao adicionar", ""); return; }
+    showToast("✅ " + nome + " adicionado à rota!", "success");
+    falarVoz(nome + " adicionado à rota");
+    await carregarDados();
+    return;
+  }
+
+  // CASO 2: Sem rota ativa → agenda para próxima saída / amanhã
+  if (!_reConfig) { showToast("⚠️ Rota especial não configurada", "warn"); return; }
+  const fila = _reConfig.clientes_fila || [];
+  if (fila.find(x => x.phone === phone && x.status === "pendente")) {
+    showToast("⚠️ " + nome + " já está na fila", "warn"); return;
+  }
+  fila.push({
+    id: Date.now().toString(),
+    phone, nome, endereco, coords,
+    hora_pedido: new Date().toISOString().substring(11, 16),
+    status: "pendente"
+  });
+  _reConfig.clientes_fila = fila;
+  await sb.from("rota_especial_gps").upsert({ chave: "rota_especial", valor: JSON.stringify(_reConfig) }, { onConflict: "chave" });
+  showToast("📅 " + nome + " agendado para amanhã!", "success");
+  falarVoz(nome + " agendado para amanhã");
+  renderTudo();
+}
+
+// ===== VELOCÍMETRO =====
+function atualizarVelocimetro(kmh) {
+  const el = document.getElementById('velValor');
+  const arc = document.getElementById('velArcFill');
+  if (!el || !arc) return;
+  el.textContent = kmh;
+  // Arco: max 80 km/h = 251.2 circunferência
+  const pct = Math.min(kmh / 80, 1);
+  const offset = 251.2 * (1 - pct);
+  arc.style.strokeDashoffset = offset;
+  // Cor: verde até 40, amarelo até 60, vermelho acima
+  arc.style.stroke = kmh > 60 ? 'var(--red)' : kmh > 40 ? 'var(--primary)' : 'var(--green)';
+}
+
+// ===== NAVEGAÇÃO POR VOZ =====
+let vozAtiva = true;
+
+function toggleVoz() {
+  vozAtiva = !vozAtiva;
+  const btn = document.getElementById('btnVoz');
+  if (vozAtiva) {
+    btn.textContent = '🔊';
+    btn.style.borderColor = 'rgba(0,232,122,0.4)';
+    btn.style.background = 'rgba(10,10,15,0.88)';
+    showToast('🔊 Voz ativada', 'success');
+    // Fala confirmação ao ativar
+    setTimeout(() => falarVoz('Orientações por voz ativadas'), 100);
+  } else {
+    window.speechSynthesis.cancel();
+    btn.textContent = '🔇';
+    btn.style.borderColor = 'rgba(255,71,87,0.4)';
+    btn.style.background = 'rgba(255,71,87,0.08)';
+    showToast('🔇 Voz desativada', '');
+  }
+}
+let _ultimaInstrucao = '';
+let _instrucaoTimer = null;
+
+function falarVoz(texto) {
+  if (!vozAtiva || !('speechSynthesis' in window)) return;
+  // Cancela fala anterior
+  window.speechSynthesis.cancel();
+  const utt = new SpeechSynthesisUtterance(texto);
+  utt.lang = 'pt-BR';
+  utt.rate = 1.05;
+  utt.pitch = 1;
+  utt.volume = 1;
+  // Mostra instrução na tela
+  mostrarInstrucaoVoz(texto);
+  window.speechSynthesis.speak(utt);
+}
+
+function mostrarInstrucaoVoz(texto) {
+  // Visual desativado — só áudio (igual ao Waze)
+}
+
+// Navegação por rua — fala instruções baseado na rota OSRM com steps
+async function iniciarNavegacaoVoz() {
+  if (!rotaAtual || !posAtual) return;
+  const prox = paradasList.find(p => p.status==='pendente' && p.coords);
+  if (!prox) return;
+  try {
+    const url = `${OSRM_BASE}${posAtual[1]},${posAtual[0]};${prox.coords[1]},${prox.coords[0]}?overview=full&geometries=geojson&steps=true`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (j.code !== 'Ok' || !j.routes?.length) return;
+    const steps = j.routes[0].legs?.[0]?.steps || [];
+    // Pega o próximo step relevante (ignora 'depart')
+    const step = steps.find(s => s.maneuver?.type !== 'depart' && s.distance > 10) || steps[0];
+    if (!step) return;
+    // Só fala se estiver a 300 metros ou menos da manobra
+    if (step.distance > 300) {
+      // Reseta para falar quando chegar nos 300m
+      _ultimaInstrucao = '';
+      return;
+    }
+    const instrucao = traduzirManobra(step);
+    if (instrucao && instrucao !== _ultimaInstrucao) {
+      _ultimaInstrucao = instrucao;
+      falarVoz(instrucao);
+    }
+  } catch(e) {}
+}
+
+function traduzirManobra(step) {
+  const tipo = step?.maneuver?.type || '';
+  const mod  = step?.maneuver?.modifier || '';
+  const dist = step?.distance ? Math.round(step.distance) : 0;
+  const distTxt = dist > 0
+    ? ` em ${dist >= 1000 ? (dist/1000).toFixed(1) + ' quilômetros' : dist + ' metros'}`
+    : '';
+
+  if (tipo === 'turn' || tipo === 'end of road') {
+    if (mod === 'left')        return `Vire à esquerda${distTxt}`;
+    if (mod === 'right')       return `Vire à direita${distTxt}`;
+    if (mod === 'slight left') return `Mantenha à esquerda${distTxt}`;
+    if (mod === 'slight right') return `Mantenha à direita${distTxt}`;
+    if (mod === 'sharp left')  return `Vire totalmente à esquerda${distTxt}`;
+    if (mod === 'sharp right') return `Vire totalmente à direita${distTxt}`;
+    if (mod === 'uturn')       return `Faça o retorno${distTxt}`;
+  }
+  if (tipo === 'new name' || tipo === 'continue') return `Continue em frente${distTxt}`;
+  if (tipo === 'depart')     return `Siga em frente${distTxt}`;
+  if (tipo === 'arrive')     return `Chegando ao destino`;
+  if (tipo === 'roundabout') return `Entre na rotatória${distTxt}`;
+  if (tipo === 'rotary')     return `Entre na rotatória${distTxt}`;
+  if (tipo === 'fork') {
+    if (mod === 'left')  return `Mantenha à esquerda${distTxt}`;
+    if (mod === 'right') return `Mantenha à direita${distTxt}`;
+  }
+  return '';
+}
+
 // ===== UTILS =====
 function calcDistM(lat1,lon1,lat2,lon2){
   const R=6371000,dLat=(lat2-lat1)*Math.PI/180,dLon=(lon2-lon1)*Math.PI/180;
   const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
-}
-
-// ===== EDIÇÃO DE ROTA =====
-let modoEdicaoAtivo = false;
-let paradasEdicaoTemp = []; // cópia das paradas durante edição
-
-function ativarModoEdicaoRota() {
-  if (!rotaAtual) return;
-  modoEdicaoAtivo = true;
-  // Cópia profunda das paradas atuais
-  paradasEdicaoTemp = paradasList.map(p => ({...p}));
-  fecharPainel();
-  atualizarBadgeEdicao();
-  document.getElementById('editRotaBadge').classList.add('visivel');
-  renderizarMarcadores();
-  showToast('✏️ Modo edição ativo — toque nos clientes para adicionar/remover', '');
-}
-
-function cancelarEdicaoRota() {
-  modoEdicaoAtivo = false;
-  paradasEdicaoTemp = [];
-  document.getElementById('editRotaBadge').classList.remove('visivel');
-  renderizarMarcadores();
-}
-
-async function salvarEdicaoRota() {
-  if (!rotaAtual) return;
-  const novasParadas = paradasEdicaoTemp;
-  await sb.from("rotas").update({
-    paradas: novasParadas,
-    total_paradas_dia: novasParadas.length,
-    phones_entregues: novasParadas.filter(p=>p.status==='entregue').map(p=>p.cliente_phone)
-  }).eq("id", rotaAtual.id);
-  paradasList = novasParadas;
-  rotaAtual.paradas = novasParadas;
-  modoEdicaoAtivo = false;
-  paradasEdicaoTemp = [];
-  document.getElementById('editRotaBadge').classList.remove('visivel');
-  showToast('✅ Rota atualizada!', 'success');
-  renderTudo();
-  renderizarMarcadores();
-}
-
-function atualizarBadgeEdicao() {
-  const pend = paradasEdicaoTemp.filter(p=>p.status!=='entregue').length;
-  document.getElementById('editCount').textContent = pend;
-}
-
-// Toque no cliente no mapa — adiciona ou remove da rota
-function toggleClienteNaRota(cliente) {
-  if (modoEdicaoAtivo) {
-    // Modo edição de rota existente
-    const idx = paradasEdicaoTemp.findIndex(p => p.cliente_phone === cliente.phone || p.cliente_phone === cliente.phone);
-    if (idx >= 0 && paradasEdicaoTemp[idx].status !== 'entregue') {
-      // Remove
-      paradasEdicaoTemp.splice(idx, 1);
-      showToast(`❌ ${cliente.nome || cliente.name} removido da rota`);
-    } else if (idx < 0) {
-      // Adiciona
-      const novaParada = {
-        id: Date.now().toString() + '_' + Math.random().toString(36).substr(2,5),
-        cliente_phone: cliente.phone,
-        nome: cliente.name || cliente.nome,
-        endereco: cliente.delivery_address || '',
-        coords: cliente.coords,
-        status: 'pendente',
-        eta_min: Math.round((paradasEdicaoTemp.length + 1) * mediaMinPorParada)
-      };
-      paradasEdicaoTemp.push(novaParada);
-      showToast(`✅ ${cliente.nome || cliente.name} adicionado à rota`);
-    } else {
-      showToast(`⚠️ ${cliente.nome || cliente.name} já foi entregue`);
-      return;
-    }
-    atualizarBadgeEdicao();
-    renderizarMarcadores();
-    return;
-  }
-
-  if (modoNovaRota) {
-    // Modo criação de nova rota — toggle via mapa
-    toggleClienteNovaRota(cliente.phone);
-    return;
-  }
-}
-
-// ===== NOVA ROTA TEMPORÁRIA =====
-let modoNovaRota = false;
-let clientesSelecionadosNR = new Set();
-let todosClientesFiltrados = [];
-
-function abrirNovaRotaModal() {
-  modoNovaRota = true;
-  clientesSelecionadosNR = new Set();
-  fecharPainel();
-  renderListaClientesModal('');
-  document.getElementById('novaRotaModal').classList.add('show');
-  document.getElementById('buscaClienteInput').value = '';
-}
-
-function fecharNovaRotaModal() {
-  document.getElementById('novaRotaModal').classList.remove('show');
-  modoNovaRota = false;
-  clientesSelecionadosNR = new Set();
-  renderizarMarcadores();
-}
-
-function renderListaClientesModal(filtro) {
-  const lista = document.getElementById('novaRotaClientesList');
-  const phonesNaRota = new Set((paradasList || []).map(p => p.cliente_phone));
-  const f = filtro.toLowerCase();
-  todosClientesFiltrados = todosOsClientes.filter(c => {
-    if (!c.coords) return false;
-    const nome = (c.name || c.nome || '').toLowerCase();
-    const end = (c.delivery_address || '').toLowerCase();
-    return !f || nome.includes(f) || end.includes(f);
-  });
-  lista.innerHTML = todosClientesFiltrados.map(c => {
-    const phone = c.phone;
-    const naRota = phonesNaRota.has(phone);
-    const sel = clientesSelecionadosNR.has(phone);
-    return `<div class="cliente-sel-item ${naRota?'na-rota':sel?'selecionado':''}" onclick="toggleClienteNovaRota('${phone}')">
-      <div class="cliente-check">${naRota?'✓':sel?'✓':''}</div>
-      <div style="flex:1;min-width:0;">
-        <div class="cliente-sel-nome">${c.name||c.nome||phone}</div>
-        <div class="cliente-sel-end">${naRota?'✅ Já na rota':(c.delivery_address||'Sem endereço')}</div>
-      </div>
-    </div>`;
-  }).join('') || '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px;">Nenhum cliente encontrado</div>';
-  atualizarBotaoNovaRota();
-}
-
-function filtrarClientesModal() {
-  const v = document.getElementById('buscaClienteInput').value;
-  renderListaClientesModal(v);
-}
-
-function toggleClienteNovaRota(phone) {
-  if (clientesSelecionadosNR.has(phone)) {
-    clientesSelecionadosNR.delete(phone);
-  } else {
-    clientesSelecionadosNR.add(phone);
-  }
-  const filtro = document.getElementById('buscaClienteInput')?.value || '';
-  renderListaClientesModal(filtro);
-  renderizarMarcadores(); // atualiza visual no mapa
-}
-
-function atualizarBotaoNovaRota() {
-  const n = clientesSelecionadosNR.size;
-  const btn = document.getElementById('novaRotaCount');
-  if (btn) btn.textContent = n;
-}
-
-async function confirmarNovaRota() {
-  if (clientesSelecionadosNR.size === 0) {
-    showToast('⚠️ Selecione pelo menos um cliente', 'warn');
-    return;
-  }
-  const agora = agoraISO();
-  const paradas = [];
-  let i = 0;
-  for (const phone of clientesSelecionadosNR) {
-    const c = todosOsClientes.find(x => x.phone === phone);
-    if (!c || !c.coords) continue;
-    paradas.push({
-      id: Date.now().toString() + '_' + i,
-      cliente_phone: phone,
-      nome: c.name || c.nome || phone,
-      endereco: c.delivery_address || '',
-      coords: c.coords,
-      status: 'pendente',
-      eta_min: Math.round((i + 1) * mediaMinPorParada)
-    });
-    i++;
-  }
-  if (!paradas.length) { showToast('⚠️ Clientes sem endereço cadastrado', 'warn'); return; }
-
-  const { data: rota, error } = await sb.from('rotas').insert({
-    "Rotas": "🛵 Rota Temporária",
-    status: 'em_andamento',
-    saida_em: agora,
-    hora_saida: agora.substring(11, 16),
-    janela_inicio: agora,
-    paradas,
-    total_paradas_dia: paradas.length,
-    entregas_realizadas: 0,
-    phones_entregues: [],
-    gps_lat: posAtual ? posAtual[0] : FABRICA[0],
-    gps_lon: posAtual ? posAtual[1] : FABRICA[1],
-    gps_ts: agora
-  }).select().single();
-
-  if (error) { showToast('❌ Erro ao criar rota', 'error'); console.error(error); return; }
-
-  fecharNovaRotaModal();
-  showToast(`🛵 Rota criada com ${paradas.length} parada(s)!`, 'success');
-  await carregarDados();
 }
 </script>
 
