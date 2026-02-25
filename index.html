@@ -777,7 +777,7 @@ async function carregarDados() {
     sb.from("rotas").select('*, "Rotas" as nome').order("hora_saida",{ascending:true}),
     sb.from("cadastros").select("*"),
     sb.from("pedidos")
-      .select("customer_phone, customer_name, client_name, total, payment_method, id, details, items")
+      .select("customer_phone, customer_name, total, payment_method, id, items")
       .gte("created_at",hoje+'T00:00:00').lte("created_at",hoje+'T23:59:59')
   ]);
 
@@ -832,7 +832,7 @@ async function carregarDados() {
           ...p,
           coords,
           endereco,
-          nome: p.nome || p.name || cli?.name || pedido?.customer_name || pedido?.client_name || p.cliente_phone,
+          nome: p.nome || p.name || cli?.name || pedido?.customer_name || p.cliente_phone,
           status: statusSalvo,
           eta_min: Math.round((i+1)*mediaMinPorParada),
           total: pedido?.total || p.total || 0,
@@ -883,14 +883,13 @@ async function verificarAutoInicioRotas(horaAgoraMin) {
 
   if (candidatas.length === 0) return;
 
-  // Apenas uma candidata → inicia automaticamente sem perguntar
-  if (candidatas.length === 1) {
-    await iniciarRota(candidatas[0]);
-    return;
-  }
+  // Sempre inicia automaticamente: escolhe a de horário mais cedo (ou a primeira da lista)
+  const melhor = candidatas.sort((a, b) => {
+    const toMin = h => { if (!h) return 9999; const [hh,mm]=h.split(':').map(Number); return hh*60+mm; };
+    return toMin(a.hora_saida) - toMin(b.hora_saida);
+  })[0];
 
-  // Múltiplas candidatas → mostra modal de seleção
-  mostrarModalSelecaoRota(candidatas);
+  await iniciarRota(melhor);
 }
 
 async function iniciarRota(rota) {
@@ -925,56 +924,6 @@ async function iniciarRota(rota) {
   showToast(`🛵 Rota "${rota.nome}" iniciada!`, 'success');
   renderTudo();
   if (map.isStyleLoaded()) renderizarMarcadores();
-}
-
-// ===== MODAL SELEÇÃO DE ROTA =====
-function mostrarModalSelecaoRota(rotas) {
-  // Cria modal dinamicamente se não existir
-  let modal = document.getElementById('modalSelecaoRota');
-  if (!modal) {
-    modal = document.createElement('div');
-    modal.id = 'modalSelecaoRota';
-    modal.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,0.8);backdrop-filter:blur(10px);display:flex;align-items:flex-end;justify-content:center;';
-    document.body.appendChild(modal);
-  }
-
-  const lista = rotas.map(r => {
-    const qtd = r.paradas?.length || 0;
-    const hora = r.hora_saida ? `⏰ ${r.hora_saida.substring(0,5)}` : '';
-    return `<button onclick="window._selecionarRota('${r.id}')" style="
-      width:100%;padding:16px;border:1px solid rgba(245,166,35,0.3);border-radius:16px;
-      background:rgba(245,166,35,0.08);color:var(--text);text-align:left;cursor:pointer;
-      font-family:'DM Sans',sans-serif;margin-bottom:10px;transition:background 0.2s;
-    ">
-      <div style="font-family:'Syne',sans-serif;font-weight:900;font-size:15px;color:var(--primary);">${r.nome}</div>
-      <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">${hora} &nbsp;📦 ${qtd} entrega${qtd!==1?'s':''}</div>
-    </button>`;
-  }).join('');
-
-  modal.innerHTML = `<div style="
-    background:var(--surface);border-radius:28px 28px 0 0;padding:24px 20px 40px;
-    width:100%;max-width:500px;border-top:1px solid var(--border);
-    animation:slideUp 0.35s cubic-bezier(0.34,1.4,0.64,1);
-  ">
-    <div style="width:40px;height:4px;background:rgba(255,255,255,0.15);border-radius:2px;margin:0 auto 20px;"></div>
-    <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:900;margin-bottom:6px;">🛵 Qual rota iniciar?</div>
-    <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px;">Múltiplas rotas disponíveis para agora. Escolha uma para começar.</div>
-    ${lista}
-    <button onclick="document.getElementById('modalSelecaoRota').style.display='none'" style="
-      width:100%;padding:14px;border:1px solid var(--border);border-radius:16px;
-      background:transparent;color:var(--text-muted);font-size:14px;font-weight:700;
-      cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:4px;
-    ">Agora não</button>
-  </div>`;
-
-  modal.style.display = 'flex';
-
-  // Handler global temporário
-  window._selecionarRota = async (rotaId) => {
-    modal.style.display = 'none';
-    const rota = todasAsRotas.find(r=>r.id===rotaId);
-    if (rota) await iniciarRota(rota);
-  };
 }
 
 async function calcularMediaEta() {
