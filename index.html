@@ -173,6 +173,24 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); col
 
 @keyframes destinoPulse{0%{box-shadow:0 0 0 0 rgba(0,232,122,0.8);}70%{box-shadow:0 0 0 18px rgba(0,232,122,0);}100%{box-shadow:0 0 0 0 rgba(0,232,122,0);}}
 @keyframes paradaPulse{0%,100%{box-shadow:0 0 0 0 rgba(245,166,35,0.7)}70%{box-shadow:0 0 0 12px rgba(245,166,35,0)}}
+
+/* BADGE FLUTUANTE DE EDIÇÃO DE ROTA */
+#editRotaBadge { position:fixed; top:70px; left:50%; transform:translateX(-50%); z-index:600; display:none; align-items:center; gap:8px; padding:8px 16px; border-radius:22px; background:rgba(10,10,15,0.92); border:1.5px solid rgba(245,166,35,0.6); color:var(--primary); font-size:12px; font-weight:800; white-space:nowrap; backdrop-filter:blur(14px); box-shadow:0 4px 20px rgba(245,166,35,0.25); }
+#editRotaBadge.visivel { display:flex; animation:chipEntrada 0.35s cubic-bezier(0.34,1.56,0.64,1); }
+#editRotaBadge .count { background:rgba(245,166,35,0.2); border:1px solid rgba(245,166,35,0.4); border-radius:10px; padding:2px 8px; font-family:'Syne',sans-serif; font-size:13px; font-weight:900; }
+
+/* MODAL NOVA ROTA TEMPORÁRIA */
+#novaRotaModal { position:fixed; inset:0; z-index:8400; background:rgba(0,0,0,0.78); backdrop-filter:blur(8px); display:none; align-items:flex-end; justify-content:center; }
+#novaRotaModal.show { display:flex; }
+.nova-rota-box { background:var(--surface); border-radius:28px 28px 0 0; padding:24px 20px 40px; width:100%; max-width:500px; border-top:1px solid rgba(245,166,35,0.3); animation:slideUp 0.35s cubic-bezier(0.34,1.4,0.64,1); max-height:85vh; display:flex; flex-direction:column; }
+.nova-rota-list { overflow-y:auto; flex:1; margin:12px 0; }
+.cliente-sel-item { display:flex; align-items:center; gap:12px; padding:11px 14px; border-radius:14px; margin-bottom:6px; background:var(--surface2); border:1.5px solid var(--border); cursor:pointer; transition:all 0.15s; }
+.cliente-sel-item.selecionado { border-color:rgba(245,166,35,0.6); background:rgba(245,166,35,0.08); }
+.cliente-sel-item.na-rota { border-color:rgba(0,232,122,0.4); background:rgba(0,232,122,0.06); opacity:0.6; pointer-events:none; }
+.cliente-check { width:26px; height:26px; border-radius:50%; border:2px solid rgba(255,255,255,0.2); display:flex; align-items:center; justify-content:center; font-size:13px; flex-shrink:0; transition:all 0.15s; }
+.cliente-sel-item.selecionado .cliente-check { background:var(--primary); border-color:var(--primary); color:#000; }
+.cliente-sel-nome { font-size:13px; font-weight:700; flex:1; }
+.cliente-sel-end { font-size:11px; color:var(--text-muted); margin-top:2px; }
 </style>
 </head>
 <body>
@@ -274,6 +292,26 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); col
 </div>
 
 <button id="btnRecentrar" onclick="recentrarMapa()">🛵</button>
+
+<!-- BADGE EDIÇÃO DE ROTA -->
+<div id="editRotaBadge">
+  ✏️ Modo edição · <span class="count" id="editCount">0</span> na rota
+  <div onclick="salvarEdicaoRota()" style="background:var(--primary);color:#000;border-radius:10px;padding:3px 10px;cursor:pointer;font-size:11px;">Salvar</div>
+  <div onclick="cancelarEdicaoRota()" style="background:rgba(255,71,87,0.15);color:var(--red);border:1px solid rgba(255,71,87,0.3);border-radius:10px;padding:3px 10px;cursor:pointer;font-size:11px;">✕</div>
+</div>
+
+<!-- MODAL NOVA ROTA TEMPORÁRIA -->
+<div id="novaRotaModal">
+  <div class="nova-rota-box">
+    <div style="font-size:36px;text-align:center;margin-bottom:8px;">🛵</div>
+    <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:900;text-align:center;margin-bottom:4px;">Nova Rota</div>
+    <div style="font-size:12px;color:var(--text-muted);text-align:center;margin-bottom:4px;">Toque nos clientes no mapa ou selecione abaixo</div>
+    <input id="buscaClienteInput" type="text" placeholder="🔍 Buscar cliente..." oninput="filtrarClientesModal()" style="width:100%;padding:10px 14px;border-radius:12px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;margin-top:8px;outline:none;">
+    <div class="nova-rota-list" id="novaRotaClientesList"></div>
+    <button onclick="confirmarNovaRota()" style="width:100%;padding:15px;border:none;border-radius:16px;font-size:15px;font-weight:800;cursor:pointer;font-family:'DM Sans',sans-serif;background:var(--primary);color:#000;margin-bottom:8px;">🛵 Criar rota com <span id="novaRotaCount">0</span> parada(s)</button>
+    <button onclick="fecharNovaRotaModal()" style="width:100%;padding:13px;border:1px solid var(--border);border-radius:16px;background:transparent;color:var(--text-muted);font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Cancelar</button>
+  </div>
+</div>
 
 <!-- PAINEL INFERIOR -->
 <div id="paradasPanel">
@@ -992,6 +1030,10 @@ function renderizarMarcadores() {
       const pulse=isProx?'animation:paradaPulse 1.5s ease-in-out infinite;':'';
       const nome=p.name||p.nome;
       const uid=`cm_${coords[0].toFixed(5).replace('.','')}_${coords[1].toFixed(5).replace('.','')}_${ci}`;
+      // Cor diferente se selecionado na nova rota ou no modo edição
+      const selNR = modoNovaRota && clientesSelecionadosNR.has(p.phone);
+      const selED = modoEdicaoAtivo && paradasEdicaoTemp.findIndex(x=>x.cliente_phone===p.phone) >= 0 && !pa?.status?.includes('entregue');
+      if (selNR || selED) { bg='#f5a623'; bc='rgba(245,166,35,0.7)'; lb='rgba(80,50,0,0.92)'; lc='#1a1200'; rc='#f5a623'; }
       return `<div id="${uid}" data-uid="${uid}" style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;-webkit-user-select:none;user-select:none;">
         <div style="background:${lb};color:${lc};font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis;border:1px solid ${bc};box-shadow:0 2px 8px rgba(0,0,0,0.6);backdrop-filter:blur(6px);pointer-events:none;">${nome}</div>
         <div style="position:relative;width:44px;height:44px;">
@@ -1033,6 +1075,17 @@ function renderizarMarcadores() {
     const HOLD_MS=2000;
     let pTimer=null,rAF=null,pStart=0,pAtivo=false,uidAtivo=null;
     function iniciarHold(e) {
+      // Se estiver em modo edição ou nova rota: toque simples adiciona/remove
+      if (modoEdicaoAtivo || modoNovaRota) {
+        const ci = clientes.length === 1 ? 0 : (() => {
+          let elT = e.target||e;
+          for(let i=0;i<6&&elT;i++){if(elT.dataset?.uid){const parts=elT.dataset.uid.split('_');return parseInt(parts[parts.length-1])||0;}elT=elT.parentElement;}
+          return 0;
+        })();
+        const cliente = clientes[Math.min(ci, clientes.length-1)];
+        toggleClienteNaRota(cliente);
+        return;
+      }
       let elT=e.target||e; let uid=null;
       for(let i=0;i<6&&elT;i++){if(elT.dataset?.uid){uid=elT.dataset.uid;break;}elT=elT.parentElement;}
       if(!uid) uid=`cm_${coords[0].toFixed(5).replace('.','')}_${coords[1].toFixed(5).replace('.','')}_0`;
@@ -1106,7 +1159,7 @@ function renderRotaAtiva() {
         }).join('')}
       </div>`;
     } else {
-      el.innerHTML=`<div class="empty-state"><div class="empty-icon">🏭</div><div class="empty-title">Nenhuma rota disponível</div><div class="empty-sub">Não há pedidos para hoje ou a rota ainda não foi configurada.</div></div>`;
+      el.innerHTML=`<div class="empty-state"><div class="empty-icon">🏭</div><div class="empty-title">Nenhuma rota disponível</div><div class="empty-sub">Não há pedidos para hoje ou a rota ainda não foi configurada.</div><button onclick="abrirNovaRotaModal()" style="margin-top:16px;padding:13px 24px;border:none;border-radius:14px;background:var(--primary);color:#000;font-size:14px;font-weight:800;cursor:pointer;font-family:'DM Sans',sans-serif;">🛵 Criar rota temporária</button></div>`;
     }
     return;
   }
@@ -1123,7 +1176,8 @@ function renderRotaAtiva() {
       <div class="rota-stat"><div class="rota-stat-val" style="color:var(--blue);">${min}</div><div class="rota-stat-lbl">min est.</div></div>
     </div>
   </div>
-  <button onclick="confirmarDesistirRota()" style="width:100%;margin-top:4px;margin-bottom:4px;padding:11px;border:1px solid rgba(255,71,87,0.3);border-radius:14px;background:rgba(255,71,87,0.08);color:var(--red);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.2px;">⚠️ Desistir da rota</button>
+  <button onclick="ativarModoEdicaoRota()" style="width:100%;margin-top:4px;margin-bottom:4px;padding:11px;border:1px solid rgba(245,166,35,0.3);border-radius:14px;background:rgba(245,166,35,0.08);color:var(--primary);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.2px;">✏️ Editar paradas da rota</button>
+  <button onclick="confirmarDesistirRota()" style="width:100%;margin-top:0;margin-bottom:4px;padding:11px;border:1px solid rgba(255,71,87,0.3);border-radius:14px;background:rgba(255,71,87,0.08);color:var(--red);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.2px;">⚠️ Desistir da rota</button>
   <button onclick="abrirFinalizarRota()" style="width:100%;margin-top:0;margin-bottom:8px;padding:11px;border:1px solid rgba(0,232,122,0.3);border-radius:14px;background:rgba(0,232,122,0.08);color:var(--green);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.2px;">🏁 Finalizar rota</button>
   ${prox?`<div class="proxima-card" id="proximaCard">
     <div class="proxima-lbl">▶ Próxima parada</div>
@@ -1468,6 +1522,204 @@ function calcDistM(lat1,lon1,lat2,lon2){
   const R=6371000,dLat=(lat2-lat1)*Math.PI/180,dLon=(lon2-lon1)*Math.PI/180;
   const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+// ===== EDIÇÃO DE ROTA =====
+let modoEdicaoAtivo = false;
+let paradasEdicaoTemp = []; // cópia das paradas durante edição
+
+function ativarModoEdicaoRota() {
+  if (!rotaAtual) return;
+  modoEdicaoAtivo = true;
+  // Cópia profunda das paradas atuais
+  paradasEdicaoTemp = paradasList.map(p => ({...p}));
+  fecharPainel();
+  atualizarBadgeEdicao();
+  document.getElementById('editRotaBadge').classList.add('visivel');
+  renderizarMarcadores();
+  showToast('✏️ Modo edição ativo — toque nos clientes para adicionar/remover', '');
+}
+
+function cancelarEdicaoRota() {
+  modoEdicaoAtivo = false;
+  paradasEdicaoTemp = [];
+  document.getElementById('editRotaBadge').classList.remove('visivel');
+  renderizarMarcadores();
+}
+
+async function salvarEdicaoRota() {
+  if (!rotaAtual) return;
+  const novasParadas = paradasEdicaoTemp;
+  await sb.from("rotas").update({
+    paradas: novasParadas,
+    total_paradas_dia: novasParadas.length,
+    phones_entregues: novasParadas.filter(p=>p.status==='entregue').map(p=>p.cliente_phone)
+  }).eq("id", rotaAtual.id);
+  paradasList = novasParadas;
+  rotaAtual.paradas = novasParadas;
+  modoEdicaoAtivo = false;
+  paradasEdicaoTemp = [];
+  document.getElementById('editRotaBadge').classList.remove('visivel');
+  showToast('✅ Rota atualizada!', 'success');
+  renderTudo();
+  renderizarMarcadores();
+}
+
+function atualizarBadgeEdicao() {
+  const pend = paradasEdicaoTemp.filter(p=>p.status!=='entregue').length;
+  document.getElementById('editCount').textContent = pend;
+}
+
+// Toque no cliente no mapa — adiciona ou remove da rota
+function toggleClienteNaRota(cliente) {
+  if (modoEdicaoAtivo) {
+    // Modo edição de rota existente
+    const idx = paradasEdicaoTemp.findIndex(p => p.cliente_phone === cliente.phone || p.cliente_phone === cliente.phone);
+    if (idx >= 0 && paradasEdicaoTemp[idx].status !== 'entregue') {
+      // Remove
+      paradasEdicaoTemp.splice(idx, 1);
+      showToast(`❌ ${cliente.nome || cliente.name} removido da rota`);
+    } else if (idx < 0) {
+      // Adiciona
+      const novaParada = {
+        id: Date.now().toString() + '_' + Math.random().toString(36).substr(2,5),
+        cliente_phone: cliente.phone,
+        nome: cliente.name || cliente.nome,
+        endereco: cliente.delivery_address || '',
+        coords: cliente.coords,
+        status: 'pendente',
+        eta_min: Math.round((paradasEdicaoTemp.length + 1) * mediaMinPorParada)
+      };
+      paradasEdicaoTemp.push(novaParada);
+      showToast(`✅ ${cliente.nome || cliente.name} adicionado à rota`);
+    } else {
+      showToast(`⚠️ ${cliente.nome || cliente.name} já foi entregue`);
+      return;
+    }
+    atualizarBadgeEdicao();
+    renderizarMarcadores();
+    return;
+  }
+
+  if (modoNovaRota) {
+    // Modo criação de nova rota — toggle via mapa
+    toggleClienteNovaRota(cliente.phone);
+    return;
+  }
+}
+
+// ===== NOVA ROTA TEMPORÁRIA =====
+let modoNovaRota = false;
+let clientesSelecionadosNR = new Set();
+let todosClientesFiltrados = [];
+
+function abrirNovaRotaModal() {
+  modoNovaRota = true;
+  clientesSelecionadosNR = new Set();
+  fecharPainel();
+  renderListaClientesModal('');
+  document.getElementById('novaRotaModal').classList.add('show');
+  document.getElementById('buscaClienteInput').value = '';
+}
+
+function fecharNovaRotaModal() {
+  document.getElementById('novaRotaModal').classList.remove('show');
+  modoNovaRota = false;
+  clientesSelecionadosNR = new Set();
+  renderizarMarcadores();
+}
+
+function renderListaClientesModal(filtro) {
+  const lista = document.getElementById('novaRotaClientesList');
+  const phonesNaRota = new Set((paradasList || []).map(p => p.cliente_phone));
+  const f = filtro.toLowerCase();
+  todosClientesFiltrados = todosOsClientes.filter(c => {
+    if (!c.coords) return false;
+    const nome = (c.name || c.nome || '').toLowerCase();
+    const end = (c.delivery_address || '').toLowerCase();
+    return !f || nome.includes(f) || end.includes(f);
+  });
+  lista.innerHTML = todosClientesFiltrados.map(c => {
+    const phone = c.phone;
+    const naRota = phonesNaRota.has(phone);
+    const sel = clientesSelecionadosNR.has(phone);
+    return `<div class="cliente-sel-item ${naRota?'na-rota':sel?'selecionado':''}" onclick="toggleClienteNovaRota('${phone}')">
+      <div class="cliente-check">${naRota?'✓':sel?'✓':''}</div>
+      <div style="flex:1;min-width:0;">
+        <div class="cliente-sel-nome">${c.name||c.nome||phone}</div>
+        <div class="cliente-sel-end">${naRota?'✅ Já na rota':(c.delivery_address||'Sem endereço')}</div>
+      </div>
+    </div>`;
+  }).join('') || '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px;">Nenhum cliente encontrado</div>';
+  atualizarBotaoNovaRota();
+}
+
+function filtrarClientesModal() {
+  const v = document.getElementById('buscaClienteInput').value;
+  renderListaClientesModal(v);
+}
+
+function toggleClienteNovaRota(phone) {
+  if (clientesSelecionadosNR.has(phone)) {
+    clientesSelecionadosNR.delete(phone);
+  } else {
+    clientesSelecionadosNR.add(phone);
+  }
+  const filtro = document.getElementById('buscaClienteInput')?.value || '';
+  renderListaClientesModal(filtro);
+  renderizarMarcadores(); // atualiza visual no mapa
+}
+
+function atualizarBotaoNovaRota() {
+  const n = clientesSelecionadosNR.size;
+  const btn = document.getElementById('novaRotaCount');
+  if (btn) btn.textContent = n;
+}
+
+async function confirmarNovaRota() {
+  if (clientesSelecionadosNR.size === 0) {
+    showToast('⚠️ Selecione pelo menos um cliente', 'warn');
+    return;
+  }
+  const agora = agoraISO();
+  const paradas = [];
+  let i = 0;
+  for (const phone of clientesSelecionadosNR) {
+    const c = todosOsClientes.find(x => x.phone === phone);
+    if (!c || !c.coords) continue;
+    paradas.push({
+      id: Date.now().toString() + '_' + i,
+      cliente_phone: phone,
+      nome: c.name || c.nome || phone,
+      endereco: c.delivery_address || '',
+      coords: c.coords,
+      status: 'pendente',
+      eta_min: Math.round((i + 1) * mediaMinPorParada)
+    });
+    i++;
+  }
+  if (!paradas.length) { showToast('⚠️ Clientes sem endereço cadastrado', 'warn'); return; }
+
+  const { data: rota, error } = await sb.from('rotas').insert({
+    "Rotas": "🛵 Rota Temporária",
+    status: 'em_andamento',
+    saida_em: agora,
+    hora_saida: agora.substring(11, 16),
+    janela_inicio: agora,
+    paradas,
+    total_paradas_dia: paradas.length,
+    entregas_realizadas: 0,
+    phones_entregues: [],
+    gps_lat: posAtual ? posAtual[0] : FABRICA[0],
+    gps_lon: posAtual ? posAtual[1] : FABRICA[1],
+    gps_ts: agora
+  }).select().single();
+
+  if (error) { showToast('❌ Erro ao criar rota', 'error'); console.error(error); return; }
+
+  fecharNovaRotaModal();
+  showToast(`🛵 Rota criada com ${paradas.length} parada(s)!`, 'success');
+  await carregarDados();
 }
 </script>
 
