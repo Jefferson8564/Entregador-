@@ -338,7 +338,7 @@ let gpsOk = false, ultimoEnvioGPS = 0;
 const THROTTLE_GPS_MS = 3000;
 
 // ===== ROTA ESPECIAL =====
-let _reConfig = null;            // config carregada do app_config
+let _reConfig = null;            // config carregada do rota_especial_gps
 let _dentroFabrica = true;       // começa assumindo que está na fábrica
 let _rotaEspecialId = null;      // id da rota especial em andamento
 let _realtimePedidos = null;     // canal realtime de pedidos
@@ -511,14 +511,14 @@ async function enviarPosicaoSupabase(lat, lon, acc=0) {
   try {
     const ts = agoraISO();
     if (rotaAtual?.id) {
-      // GPS direto na delivery_routes — cardápio lê via Realtime
-      await sb.from("delivery_routes")
+      // GPS direto na rotas — cardápio lê via Realtime
+      await sb.from("rotas")
         .update({ gps_lat:lat, gps_lon:lon, gps_ts:ts, gps_precisao:acc,
                   posicao_entregador:{lat,lon,ts,precisao:acc} })
         .eq("id", rotaAtual.id);
     }
-    // Sempre salva posição avulsa no app_config — cardápio consegue ver mesmo sem rota ativa
-    await sb.from("app_config").upsert(
+    // Sempre salva posição avulsa no rota_especial_gps — cardápio consegue ver mesmo sem rota ativa
+    await sb.from("rota_especial_gps").upsert(
       { chave: "entregador_gps", valor: JSON.stringify({ lat, lon, ts, precisao: acc }) },
       { onConflict: "chave" }
     );
@@ -542,7 +542,7 @@ async function verificarProximidade(lat, lon) {
       // Finaliza a rota automaticamente
       const rotaId = rotaAtual.id;
       rotaAtual = null; setGJ('rota-completa',null); setGJ('rota-proxima',null);
-      await sb.from("delivery_routes").update({
+      await sb.from("rotas").update({
         status:'concluido', fim_em:agoraISO(),
         gps_lat:null, gps_lon:null, gps_ts:null
       }).eq("id", rotaId);
@@ -589,7 +589,7 @@ let pagamentoEmAndamento = false;
 async function verificarPagamentoEntrega(parada) {
   if (!parada.cliente_phone) return;
   const hoje = hojeStr();
-  const { data: pedidos } = await sb.from("orders")
+  const { data: pedidos } = await sb.from("pedidos")
     .select("id,total,payment_method,customer_name")
     .eq("customer_phone", parada.cliente_phone)
     .gte("created_at", hoje+'T00:00:00').lte("created_at", hoje+'T23:59:59')
@@ -625,12 +625,12 @@ async function responderPagamento(pagou) {
   pagamentoEmAndamento = false;
   filaPagamentos.shift(); // remove o primeiro da fila
   if (pagou) {
-    await sb.from("orders").update({ payment_method: pedido.payment_method+' ✓' }).eq("id", pedido.id);
+    await sb.from("pedidos").update({ payment_method: pedido.payment_method+' ✓' }).eq("id", pedido.id);
     showToast(`✅ Pagamento de ${parada.nome} confirmado!`, 'success');
   } else {
-    await sb.from("orders").update({ payment_method:'FIADO' }).eq("id", pedido.id);
-    const { data: cli } = await sb.from("clients").select("debt").eq("phone", parada.cliente_phone).maybeSingle();
-    await sb.from("clients").update({ debt:(cli?.debt||0)+Number(pedido.total) }).eq("phone", parada.cliente_phone);
+    await sb.from("pedidos").update({ payment_method:'FIADO' }).eq("id", pedido.id);
+    const { data: cli } = await sb.from("cadastros").select("debt").eq("phone", parada.cliente_phone).maybeSingle();
+    await sb.from("cadastros").update({ debt:(cli?.debt||0)+Number(pedido.total) }).eq("phone", parada.cliente_phone);
     showToast(`⚠️ ${parada.nome} lançado no fiado — R$ ${Number(pedido.total).toFixed(2).replace('.',',')}`, 'warn');
   }
   // Processa o próximo da fila se houver
@@ -658,7 +658,7 @@ async function executarMarcarEntregue(id, nome) {
   setGJ('rota-proxima', null);
 
   // Busca phones_entregues atual e adiciona o novo
-  const { data: rotaAtual_db } = await sb.from("delivery_routes")
+  const { data: rotaAtual_db } = await sb.from("rotas")
     .select("phones_entregues, entregas_realizadas")
     .eq("id", rotaAtual.id).single();
   const phonesAtuais = rotaAtual_db?.phones_entregues || [];
@@ -666,7 +666,7 @@ async function executarMarcarEntregue(id, nome) {
   const novosPhones = jaEsta ? phonesAtuais : [...phonesAtuais, p.cliente_phone];
   const novasEntregas = (rotaAtual_db?.entregas_realizadas || 0) + (jaEsta ? 0 : 1);
 
-  await sb.from("delivery_routes").update({
+  await sb.from("rotas").update({
     paradas: paradasList,
     phones_entregues: novosPhones,
     entregas_realizadas: novasEntregas
@@ -774,9 +774,9 @@ async function carregarDados() {
   const diaSemana = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][agoraBRT.getDay()];
 
   const [{ data:rotas },{ data:clientes },{ data:pedidosHoje }] = await Promise.all([
-    sb.from("delivery_routes").select("*").order("hora_saida",{ascending:true}),
-    sb.from("clients").select("*"),
-    sb.from("orders")
+    sb.from("rotas").select('*, "Rotas" as nome').order("hora_saida",{ascending:true}),
+    sb.from("cadastros").select("*"),
+    sb.from("pedidos")
       .select("customer_phone, customer_name, client_name, total, payment_method, id, details, items")
       .gte("created_at",hoje+'T00:00:00').lte("created_at",hoje+'T23:59:59')
   ]);
@@ -844,7 +844,7 @@ async function carregarDados() {
 
     // Persiste paradas se mudaram (só em rotas ainda não iniciadas)
     if (rota.status==='criada' && JSON.stringify(rota.paradas||[])!==JSON.stringify(ativas)) {
-      await sb.from("delivery_routes").update({paradas:ativas}).eq("id",rota.id);
+      await sb.from("rotas").update({paradas:ativas}).eq("id",rota.id);
     }
     rota.paradas = ativas;
   }
@@ -907,7 +907,7 @@ async function iniciarRota(rota) {
     .filter(r => r.id !== rota.id && r.status === 'criada' && r.paradas?.length > 0)
     .map(r => ({ id: r.id, nome: r.nome, hora_saida: r.hora_saida, qtd_paradas: r.paradas.length }));
 
-  await sb.from("delivery_routes").update({
+  await sb.from("rotas").update({
     status: 'em_andamento',
     saida_em: ts,
     janela_inicio,
@@ -980,7 +980,7 @@ function mostrarModalSelecaoRota(rotas) {
 async function calcularMediaEta() {
   const ontem = new Date(); ontem.setDate(ontem.getDate()-1);
   const base = new Date(ontem.getTime() + (-3*60 - ontem.getTimezoneOffset())*60000).toISOString().split('T')[0];
-  const {data:hist} = await sb.from("delivery_routes").select("paradas,saida_em,fim_em")
+  const {data:hist} = await sb.from("rotas").select("paradas,saida_em,fim_em")
     .gte("created_at",base+'T00:00:00').lte("created_at",base+'T23:59:59').eq("status","concluido").limit(5);
   if (hist?.length) {
     const ts = hist.filter(h=>h.saida_em&&h.fim_em&&h.paradas?.length).map(h=>(new Date(h.fim_em)-new Date(h.saida_em))/60000/h.paradas.length);
@@ -991,7 +991,7 @@ async function calcularMediaEta() {
 function iniciarRealtime() {
   if (realtimeCh) { try{sb.removeChannel(realtimeCh);}catch(e){} }
   realtimeCh = sb.channel('entregador_rotas')
-    .on('postgres_changes',{event:'*',schema:'public',table:'delivery_routes'}, async()=>{ await carregarDados(); })
+    .on('postgres_changes',{event:'*',schema:'public',table:'rotas'}, async()=>{ await carregarDados(); })
     .subscribe();
 }
 
@@ -1231,7 +1231,7 @@ function renderTodasRotas() {
           </div>
         </div>
         ${pendentes.length > 0 ? `<div style="margin-top:8px;font-size:11px;color:var(--text-muted);">${pendentes.map(c=>`👤 ${c.nome}`).join(' · ')}</div>` : ''}
-      ` : `<div style="font-size:12px;color:var(--text-muted);">⚠️ Tabela app_config não encontrada no Supabase. Crie-a pelo painel ADM.</div>`}
+      ` : `<div style="font-size:12px;color:var(--text-muted);">⚠️ Tabela rota_especial_gps não encontrada no Supabase. Crie-a pelo painel ADM.</div>`}
     </div>`;
 
   if(!todasAsRotas.length){el.innerHTML=reCardHTML+`<div class="empty-state"><div class="empty-icon">📁</div><div class="empty-title">Sem rotas</div><div class="empty-sub">Nenhuma rota cadastrada para hoje.</div></div>`;return;}
@@ -1279,7 +1279,7 @@ async function executarDesistirRota() {
   if (!rotaAtual) return;
   // Reseta paradas pendentes mantendo as entregues
   const paradasReset = paradasList.map(p => ({...p, status: p.status === 'entregue' ? 'entregue' : 'pendente'}));
-  await sb.from("delivery_routes").update({
+  await sb.from("rotas").update({
     status: 'criada',
     saida_em: null,
     paradas: paradasReset,
@@ -1311,7 +1311,7 @@ async function executarFinalizarRota() {
   document.getElementById('finalizarModal').style.display = 'none';
   if (!rotaAtual) return;
   const paradasFinal = paradasList.map(p => ({...p, status: 'entregue', entregue_em: p.entregue_em || agoraISO()}));
-  await sb.from("delivery_routes").update({
+  await sb.from("rotas").update({
     status: 'concluido',
     fim_em: agoraISO(),
     paradas: paradasFinal,
@@ -1379,7 +1379,7 @@ function showToast(msg, type='') {
 
 async function carregarConfigRE() {
   try {
-    const { data } = await sb.from('app_config').select('valor').eq('chave','rota_especial').maybeSingle();
+    const { data } = await sb.from('rota_especial_gps').select('valor').eq('chave','rota_especial').maybeSingle();
     _reConfig = data ? JSON.parse(data.valor) : null;
   } catch(e) { console.warn('RE config:', e); _reConfig = null; }
 }
@@ -1387,11 +1387,13 @@ async function carregarConfigRE() {
 function reAtiva() {
   if (!_reConfig?.ativa) return false;
   const agora = agoraISO();
-  const hora  = agora.substring(11, 16);
   const dias  = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
   const hoje  = dias[new Date().getDay()];
   if (_reConfig.dias?.length && !_reConfig.dias.includes(hoje)) return false;
-  return hora >= _reConfig.hora_inicio && hora <= _reConfig.hora_fim;
+  // Compara como minutos para evitar bug de string ("8:00" vs "08:00")
+  const toMin = h => { const [hh, mm] = (h || '00:00').split(':').map(Number); return hh * 60 + mm; };
+  const agoraMin = toMin(agora.substring(11, 16));
+  return agoraMin >= toMin(_reConfig.hora_inicio) && agoraMin <= toMin(_reConfig.hora_fim);
 }
 
 async function tickRotaEspecial(lat, lon) {
@@ -1411,23 +1413,24 @@ async function tickRotaEspecial(lat, lon) {
     }
   }
 
-  // Voltou à fábrica — finaliza rota especial e limpa fila
+  // Voltou à fábrica — DELETA rota especial do Supabase e limpa fila
   if (!_dentroFabrica && dentroAgora) {
     _dentroFabrica = true;
     if (_rotaEspecialId) {
-      await sb.from('delivery_routes').update({ status:'concluido', fim_em:agoraISO(), gps_lat:null, gps_lon:null, gps_ts:null }).eq('id', _rotaEspecialId);
+      // Deleta a rota para não acumular dados no Supabase
+      await sb.from('rotas').delete().eq('id', _rotaEspecialId);
       _rotaEspecialId = null;
       rotaAtual = null; paradasList = [];
-      setGJ('rota-completa',null); setGJ('rota-proxima',null);
+      setGJ('rota-completa', null); setGJ('rota-proxima', null);
     }
-    // Limpa clientes em_rota da fila → libera para pedir de novo
+    // Limpa da fila só os clientes que foram em_rota (já entregues) → mantém os pendentes para próxima saída
     await carregarConfigRE();
     if (_reConfig) {
       _reConfig.clientes_fila = (_reConfig.clientes_fila || []).filter(c => c.status === 'pendente');
-      await sb.from('app_config').upsert({ chave:'rota_especial', valor:JSON.stringify(_reConfig) }, { onConflict:'chave' });
+      await sb.from('rota_especial_gps').upsert({ chave:'rota_especial', valor:JSON.stringify(_reConfig) }, { onConflict:'chave' });
     }
     const filaAcum = (_reConfig?.clientes_fila || []).filter(c => c.status === 'pendente').length;
-    showToast(filaAcum > 0 ? `🏭 Voltou! ${filaAcum} cliente(s) aguardando` : '🏭 Voltou à fábrica!', 'success');
+    showToast(filaAcum > 0 ? `🏭 Voltou! ${filaAcum} cliente(s) aguardando próxima saída` : '🏭 Voltou à fábrica!', 'success');
     await carregarDados();
   }
 }
@@ -1447,8 +1450,8 @@ async function criarRotaEspecial() {
   }));
 
   const agora = agoraISO();
-  const { data: rota, error } = await sb.from('delivery_routes').insert({
-    nome: '⚡ Rota Especial',
+  const { data: rota, error } = await sb.from('rotas').insert({
+    "Rotas": "⚡ Rota Especial",
     status: 'em_andamento',
     saida_em: agora,
     hora_saida: agora.substring(11, 16),
@@ -1466,7 +1469,7 @@ async function criarRotaEspecial() {
   _reConfig.clientes_fila = (_reConfig.clientes_fila || []).map(c =>
     fila.find(f => f.phone === c.phone) ? { ...c, status: 'em_rota' } : c
   );
-  await sb.from('app_config').upsert({ chave:'rota_especial', valor:JSON.stringify(_reConfig) }, { onConflict:'chave' });
+  await sb.from('rota_especial_gps').upsert({ chave:'rota_especial', valor:JSON.stringify(_reConfig) }, { onConflict:'chave' });
 
   showToast(`⚡ Rota especial criada! ${paradas.length} entrega(s)`, 'success');
   return rota;
@@ -1476,7 +1479,7 @@ async function adicionarNaFilaRE(pedido) {
   await carregarConfigRE();
   if (!_reConfig || !reAtiva()) return;
 
-  const { data: cli } = await sb.from('clients').select('name,phone,delivery_lat,delivery_lon,delivery_address').eq('phone', pedido.customer_phone).maybeSingle();
+  const { data: cli } = await sb.from('cadastros').select('name,phone,delivery_lat,delivery_lon,delivery_address').eq('phone', pedido.customer_phone).maybeSingle();
   if (!cli?.delivery_lat || !cli?.delivery_lon) return;
 
   const fila = _reConfig.clientes_fila || [];
@@ -1494,7 +1497,7 @@ async function adicionarNaFilaRE(pedido) {
     status: 'pendente'
   });
   _reConfig.clientes_fila = fila;
-  await sb.from('app_config').upsert({ chave:'rota_especial', valor:JSON.stringify(_reConfig) }, { onConflict:'chave' });
+  await sb.from('rota_especial_gps').upsert({ chave:'rota_especial', valor:JSON.stringify(_reConfig) }, { onConflict:'chave' });
   showToast(`⚡ ${cli.name} entrou na fila!`, 'success');
 }
 
@@ -1505,7 +1508,7 @@ function iniciarRotaEspecial() {
   // Escuta novos pedidos em tempo real
   if (_realtimePedidos) { try { sb.removeChannel(_realtimePedidos); } catch(e) {} }
   _realtimePedidos = sb.channel('re_pedidos')
-    .on('postgres_changes', { event:'INSERT', schema:'public', table:'orders' }, async (payload) => {
+    .on('postgres_changes', { event:'INSERT', schema:'public', table:'pedidos' }, async (payload) => {
       await adicionarNaFilaRE(payload.new);
     })
     .subscribe();
