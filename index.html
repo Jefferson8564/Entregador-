@@ -715,20 +715,21 @@ async function executarMarcarEntregue(id, nome) {
   cacheRotaCompleta = null; cacheRotaCompletaKey = ''; ultimaProximaId = null;
   setGJ('rota-proxima', null);
 
-  // Busca phones_entregues atual e adiciona o novo
-  const { data: rotaAtual_db } = await sb.from("rotas")
-    .select("phones_entregues, entregas_realizadas")
-    .eq("id", rotaAtual.id).single();
-  const phonesAtuais = rotaAtual_db?.phones_entregues || [];
-  const jaEsta = phonesAtuais.includes(p.cliente_phone);
-  const novosPhones = jaEsta ? phonesAtuais : [...phonesAtuais, p.cliente_phone];
-  const novasEntregas = (rotaAtual_db?.entregas_realizadas || 0) + (jaEsta ? 0 : 1);
-
-  await sb.from("rotas").update({
-    paradas: paradasList,
-    phones_entregues: novosPhones,
-    entregas_realizadas: novasEntregas
-  }).eq("id", rotaAtual.id);
+  // Salva progresso no banco (só para rota normal — rota especial é gerenciada pela fila)
+  if (!rotaAtual._ehEspecial) {
+    const { data: rotaAtual_db } = await sb.from("rotas")
+      .select("phones_entregues, entregas_realizadas")
+      .eq("id", rotaAtual.id).single();
+    const phonesAtuais = rotaAtual_db?.phones_entregues || [];
+    const jaEsta = phonesAtuais.includes(p.cliente_phone);
+    const novosPhones = jaEsta ? phonesAtuais : [...phonesAtuais, p.cliente_phone];
+    const novasEntregas = (rotaAtual_db?.entregas_realizadas || 0) + (jaEsta ? 0 : 1);
+    await sb.from("rotas").update({
+      paradas: paradasList,
+      phones_entregues: novosPhones,
+      entregas_realizadas: novasEntregas
+    }).eq("id", rotaAtual.id);
+  }
 
   const proxNome = paradasList.find(x => x.status==='pendente')?.nome;
   showToast(proxNome ? `✅ ${nome} entregue! Próximo: ${proxNome}` : `✅ ${nome} entregue! Rota concluída!`, 'success');
@@ -834,11 +835,11 @@ async function carregarDados() {
   const diaSemana = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][agoraBRT.getDay()];
 
   const [{ data:rotas },{ data:clientes },{ data:pedidosHoje }] = await Promise.all([
-    sb.from("rotas").select('*, "Rotas" as nome').order("hora_saida",{ascending:true}),
+    sb.from("rotas").select('*').order("hora_saida",{ascending:true}),
     sb.from("cadastros").select("*"),
     sb.from("pedidos")
       .select("customer_phone, customer_name, total, payment_method, id, items")
-      .gte("created_at",hoje+'T03:00:00Z').lte("created_at",hoje+'T26:59:59Z')
+      .gte("created_at",hoje+'T00:00:00').lte("created_at",hoje+'T23:59:59')
   ]);
 
   const phonesComPedido = new Set((pedidosHoje||[]).map(p=>p.customer_phone).filter(Boolean));
@@ -846,8 +847,10 @@ async function carregarDados() {
   const pedidoPorPhone = {};
   (pedidosHoje||[]).forEach(p=>{ if(p.customer_phone) pedidoPorPhone[p.customer_phone]=p; });
 
+  // Normaliza nome (coluna "Rotas" com maiuscula no banco)
+  const rotasNorm = (rotas||[]).map(r => ({ ...r, nome: r["Rotas"] || r.nome || r.name || "Sem nome" }));
   // Normaliza status das rotas conforme o dia
-  todasAsRotas = (rotas||[]).map(r => {
+  todasAsRotas = rotasNorm.map(r => {
     const cHoje = r.fim_em?.startsWith(hoje), aHoje = r.saida_em?.startsWith(hoje);
     if (r.status==='concluido'&&!cHoje) return {...r,status:'criada'};
     if (r.status==='em_andamento'&&!aHoje) return {...r,status:'criada'};
@@ -865,48 +868,46 @@ async function carregarDados() {
   (clientes||[]).forEach(c=>{ if(c.phone) clientePorPhone[c.phone]=c; });
 
   for (const rota of todasAsRotas) {
-    const tmpl = rota.paradas_template || [];
-    if (!tmpl.length) continue; // rota especial — sem template, não mexe
+    const tmpl = rota.paradas_template||[];
+    if (!tmpl.length) continue;
 
-    // ── Rota já em andamento ou concluída: usa paradas salvas no banco ──
-    // Não recalcula do zero para não desfazer status de entregas já realizadas.
-    // Apenas garante que rota.paradas aponte para o que está no banco.
-    if (rota.status === 'em_andamento' || rota.status === 'concluido') {
-      // paradas já vêm do banco via SELECT — não sobrescreve
-      continue;
-    }
-
-    // ── Rota ainda não iniciada (criada/aguardando): monta paradas frescas ──
-    // Regra: está no template E fez pedido hoje → entra na rota
+    // Monta paradas ativas cruzando template × pedidos de hoje
     const ativas = tmpl
       .filter(p => p.cliente_phone && phonesComPedido.has(p.cliente_phone))
       .map((p, i) => {
         const pedido = pedidoPorPhone[p.cliente_phone];
         const cli    = clientePorPhone[p.cliente_phone];
 
-        // Coordenadas: template → cliente cadastrado
+        // Tenta obter coordenadas: template → cliente cadastrado
         let coords = p.coords || null;
         if (!coords && cli?.delivery_lat && cli?.delivery_lon)
           coords = [parseFloat(cli.delivery_lat), parseFloat(cli.delivery_lon)];
 
+        // Endereço: template → cliente
         const endereco = p.endereco || cli?.delivery_address || '';
+
+        // Status preservado se rota já em andamento
+        const statusSalvo = rota.status==='em_andamento'
+          ? (rota.paradas?.find(a=>a.cliente_phone===p.cliente_phone)?.status || 'pendente')
+          : 'pendente';
 
         return {
           ...p,
           coords,
           endereco,
           nome: p.nome || p.name || cli?.name || pedido?.customer_name || p.cliente_phone,
-          status: 'pendente',
-          eta_min: Math.round((i + 1) * mediaMinPorParada),
+          status: statusSalvo,
+          eta_min: Math.round((i+1)*mediaMinPorParada),
           total: pedido?.total || p.total || 0,
           payment_method: pedido?.payment_method || p.payment_method || ''
         };
       })
-      .filter(p => p.coords); // só entra se tiver coordenadas cadastradas
+      // Só inclui paradas que têm coordenadas
+      .filter(p => p.coords);
 
-    // Persiste no banco se mudou (atualiza lista conforme pedidos do dia)
-    if (JSON.stringify(rota.paradas || []) !== JSON.stringify(ativas)) {
-      await sb.from("rotas").update({ paradas: ativas }).eq("id", rota.id);
+    // Persiste paradas se mudaram (só em rotas ainda não iniciadas)
+    if (rota.status==='criada' && JSON.stringify(rota.paradas||[])!==JSON.stringify(ativas)) {
+      await sb.from("rotas").update({paradas:ativas}).eq("id",rota.id);
     }
     rota.paradas = ativas;
   }
@@ -1225,14 +1226,24 @@ function renderTodasRotas() {
   const pendentes = (_reConfig?.clientes_fila || []).filter(c => c.status === 'pendente');
   const emRota    = (_reConfig?.clientes_fila || []).filter(c => c.status === 'em_rota');
   const reAtivaAgora = reAtiva();
+  const reEmSaidaAgora = rotaAtual?._ehEspecial;
+
+  // Botão de ação: "Sair agora" se tem fila e não está em saída, "Em saída..." se já saiu
+  const reBtnAcao = !_reConfig ? '' :
+    reEmSaidaAgora
+      ? `<button onclick="abrirFinalizarRota()" style="margin-top:10px;width:100%;padding:12px;border:1px solid rgba(255,71,87,0.4);border-radius:12px;background:rgba(255,71,87,0.1);color:var(--red);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:800;cursor:pointer;">🏁 Finalizar saída atual (${emRota.length} clientes)</button>`
+      : pendentes.length > 0
+        ? `<button onclick="sairComFilaEspecial()" style="margin-top:10px;width:100%;padding:12px;border:1px solid rgba(245,166,35,0.5);border-radius:12px;background:rgba(245,166,35,0.15);color:var(--primary);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:800;cursor:pointer;">🛵 Sair agora com ${pendentes.length} cliente(s)</button>`
+        : `<div style="margin-top:8px;text-align:center;font-size:12px;color:var(--text-muted);">Aguardando clientes na fila...</div>`;
+
   const reCardHTML = `
-    <div style="background:linear-gradient(135deg,rgba(245,166,35,0.12),rgba(255,140,0,0.06));border:1px solid rgba(245,166,35,0.3);border-radius:16px;padding:14px 16px;margin-bottom:10px;">
+    <div style="background:linear-gradient(135deg,rgba(245,166,35,0.12),rgba(255,140,0,0.06));border:1px solid ${reEmSaidaAgora ? 'rgba(0,232,122,0.4)' : 'rgba(245,166,35,0.3)'};border-radius:16px;padding:14px 16px;margin-bottom:10px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
         <div style="display:flex;align-items:center;gap:8px;">
           <span style="font-size:18px;">⚡</span>
           <div style="font-family:'Syne',sans-serif;font-weight:900;font-size:14px;color:var(--primary);">Rota Especial</div>
         </div>
-        <span style="font-size:10px;font-weight:700;padding:4px 10px;border-radius:20px;background:${reAtivaAgora?'rgba(0,232,122,0.15)':'rgba(255,255,255,0.05)'};color:${reAtivaAgora?'var(--green)':'var(--text-muted)'};">${reAtivaAgora?'🟢 Ativa':'⚫ Inativa'}</span>
+        <span style="font-size:10px;font-weight:700;padding:4px 10px;border-radius:20px;background:${reEmSaidaAgora?'rgba(0,232,122,0.2)':reAtivaAgora?'rgba(0,232,122,0.15)':'rgba(255,255,255,0.05)'};color:${reEmSaidaAgora?'var(--green)':reAtivaAgora?'var(--green)':'var(--text-muted)'};">${reEmSaidaAgora?'🟢 Em saída':reAtivaAgora?'🟢 Recebendo pedidos':'⚫ Fora do horário'}</span>
       </div>
       ${_reConfig ? `
         <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">⏰ ${_reConfig.hora_inicio||'--'} – ${_reConfig.hora_fim||'--'} · ${(_reConfig.dias||[]).join(' ')||'todos os dias'}</div>
@@ -1243,23 +1254,26 @@ function renderTodasRotas() {
           </div>
           <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:8px;text-align:center;">
             <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:900;color:var(--blue);">${emRota.length}</div>
-            <div style="font-size:10px;color:var(--text-muted);">Em rota</div>
+            <div style="font-size:10px;color:var(--text-muted);">${reEmSaidaAgora ? 'Nesta saída' : 'Em rota'}</div>
           </div>
         </div>
-        ${pendentes.length > 0 ? `<div style="margin-top:8px;font-size:11px;color:var(--text-muted);">${pendentes.map(c=>`👤 ${c.nome}`).join(' · ')}</div>` : ''}
+        ${pendentes.length > 0 ? `<div style="margin-top:8px;font-size:11px;color:var(--text-muted);">📋 Fila: ${pendentes.map(c=>`👤 ${c.nome}`).join(' · ')}</div>` : ''}
+        ${reBtnAcao}
       ` : `<div style="font-size:12px;color:var(--text-muted);">⚠️ Tabela rota_especial_gps não encontrada no Supabase. Crie-a pelo painel ADM.</div>`}
     </div>`;
 
-  if(!todasAsRotas.length){el.innerHTML=reCardHTML+`<div class="empty-state"><div class="empty-icon">📁</div><div class="empty-title">Sem rotas</div><div class="empty-sub">Nenhuma rota cadastrada para hoje.</div></div>`;return;}
+  // Filtra apenas rotas normais (rota especial é mostrada pelo card acima)
+  const rotasNormais = todasAsRotas.filter(r => !r._ehEspecial && r['Rotas'] !== '⚡ Rota Especial');
+  if(!rotasNormais.length){el.innerHTML=reCardHTML+`<div class="empty-state"><div class="empty-icon">📁</div><div class="empty-title">Sem rotas normais</div><div class="empty-sub">Nenhuma rota normal para hoje.</div></div>`;return;}
   const cores={criada:'#f5a623',aguardando:'#3d9cff',em_andamento:'#00e87a',concluido:'#555'};
   const labels={criada:'⏳ Aguardando',aguardando:'🏭 Na fábrica',em_andamento:'🛵 Em andamento',concluido:'✅ Concluída'};
-  el.innerHTML=reCardHTML+todasAsRotas.map(r=>{
+  el.innerHTML=reCardHTML+rotasNormais.map(r=>{
     const ent=(r.paradas||[]).filter(p=>p.status==='entregue').length, tot=(r.paradas||[]).length, cor=cores[r.status]||'#555';
     const agora = new Date();
     const horaAgoraMin = horasBRT(agora).getHours()*60 + horasBRT(agora).getMinutes();
     const horaSaidaMin = r.hora_saida ? (Number(r.hora_saida.split(':')[0])*60 + Number(r.hora_saida.split(':')[1])) : 0;
     const horarioLiberado = !r.hora_saida || horaAgoraMin >= horaSaidaMin;
-    const podeIniciar=(r.status==='criada'||r.status==='aguardando')&&tot>0&&r.id!==rotaAtual?.id&&horarioLiberado&&!rotaAtual;
+    const podeIniciar=(r.status==='criada'||r.status==='aguardando')&&tot>0&&r.id!==rotaAtual?.id&&horarioLiberado&&!rotaAtual&&!rotaAtual?._ehEspecial;
     const btnIniciar=podeIniciar
       ? `<button onclick="iniciarRotaManual('${r.id}')" style="margin-top:12px;width:100%;padding:12px;border:1px solid rgba(245,166,35,0.45);border-radius:12px;background:rgba(245,166,35,0.12);color:var(--primary);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:800;cursor:pointer;">🛵 Iniciar esta rota</button>`
       : (r.status==='criada'||r.status==='aguardando')&&tot>0&&r.hora_saida&&!horarioLiberado
@@ -1295,6 +1309,15 @@ function abrirFinalizarRota() {
 async function executarFinalizarRota() {
   document.getElementById('finalizarModal').style.display = 'none';
   if (!rotaAtual) return;
+
+  // Rota especial — finaliza a saída atual sem salvar no banco de rotas
+  if (rotaAtual._ehEspecial) {
+    showToast('🏁 Saída especial finalizada!', 'success');
+    await finalizarSaidaEspecial();
+    return;
+  }
+
+  // Rota normal — salva conclusão no banco
   const paradasFinal = paradasList.map(p => ({...p, status: 'entregue', entregue_em: p.entregue_em || agoraISO()}));
   await sb.from("rotas").update({
     status: 'concluido',
@@ -1361,6 +1384,13 @@ function showToast(msg, type='') {
 }
 
 // ===== ROTA ESPECIAL — LÓGICA COMPLETA =====
+// Regras:
+// - Rota especial é FIXA no banco (não é criada/deletada a cada saída)
+// - Tem uma janela de horário (hora_inicio → hora_fim)
+// - Clientes que fazem pedido nessa janela entram na fila automaticamente
+// - O ENTREGADOR decide quando sair (botão "Sair agora com X clientes")
+// - Ao sair, entrega o grupo atual, volta, e pode sair de novo com novos clientes
+// - Rota normal é fixa também — só sai com todo mundo junto
 
 async function carregarConfigRE() {
   try {
@@ -1375,55 +1405,44 @@ function reAtiva() {
   const dias  = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
   const hoje  = dias[new Date().getDay()];
   if (_reConfig.dias?.length && !_reConfig.dias.includes(hoje)) return false;
-  // Compara como minutos para evitar bug de string ("8:00" vs "08:00")
   const toMin = h => { const [hh, mm] = (h || '00:00').split(':').map(Number); return hh * 60 + mm; };
   const agoraMin = toMin(agora.substring(11, 16));
   return agoraMin >= toMin(_reConfig.hora_inicio) && agoraMin <= toMin(_reConfig.hora_fim);
 }
 
+// tickRotaEspecial: apenas atualiza indicador de proximidade da fábrica
+// NÃO cria nem deleta rotas — quem decide é o entregador
 async function tickRotaEspecial(lat, lon) {
   const dist = calcDistM(lat, lon, FABRICA[0], FABRICA[1]);
   const dentroAgora = dist <= 60;
 
-  // Saiu da fábrica
-  if (_dentroFabrica && !dentroAgora) {
-    _dentroFabrica = false;
-    await carregarConfigRE();
-    if (reAtiva()) {
-      const rota = await criarRotaEspecial();
-      if (rota) {
-        _rotaEspecialId = rota.id;
-        await carregarDados(); // atualiza UI
-      }
-    }
-  }
-
-  // Voltou à fábrica — DELETA rota especial do Supabase e limpa fila
+  // Voltou à fábrica com rota especial ativa
   if (!_dentroFabrica && dentroAgora) {
     _dentroFabrica = true;
-    if (_rotaEspecialId) {
-      // Deleta a rota para não acumular dados no Supabase
-      await sb.from('rotas').delete().eq('id', _rotaEspecialId);
-      _rotaEspecialId = null;
-      rotaAtual = null; paradasList = [];
-      setGJ('rota-completa', null); setGJ('rota-proxima', null);
-    }
-    // Limpa da fila só os clientes que foram em_rota (já entregues) → mantém os pendentes para próxima saída
-    await carregarConfigRE();
-    if (_reConfig) {
-      _reConfig.clientes_fila = (_reConfig.clientes_fila || []).filter(c => c.status === 'pendente');
-      await sb.from('rota_especial_gps').upsert({ chave:'rota_especial', valor:JSON.stringify(_reConfig) }, { onConflict:'chave' });
+    // Se estava numa saída da rota especial, finaliza essa saída
+    if (rotaAtual && rotaAtual._ehEspecial) {
+      await finalizarSaidaEspecial();
     }
     const filaAcum = (_reConfig?.clientes_fila || []).filter(c => c.status === 'pendente').length;
     showToast(filaAcum > 0 ? `🏭 Voltou! ${filaAcum} cliente(s) aguardando próxima saída` : '🏭 Voltou à fábrica!', 'success');
-    await carregarDados();
+    renderTudo();
+  }
+
+  // Saiu da fábrica
+  if (_dentroFabrica && !dentroAgora) {
+    _dentroFabrica = false;
   }
 }
 
-async function criarRotaEspecial() {
-  const fila = (_reConfig?.clientes_fila || []).filter(c => c.status === 'pendente' && c.coords);
-  if (!fila.length) { showToast('⚡ Saiu — nenhum cliente na fila', 'warn'); return null; }
+// Entregador decide sair agora com os clientes pendentes na fila
+async function sairComFilaEspecial() {
+  await carregarConfigRE();
+  if (!_reConfig) { showToast('⚠️ Rota especial não configurada', 'warn'); return; }
 
+  const fila = (_reConfig.clientes_fila || []).filter(c => c.status === 'pendente' && c.coords);
+  if (!fila.length) { showToast('⚡ Nenhum cliente na fila ainda', 'warn'); return; }
+
+  // Monta paradas do grupo atual
   const paradas = fila.map((c, i) => ({
     id: Date.now().toString() + '_' + i,
     cliente_phone: c.phone,
@@ -1435,29 +1454,54 @@ async function criarRotaEspecial() {
   }));
 
   const agora = agoraISO();
-  const { data: rota, error } = await sb.from('rotas').insert({
-    "Rotas": "⚡ Rota Especial",
-    status: 'em_andamento',
-    saida_em: agora,
-    hora_saida: agora.substring(11, 16),
-    janela_inicio: agora,
-    paradas,
-    total_paradas_dia: paradas.length,
-    entregas_realizadas: 0,
-    phones_entregues: [],
-    gps_lat: FABRICA[0], gps_lon: FABRICA[1], gps_ts: agora
-  }).select().single();
 
-  if (error) { console.error('Erro criar rota especial:', error); return null; }
-
-  // Marca clientes como em_rota
+  // Marca os clientes desta saída como em_rota na fila
   _reConfig.clientes_fila = (_reConfig.clientes_fila || []).map(c =>
     fila.find(f => f.phone === c.phone) ? { ...c, status: 'em_rota' } : c
   );
   await sb.from('rota_especial_gps').upsert({ chave:'rota_especial', valor:JSON.stringify(_reConfig) }, { onConflict:'chave' });
 
-  showToast(`⚡ Rota especial criada! ${paradas.length} entrega(s)`, 'success');
-  return rota;
+  // Cria objeto de rota local (não salva no banco — é temporário para a saída)
+  // A rota especial fixa é gerenciada pelo rota_especial_gps
+  const rotaTemp = {
+    id: 'especial_temp_' + Date.now(),
+    nome: '⚡ Rota Especial',
+    status: 'em_andamento',
+    saida_em: agora,
+    paradas,
+    _ehEspecial: true // flag para identificar
+  };
+
+  rotaAtual = rotaTemp;
+  paradasList = paradas;
+  _dentroFabrica = false;
+
+  showToast(`⚡ Saindo com ${paradas.length} cliente(s)!`, 'success');
+  renderTudo();
+  if (map.isStyleLoaded()) renderizarMarcadores();
+}
+
+// Finaliza a saída atual da rota especial e volta para aguardar na fábrica
+async function finalizarSaidaEspecial() {
+  if (!rotaAtual?._ehEspecial) return;
+
+  // Remove da fila os que foram entregues nessa saída, mantém os ainda pendentes
+  await carregarConfigRE();
+  if (_reConfig) {
+    const phonesEntregues = paradasList.filter(p => p.status === 'entregue').map(p => p.cliente_phone);
+    // Quem estava em_rota e foi entregue → remove da fila
+    // Quem estava em_rota mas NÃO foi entregue → volta para pendente
+    _reConfig.clientes_fila = (_reConfig.clientes_fila || [])
+      .filter(c => !phonesEntregues.includes(c.phone)) // remove os entregues
+      .map(c => c.status === 'em_rota' ? { ...c, status: 'pendente' } : c); // não entregues voltam
+    await sb.from('rota_especial_gps').upsert({ chave:'rota_especial', valor:JSON.stringify(_reConfig) }, { onConflict:'chave' });
+  }
+
+  rotaAtual = null;
+  paradasList = [];
+  cacheRotaCompleta = null; cacheRotaCompletaKey = ''; ultimaProximaId = null;
+  setGJ('rota-completa', null); setGJ('rota-proxima', null);
+  renderTudo();
 }
 
 async function adicionarNaFilaRE(pedido) {
@@ -1468,8 +1512,8 @@ async function adicionarNaFilaRE(pedido) {
   if (!cli?.delivery_lat || !cli?.delivery_lon) return;
 
   const fila = _reConfig.clientes_fila || [];
-  // Só bloqueia se já tiver pendente
-  if (fila.find(x => x.phone === pedido.customer_phone && x.status === 'pendente')) return;
+  // Não adiciona se já tiver pendente ou em_rota
+  if (fila.find(x => x.phone === pedido.customer_phone && (x.status === 'pendente' || x.status === 'em_rota'))) return;
 
   const agora = agoraISO();
   fila.push({
@@ -1484,13 +1528,11 @@ async function adicionarNaFilaRE(pedido) {
   _reConfig.clientes_fila = fila;
   await sb.from('rota_especial_gps').upsert({ chave:'rota_especial', valor:JSON.stringify(_reConfig) }, { onConflict:'chave' });
   showToast(`⚡ ${cli.name} entrou na fila!`, 'success');
+  renderTodasRotas(); // atualiza o contador na aba "Todas"
 }
 
 function iniciarRotaEspecial() {
-  // Carrega config inicial
   carregarConfigRE();
-
-  // Escuta novos pedidos em tempo real
   if (_realtimePedidos) { try { sb.removeChannel(_realtimePedidos); } catch(e) {} }
   _realtimePedidos = sb.channel('re_pedidos')
     .on('postgres_changes', { event:'INSERT', schema:'public', table:'pedidos' }, async (payload) => {
@@ -1525,23 +1567,24 @@ async function adicionarClienteNaRota(nome, phone, coords, endereco) {
     return;
   }
 
-  // CASO 2: Sem rota ativa → agenda para próxima saída / amanhã
-  if (!_reConfig) { showToast("⚠️ Rota especial não configurada", "warn"); return; }
+  // CASO 2: Sem rota ativa → coloca na fila da rota especial
+  await carregarConfigRE();
+  if (!_reConfig) { showToast("⚠️ Rota especial não configurada no admin", "warn"); return; }
   const fila = _reConfig.clientes_fila || [];
-  if (fila.find(x => x.phone === phone && x.status === "pendente")) {
-    showToast("⚠️ " + nome + " já está na fila", "warn"); return;
+  if (fila.find(x => x.phone === phone && (x.status === "pendente" || x.status === "em_rota"))) {
+    showToast("⚠️ " + nome + " já está na fila da rota especial", "warn"); return;
   }
   fila.push({
     id: Date.now().toString(),
     phone, nome, endereco, coords,
-    hora_pedido: new Date().toISOString().substring(11, 16),
+    hora_pedido: agoraISO().substring(11, 16),
     status: "pendente"
   });
   _reConfig.clientes_fila = fila;
   await sb.from("rota_especial_gps").upsert({ chave: "rota_especial", valor: JSON.stringify(_reConfig) }, { onConflict: "chave" });
-  showToast("📅 " + nome + " agendado para amanhã!", "success");
-  falarVoz(nome + " agendado para amanhã");
-  renderTudo();
+  showToast("⚡ " + nome + " adicionado à fila da rota especial!", "success");
+  falarVoz(nome + " adicionado à fila");
+  renderTodasRotas();
 }
 
 // ===== VELOCÍMETRO =====
