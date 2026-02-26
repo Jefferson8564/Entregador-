@@ -838,7 +838,7 @@ async function carregarDados() {
     sb.from("cadastros").select("*"),
     sb.from("pedidos")
       .select("customer_phone, customer_name, total, payment_method, id, items")
-      .gte("created_at",hoje+'T00:00:00').lte("created_at",hoje+'T23:59:59')
+      .gte("created_at",hoje+'T03:00:00Z').lte("created_at",hoje+'T26:59:59Z')
   ]);
 
   const phonesComPedido = new Set((pedidosHoje||[]).map(p=>p.customer_phone).filter(Boolean));
@@ -865,46 +865,48 @@ async function carregarDados() {
   (clientes||[]).forEach(c=>{ if(c.phone) clientePorPhone[c.phone]=c; });
 
   for (const rota of todasAsRotas) {
-    const tmpl = rota.paradas_template||[];
-    if (!tmpl.length) continue;
+    const tmpl = rota.paradas_template || [];
+    if (!tmpl.length) continue; // rota especial — sem template, não mexe
 
-    // Monta paradas ativas cruzando template × pedidos de hoje
+    // ── Rota já em andamento ou concluída: usa paradas salvas no banco ──
+    // Não recalcula do zero para não desfazer status de entregas já realizadas.
+    // Apenas garante que rota.paradas aponte para o que está no banco.
+    if (rota.status === 'em_andamento' || rota.status === 'concluido') {
+      // paradas já vêm do banco via SELECT — não sobrescreve
+      continue;
+    }
+
+    // ── Rota ainda não iniciada (criada/aguardando): monta paradas frescas ──
+    // Regra: está no template E fez pedido hoje → entra na rota
     const ativas = tmpl
       .filter(p => p.cliente_phone && phonesComPedido.has(p.cliente_phone))
       .map((p, i) => {
         const pedido = pedidoPorPhone[p.cliente_phone];
         const cli    = clientePorPhone[p.cliente_phone];
 
-        // Tenta obter coordenadas: template → cliente cadastrado
+        // Coordenadas: template → cliente cadastrado
         let coords = p.coords || null;
         if (!coords && cli?.delivery_lat && cli?.delivery_lon)
           coords = [parseFloat(cli.delivery_lat), parseFloat(cli.delivery_lon)];
 
-        // Endereço: template → cliente
         const endereco = p.endereco || cli?.delivery_address || '';
-
-        // Status preservado se rota já em andamento
-        const statusSalvo = rota.status==='em_andamento'
-          ? (rota.paradas?.find(a=>a.cliente_phone===p.cliente_phone)?.status || 'pendente')
-          : 'pendente';
 
         return {
           ...p,
           coords,
           endereco,
           nome: p.nome || p.name || cli?.name || pedido?.customer_name || p.cliente_phone,
-          status: statusSalvo,
-          eta_min: Math.round((i+1)*mediaMinPorParada),
+          status: 'pendente',
+          eta_min: Math.round((i + 1) * mediaMinPorParada),
           total: pedido?.total || p.total || 0,
           payment_method: pedido?.payment_method || p.payment_method || ''
         };
       })
-      // Só inclui paradas que têm coordenadas
-      .filter(p => p.coords);
+      .filter(p => p.coords); // só entra se tiver coordenadas cadastradas
 
-    // Persiste paradas se mudaram (só em rotas ainda não iniciadas)
-    if (rota.status==='criada' && JSON.stringify(rota.paradas||[])!==JSON.stringify(ativas)) {
-      await sb.from("rotas").update({paradas:ativas}).eq("id",rota.id);
+    // Persiste no banco se mudou (atualiza lista conforme pedidos do dia)
+    if (JSON.stringify(rota.paradas || []) !== JSON.stringify(ativas)) {
+      await sb.from("rotas").update({ paradas: ativas }).eq("id", rota.id);
     }
     rota.paradas = ativas;
   }
