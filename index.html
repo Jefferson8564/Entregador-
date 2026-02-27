@@ -627,12 +627,17 @@ let _timersEntrega = {}; // guarda timers por parada id
 async function iniciarFluxoEntrega(parada) {
   if (_timersEntrega[parada.id]) return; // já iniciado
 
-  // Busca pedido do dia
-  const hoje = hojeStr();
+  // Busca pedido na mesma janela usada na rota — em UTC (Supabase armazena em UTC)
+  const agora = new Date();
+  const ontemUTC = new Date(agora.getTime() - 86400000);
+  const ontemStr = ontemUTC.toISOString().split('T')[0];
+  const inicioJanelaUTC = ontemStr + 'T18:00:00.000Z'; // ontem 15:00 BRT
+  const amanhaUTC = new Date(agora.getTime() + 86400000);
+  const fimJanelaUTC = amanhaUTC.toISOString().split('T')[0] + 'T02:59:59.999Z'; // hoje 23:59 BRT
   const { data: pedidos } = await sb.from("pedidos")
     .select("id,total,payment_method,customer_name")
     .eq("customer_phone", parada.cliente_phone)
-    .gte("created_at", hoje+'T00:00:00').lte("created_at", hoje+'T23:59:59')
+    .gte("created_at", inicioJanelaUTC).lte("created_at", fimJanelaUTC)
     .order("created_at",{ascending:false}).limit(1);
 
   const pedido = pedidos?.[0] || null;
@@ -767,18 +772,25 @@ function setGJ(src, coords, fallbackPts) {
   } catch(e){}
 }
 async function desenharRotaCompleta(paradas) {
+  const pendentes = paradas.filter(p => p.status === 'pendente');
+  // Linha vermelha: mostra as paradas ainda pendentes (a partir da posição ou fábrica)
+  const pontos = pendentes.length ? [FABRICA, ...paradas.map(p=>p.coords)] : paradas.map(p=>p.coords);
   const key = paradas.map(p=>p.id+p.status).join('|');
   let coords;
   if (cacheRotaCompletaKey===key && cacheRotaCompleta) { coords = cacheRotaCompleta; }
   else { coords = await buscarOSRM([FABRICA,...paradas.map(p=>p.coords)]); if(coords){cacheRotaCompleta=coords;cacheRotaCompletaKey=key;} }
-  setGJ('rota-completa', coords, [FABRICA,...paradas.map(p=>p.coords)]);
+  // Só exibe se seguir pelas ruas
+  if (coords) setGJ('rota-completa', coords);
+  else { map.getSource('rota-completa')?.setData({type:'FeatureCollection',features:[]}); }
 }
 async function desenharRotaProxima(pa, prox) {
   if (!pa || !prox?.coords) { setGJ('rota-proxima',null); ultimaProximaId=null; return; }
   if (ultimaProximaId===prox.id) return;
   ultimaProximaId = prox.id;
   const coords = await buscarOSRM([pa, prox.coords]);
-  setGJ('rota-proxima', coords, [pa, prox.coords]);
+  // Só desenha se OSRM retornar rota pelas ruas — sem fallback de linha reta
+  if (coords) setGJ('rota-proxima', coords);
+  else { ultimaProximaId = null; } // reseta para tentar novamente na próxima atualização
   // Fala instrução da próxima manobra
   setTimeout(() => iniciarNavegacaoVoz(), 800);
 }
@@ -800,7 +812,7 @@ async function ativarNavAvulsa(cliente) {
     .addTo(map);
 
   const c = await buscarOSRM([posAtual||FABRICA, coords]);
-  setGJ('rota-avulsa', c, [posAtual||FABRICA, coords]);
+  if (c) setGJ('rota-avulsa', c);
 
   document.getElementById('navAvulsaNome').textContent = `🎯 ${nome}`;
   _atualizarDistNavAvulsa();
@@ -830,7 +842,7 @@ function _onMoveNavAvulsa() {
   if (!_onMoveNavAvulsa._last) { _onMoveNavAvulsa._last=posAtual; return; }
   if (calcDistM(_onMoveNavAvulsa._last[0],_onMoveNavAvulsa._last[1],posAtual[0],posAtual[1])>80) {
     _onMoveNavAvulsa._last=posAtual;
-    buscarOSRM([posAtual,navAvulsaDestino.coords]).then(c=>setGJ('rota-avulsa',c,[posAtual,navAvulsaDestino.coords]));
+    buscarOSRM([posAtual,navAvulsaDestino.coords]).then(c=>{ if(c) setGJ('rota-avulsa',c); });
   }
 }
 
@@ -843,18 +855,37 @@ async function carregarDados() {
   const horaAgora = agoraBRT.getHours() * 60 + agoraBRT.getMinutes(); // minutos desde meia-noite (BRT)
   const diaSemana = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][agoraBRT.getDay()];
 
+  // Janela de pedidos: ontem 15:00 BRT = ontem 18:00 UTC até hoje 23:59 BRT = amanhã 02:59 UTC
+  // Supabase guarda created_at em UTC — comparamos em UTC para não perder nenhum pedido
+  const ontemUTC = new Date(agora.getTime() - 86400000);
+  const ontemStr = ontemUTC.toISOString().split('T')[0]; // "YYYY-MM-DD" do dia de ontem em UTC
+  const inicioJanelaUTC = ontemStr + 'T18:00:00.000Z'; // ontem 15:00 BRT = 18:00 UTC
+  const amanhaUTC = new Date(agora.getTime() + 86400000);
+  const amanhaStr = amanhaUTC.toISOString().split('T')[0];
+  const fimJanelaUTC = amanhaStr + 'T02:59:59.999Z';   // hoje 23:59 BRT = amanhã 02:59 UTC
+
   const [{ data:rotas },{ data:clientes },{ data:pedidosHoje }] = await Promise.all([
     sb.from("rotas").select('*').order("hora_saida",{ascending:true}),
     sb.from("cadastros").select("*"),
     sb.from("pedidos")
       .select("customer_phone, customer_name, total, payment_method, id, items")
-      .gte("created_at",hoje+'T00:00:00').lte("created_at",hoje+'T23:59:59')
+      .gte("created_at", inicioJanelaUTC).lte("created_at", fimJanelaUTC)
   ]);
 
   const phonesComPedido = new Set((pedidosHoje||[]).map(p=>p.customer_phone).filter(Boolean));
-  // Mapa phone → pedido completo (para enriquecer paradas)
+
+  // Mapa phone → pedido agregado (soma totais se o cliente fez mais de um pedido na janela)
   const pedidoPorPhone = {};
-  (pedidosHoje||[]).forEach(p=>{ if(p.customer_phone) pedidoPorPhone[p.customer_phone]=p; });
+  (pedidosHoje||[]).forEach(p => {
+    if (!p.customer_phone) return;
+    if (!pedidoPorPhone[p.customer_phone]) {
+      pedidoPorPhone[p.customer_phone] = { ...p, total: Number(p.total || 0) };
+    } else {
+      // Agrega: soma o total, mantém o último método de pagamento
+      pedidoPorPhone[p.customer_phone].total += Number(p.total || 0);
+      if (p.payment_method) pedidoPorPhone[p.customer_phone].payment_method = p.payment_method;
+    }
+  });
 
   // Normaliza nome (coluna "Rotas" com maiuscula no banco)
   const rotasNorm = (rotas||[]).map(r => ({ ...r, nome: r["Rotas"] || r.nome || r.name || "Sem nome" }));
@@ -867,7 +898,6 @@ async function carregarDados() {
   });
 
   // Filtra apenas rotas do dia de hoje
-  // (rota especial não tem dias_semana, mas também não tem paradas_template — é incluída sempre)
   todasAsRotas = todasAsRotas.filter(r => !r.dias_semana || r.dias_semana.length===0 || r.dias_semana.includes(diaSemana));
 
   // Mapa de clientes por phone para enriquecer coordenadas
@@ -878,40 +908,52 @@ async function carregarDados() {
     const tmpl = rota.paradas_template||[];
     if (!tmpl.length) continue;
 
-    // Monta paradas ativas cruzando template × pedidos de hoje
+    // ── ROTA EM ANDAMENTO: usa exatamente o que está salvo no banco ──────────
+    // Não reconstrói as paradas para não perder status (entregue/pendente)
+    // nem paradas adicionadas manualmente fora do template.
+    if (rota.status === 'em_andamento') {
+      // Apenas enriquece coordenadas/endereço se alguma parada ainda não tiver
+      rota.paradas = (rota.paradas || []).map(p => {
+        if (p.coords) return p;
+        const cli = clientePorPhone[p.cliente_phone];
+        if (cli?.delivery_lat && cli?.delivery_lon)
+          return { ...p, coords: [parseFloat(cli.delivery_lat), parseFloat(cli.delivery_lon)],
+                         endereco: p.endereco || cli?.delivery_address || '' };
+        return p;
+      });
+      continue; // não grava nada no banco — evita loop Realtime
+    }
+
+    // ── ROTA CRIADA: reconstrói paradas a partir do template × pedidos ───────
     const ativas = tmpl
       .filter(p => p.cliente_phone && phonesComPedido.has(p.cliente_phone))
       .map((p, i) => {
         const pedido = pedidoPorPhone[p.cliente_phone];
         const cli    = clientePorPhone[p.cliente_phone];
 
-        // Tenta obter coordenadas: template → cliente cadastrado
         let coords = p.coords || null;
         if (!coords && cli?.delivery_lat && cli?.delivery_lon)
           coords = [parseFloat(cli.delivery_lat), parseFloat(cli.delivery_lon)];
 
-        // Endereço: template → cliente
         const endereco = p.endereco || cli?.delivery_address || '';
-
-        // Status preservado se rota já em andamento
-        const statusSalvo = rota.status==='em_andamento' ? (rota.paradas?.find(a=>a.cliente_phone===p.cliente_phone)?.status || 'pendente'): 'pendente';
 
         return {
           ...p,
           coords,
           endereco,
           nome: p.nome || p.name || cli?.name || pedido?.customer_name || p.cliente_phone,
-          status: statusSalvo,
+          status: 'pendente',
           eta_min: Math.round((i+1)*mediaMinPorParada),
           total: pedido?.total || p.total || 0,
           payment_method: pedido?.payment_method || p.payment_method || ''
         };
       })
-      // Só inclui paradas que têm coordenadas
       .filter(p => p.coords);
 
-    // Persiste paradas se mudaram (só em rotas ainda não iniciadas)
-    if (rota.status==='criada' && JSON.stringify(rota.paradas||[])!==JSON.stringify(ativas)) {
+    // Persiste paradas apenas se realmente mudaram (evita gravação desnecessária)
+    const paradasAntigas = JSON.stringify(rota.paradas||[]);
+    const paradasNovas   = JSON.stringify(ativas);
+    if (paradasAntigas !== paradasNovas) {
       await sb.from("rotas").update({paradas:ativas}).eq("id",rota.id);
     }
     rota.paradas = ativas;
