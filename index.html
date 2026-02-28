@@ -636,7 +636,7 @@ async function enviarPosicaoSupabase(lat, lon, acc=0) {
         em_rota: !!rotaAtual,
         estado: rotaAtual ? (rotaAtual._estadoAtual || 'entregando') : 'livre',
         updated_at: ts
-      });
+      }).eq('id', 1);
   } catch(e) { console.warn("GPS send:", e); }
 }
 function setBadge(on, txt) {
