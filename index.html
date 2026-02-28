@@ -631,12 +631,11 @@ async function enviarPosicaoSupabase(lat, lon, acc=0) {
     // Sempre salva posição avulsa no entregador_status
     // Card do cardápio usa este campo: garante que entregador aparece ONLINE
     // mesmo durante transições entre paradas (status transitório)
-    await sb.from("entregador_status").update({
+    const { error: gpsErr } = await sb.from("entregador_status").update({
         gps_lat: lat, gps_lon: lon, gps_ts: ts, gps_precisao: acc,
-        em_rota: !!rotaAtual,
-        estado: rotaAtual ? (rotaAtual._estadoAtual || 'entregando') : 'livre',
-        updated_at: ts
-      }).eq('id', 1);
+        estado: rotaAtual ? (rotaAtual._estadoAtual || 'entregando') : 'livre'
+      }).gte('id', 1);
+    if (gpsErr) console.warn('entregador_status update error:', gpsErr);
   } catch(e) { console.warn("GPS send:", e); }
 }
 function setBadge(on, txt) {
