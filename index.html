@@ -567,10 +567,32 @@ function recentrarMapa() {
 function iniciarGPS() {
   if (!navigator.geolocation) { setBadge(false,'Sem GPS'); return; }
   setBadge(true,'Conectando...');
-  navigator.geolocation.watchPosition(
-    pos => processarPosicao(pos),
-    () => setBadge(false,'GPS erro'),
-    { enableHighAccuracy:true, timeout:15000, maximumAge:3000 }
+
+  function startWatch() {
+    navigator.geolocation.watchPosition(
+      pos => processarPosicao(pos),
+      err => {
+        console.warn('GPS erro:', err);
+        setBadge(false, err.code === 1 ? 'GPS bloqueado' : 'GPS erro');
+        if (err.code === 1) alert('\u26a0\ufe0f Permiss\u00e3o de localiza\u00e7\u00e3o negada!\n\nV\u00e1 em Configura\u00e7\u00f5es > Apps > Rei Entregas > Permiss\u00f5es > Localiza\u00e7\u00e3o e selecione \"Permitir\".');
+      },
+      { enableHighAccuracy:true, timeout:15000, maximumAge:3000 }
+    );
+  }
+
+  // Faz um getCurrentPosition primeiro para disparar o popup de permissao
+  navigator.geolocation.getCurrentPosition(
+    () => startWatch(),
+    err => {
+      console.warn('GPS getCurrentPosition erro:', err);
+      if (err.code === 1) {
+        setBadge(false, 'GPS bloqueado');
+        alert('\u26a0\ufe0f Permiss\u00e3o de localiza\u00e7\u00e3o negada!\n\nV\u00e1 em Configura\u00e7\u00f5es > Apps > Rei Entregas > Permiss\u00f5es > Localiza\u00e7\u00e3o e selecione \"Permitir\".');
+      } else {
+        startWatch(); // tenta mesmo assim
+      }
+    },
+    { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
   );
 }
 async function processarPosicao(pos) {
