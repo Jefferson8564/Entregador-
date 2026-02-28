@@ -222,16 +222,7 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); col
   </div>
 </div>
 
-<!-- CLIENTE ACTION SHEET -->
-<div id="clienteSheet" style="position:fixed;inset:0;z-index:8600;display:none;align-items:flex-end;justify-content:center;">
-  <div id="clienteSheetOverlay" onclick="fecharClienteSheet()" style="position:absolute;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);"></div>
-  <div id="clienteSheetBox" style="position:relative;width:100%;max-width:500px;background:var(--surface);border-radius:28px 28px 0 0;border-top:1px solid var(--border);padding:20px 16px 40px;animation:slideUp 0.3s cubic-bezier(0.34,1.4,0.64,1);z-index:1;">
-    <div style="width:40px;height:4px;background:rgba(255,255,255,0.15);border-radius:2px;margin:0 auto 16px;"></div>
-    <div id="clienteSheetNome" style="font-family:'Syne',sans-serif;font-size:18px;font-weight:900;text-align:center;margin-bottom:4px;"></div>
-    <div id="clienteSheetStatus" style="font-size:12px;font-weight:700;text-align:center;margin-bottom:20px;"></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;" id="clienteSheetBtns"></div>
-  </div>
-</div>
+<!-- FINALIZAR ROTA MODAL -->
 <div id="finalizarModal" style="position:fixed;inset:0;z-index:8300;background:rgba(0,0,0,0.78);backdrop-filter:blur(8px);display:none;align-items:flex-end;justify-content:center;">
   <div style="background:var(--surface);border-radius:28px 28px 0 0;padding:28px 20px 40px;width:100%;max-width:500px;border-top:1px solid rgba(0,232,122,0.3);animation:slideUp 0.35s cubic-bezier(0.34,1.4,0.64,1);">
     <div style="font-size:44px;text-align:center;margin-bottom:12px;" id="finalizarIcon">🏁</div>
@@ -338,23 +329,24 @@ const SUPABASE_URL = "https://vpeyqgijajywgswmezlh.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZwZXlxZ2lqYWp5d2dzd21lemxoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEyNTM1MDIsImV4cCI6MjA4NjgyOTUwMn0.LA5Cbof7IKWAA7l8YbCuPzANpCy0rX_Dro4l9fcDgoQ";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const FABRICA = [-8.1837523, -34.9383004]; // [lat, lng]
-let RAIO_ENTREGA = 40; // metros — sobrescrito pelo config do ADM
+const RAIO_ENTREGA = 40; // metros
 const OSRM_BASE = 'https://router.project-osrm.org/route/v1/driving/';
 
 // ===== FUSO HORÁRIO BRASÍLIA (GMT-3) =====
-function _brtStr(d) {
-  return (d || new Date()).toLocaleString('sv-SE', { timeZone: 'America/Sao_Paulo' });
-}
 function agoraISO() {
   // Retorna ISO string no horário de Brasília
-  return _brtStr().replace(' ', 'T') + '-03:00';
+  const now = new Date();
+  const offset = -3 * 60; // GMT-3 em minutos
+  const local = new Date(now.getTime() + (offset - now.getTimezoneOffset()) * 60000);
+  return local.toISOString().replace('Z', '-03:00');
 }
 function hojeStr() {
   // Retorna "YYYY-MM-DD" no horário de Brasília
-  return _brtStr().split(' ')[0];
+  return agoraISO().split('T')[0];
 }
 function horasBRT(d) {
-  return new Date(_brtStr(d || new Date()));
+  const offset = -3 * 60;
+  return new Date((d || new Date()).getTime() + (offset - (d || new Date()).getTimezoneOffset()) * 60000);
 }
 
 // ===== ESTADO =====
@@ -381,61 +373,19 @@ let gpsOk = false, ultimoEnvioGPS = 0;
 const THROTTLE_GPS_MS = 3000;
 
 // ===== ROTA ALEATÓRIA =====
-let _raConfig = null;            // config carregada do config_app (chave: rota_aleatoria)
+let _raConfig = null;            // config carregada do rota_especial_gps (chave: rota_aleatoria)
 let _dentroFabrica = true;       // começa assumindo que está na fábrica
 let _realtimePedidos = null;     // canal realtime de pedidos
 const RA_CHAVE = 'rota_aleatoria';
-const CE_CHAVE = 'config_entregador'; // config do ADM
-
-// ===== FIX: NOVOS ESTADOS =====
-// Bug 1 — rota aguardando GPS para auto-iniciar (60m)
-let _rotaPendentePronto = null;  // rota calculada e aguardando saída da fábrica
-let _previewCalcKey = '';        // evita recalcular preview sem necessidade
-
-// Bug 3 — race condition duas entregas simultâneas
-let _entregandoIds = new Set();  // IDs de paradas em processo de entrega (lock)
-
-// Bug 4 — mapa piscando
-let _ultimoRenderMarcadores = 0; // timestamp último render (debounce)
-let _marcadorHashAtual = '';     // hash dos dados para evitar re-render idêntico
-
-// Bug 2 — realtime gerando loop de reload por GPS
-let _realtimeDebounce = null;    // debounce para evitar reload em cascata
-let RAIO_FABRICA_AUTO = 60;      // metros — carregado do config do ADM
-let _modoSaida = 'automatico';   // 'automatico' | 'manual' — carregado do ADM
-let _modoConfirmacao = 'automatico'; // 'automatico' | 'manual' — carregado do ADM
-
-// ===== CURSOR DE POSIÇÃO NA ROTA =====
-// Controla de qual ponto da rota o entregador está navegando.
-// Quando vai avulso ao cliente 7 e entrega, continua do 8 em diante.
-// Clientes pulados (ex: 4, 5) ficam pendentes — só são visitados se o
-// entregador clicar neles manualmente no mapa ou quando todos os outros
-// forem concluídos e eles forem os únicos restantes.
-let _cursorIndex = -1; // índice da última parada entregue na paradasList
 
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
-  carregarConfigEntregador(); // carrega raios e modo do ADM
   initMap();
   carregarDados().catch(e => console.warn('Dados:', e));
   iniciarGPS();
   iniciarRealtime();
   iniciarRotaAleatoria(); // monitor de pedidos + GPS da fábrica
 });
-
-// ===== CONFIG DO ENTREGADOR (do ADM) =====
-async function carregarConfigEntregador() {
-  try {
-    const { data } = await sb.from('config_app').select('valor').eq('chave', CE_CHAVE).maybeSingle();
-    if (data?.valor) {
-      const cfg = JSON.parse(data.valor);
-      if (cfg.raio_fabrica)  RAIO_FABRICA_AUTO = cfg.raio_fabrica;
-      if (cfg.raio_entrega)  RAIO_ENTREGA = cfg.raio_entrega;
-      if (cfg.modo_saida)    _modoSaida = cfg.modo_saida;
-      if (cfg.modo_confirmacao) _modoConfirmacao = cfg.modo_confirmacao;
-    }
-  } catch(e) { console.warn('Config entregador:', e); }
-}
 
 // ===== MAPA =====
 function initMap() {
@@ -446,16 +396,11 @@ function initMap() {
     attributionControl: false
   });
   map.on('load', () => {
-    ['rota-completa','rota-proxima','rota-avulsa','rota-preview'].forEach(src => {
+    ['rota-completa','rota-proxima','rota-avulsa'].forEach(src => {
       map.addSource(src, { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
     });
-    // rota-preview: prévia tracejada VERMELHA — aparece no horário, antes de sair da fábrica
-    map.addLayer({ id:'rota-preview-layer', type:'line', source:'rota-preview',
-      paint:{ 'line-color':'#ff4757', 'line-width':4, 'line-opacity':0.7, 'line-dasharray':[6,4] } });
-    // rota-completa: percurso total da rota ativa (vermelho tracejado suave)
     map.addLayer({ id:'rota-completa-layer', type:'line', source:'rota-completa',
-      paint:{ 'line-color':'#ff4757', 'line-width':3, 'line-opacity':0.45, 'line-dasharray':[8,5] } });
-    // rota-proxima: linha AZUL de navegação ponto a ponto — só aparece após sair da fábrica
+      paint:{ 'line-color':'#ff4757', 'line-width':3, 'line-opacity':0.55, 'line-dasharray':[8,5] } });
     map.addLayer({ id:'rota-proxima-layer', type:'line', source:'rota-proxima',
       paint:{ 'line-color':'#3d9cff', 'line-width':5, 'line-opacity':0.9 } });
     map.addLayer({ id:'rota-avulsa-layer', type:'line', source:'rota-avulsa',
@@ -567,32 +512,10 @@ function recentrarMapa() {
 function iniciarGPS() {
   if (!navigator.geolocation) { setBadge(false,'Sem GPS'); return; }
   setBadge(true,'Conectando...');
-
-  function startWatch() {
-    navigator.geolocation.watchPosition(
-      pos => processarPosicao(pos),
-      err => {
-        console.warn('GPS erro:', err);
-        setBadge(false, err.code === 1 ? 'GPS bloqueado' : 'GPS erro');
-        if (err.code === 1) alert('\u26a0\ufe0f Permiss\u00e3o de localiza\u00e7\u00e3o negada!\n\nV\u00e1 em Configura\u00e7\u00f5es > Apps > Rei Entregas > Permiss\u00f5es > Localiza\u00e7\u00e3o e selecione \"Permitir\".');
-      },
-      { enableHighAccuracy:true, timeout:15000, maximumAge:3000 }
-    );
-  }
-
-  // Faz um getCurrentPosition primeiro para disparar o popup de permissao
-  navigator.geolocation.getCurrentPosition(
-    () => startWatch(),
-    err => {
-      console.warn('GPS getCurrentPosition erro:', err);
-      if (err.code === 1) {
-        setBadge(false, 'GPS bloqueado');
-        alert('\u26a0\ufe0f Permiss\u00e3o de localiza\u00e7\u00e3o negada!\n\nV\u00e1 em Configura\u00e7\u00f5es > Apps > Rei Entregas > Permiss\u00f5es > Localiza\u00e7\u00e3o e selecione \"Permitir\".');
-      } else {
-        startWatch(); // tenta mesmo assim
-      }
-    },
-    { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
+  navigator.geolocation.watchPosition(
+    pos => processarPosicao(pos),
+    () => setBadge(false,'GPS erro'),
+    { enableHighAccuracy:true, timeout:15000, maximumAge:3000 }
   );
 }
 async function processarPosicao(pos) {
@@ -616,50 +539,29 @@ async function processarPosicao(pos) {
   }
   if (rotaAtual && paradasList.length) await verificarProximidade(lat, lon);
   if (rotaAtual && distMovida > 80) {
-    // Usa cursor: próxima após o último entregue, senão qualquer pendente restante
-    let prox = paradasList.slice(_cursorIndex + 1).find(p => p.status==='pendente' && p.coords);
-    if (!prox) prox = paradasList.find(p => p.status==='pendente' && p.coords);
+    const prox = paradasList.find(p => p.status==='pendente' && p.coords);
     if (prox) {
       ultimaProximaId = null;
       desenharRotaProxima([lat,lon], prox);
     }
   }
   await tickRotaAleatoria(lat, lon);
-
-  // BUG FIX 1: Detecta saída da fábrica para auto-iniciar rota pendente (raio 60m)
-  if (_rotaPendentePronto && !rotaAtual) {
-    const distFab = calcDistM(lat, lon, FABRICA[0], FABRICA[1]);
-    if (distFab > RAIO_FABRICA_AUTO) {
-      const rotaParaIniciar = _rotaPendentePronto;
-      _rotaPendentePronto = null;
-      _previewCalcKey = '';
-      // Remove preview vermelho e inicia a rota (linha azul aparece via desenharRotaProxima)
-      setGJ('rota-preview', null);
-      await iniciarRota(rotaParaIniciar);
-    }
-  }
 }
 async function enviarPosicaoSupabase(lat, lon, acc=0) {
   try {
     const ts = agoraISO();
     if (rotaAtual?.id) {
-      // BUG FIX 2: Atualiza GPS diretamente — NÃO inclui campos de status para não acionar
-      // regras que possam mudar o status e causar flash de "offline" no cardápio
+      // GPS direto na rotas — cardápio lê via Realtime
       await sb.from("rotas")
         .update({ gps_lat:lat, gps_lon:lon, gps_ts:ts, gps_precisao:acc,
                   posicao_entregador:{lat,lon,ts,precisao:acc} })
         .eq("id", rotaAtual.id);
     }
-    // Sempre salva posição avulsa no entregador_status
-    // Card do cardápio usa este campo: garante que entregador aparece ONLINE
-    // mesmo durante transições entre paradas (status transitório)
-    const { error: gpsErr } = await sb.from("entregador_status").upsert({
-        id: 1,
-        gps_lat: lat, gps_lon: lon, gps_ts: ts, gps_precisao: acc,
-        estado: rotaAtual ? (rotaAtual._estadoAtual || 'entregando') : 'livre',
-        updated_at: ts
-      }, { onConflict: 'id' });
-    if (gpsErr) console.warn('entregador_status update error:', gpsErr);
+    // Sempre salva posição avulsa no rota_especial_gps — cardápio consegue ver mesmo sem rota ativa
+    await sb.from("rota_especial_gps").upsert(
+      { chave: "entregador_gps", valor: JSON.stringify({ lat, lon, ts, precisao: acc }) },
+      { onConflict: "chave" }
+    );
   } catch(e) { console.warn("GPS send:", e); }
 }
 function setBadge(on, txt) {
@@ -697,13 +599,7 @@ async function verificarProximidade(lat, lon) {
   let continuar = true;
   while (continuar) {
     continuar = false;
-
-    // ===== CURSOR: busca próxima parada a partir do cursor =====
-    // 1. Primeiro tenta pegar pendente APÓS o cursor (sequência normal)
-    // 2. Se não achar, pega qualquer pendente restante (pulados anteriormente)
-    let prox = paradasList.slice(_cursorIndex + 1).find(p => p.status==='pendente' && p.coords);
-    if (!prox) prox = paradasList.find(p => p.status==='pendente' && p.coords);
-
+    const prox = paradasList.find(p => p.status==='pendente' && p.coords);
     if (!prox) { document.getElementById('proximidadeChip').style.display='none'; return; }
     const dist = calcDistM(lat, lon, prox.coords[0], prox.coords[1]);
     const chip = document.getElementById('proximidadeChip');
@@ -742,18 +638,14 @@ async function iniciarFluxoEntrega(parada) {
   const pedido = pedidos?.[0] || null;
   const metodo = (pedido?.payment_method || '').toUpperCase();
   const eFiado = metodo === 'FIADO' || metodo.includes('FIADO');
-  const ePagarNaEntrega = !eFiado && pedido && (metodo.includes('ENTREGA') || metodo.includes('DINHEIRO') || metodo.includes('PIX') || metodo.includes('CARTAO') || metodo === 'PAGAR NA ENTREGA');
 
-  // Abre popup de pagamento APENAS se "pagar na entrega" e não for fiado
-  if (ePagarNaEntrega) {
+  // Abre popup se não for fiado e tiver pedido
+  if (pedido && !eFiado) {
     filaPagamentos.push({ parada, pedido });
     processarFilaPagamentos();
   }
 
-  // Se modo manual, não usa timer — entregador confirma pelo botão
-  if (_modoConfirmacao === 'manual') return;
-
-  // Modo automático: Timer de 5 segundos — confirma entrega independente do popup
+  // Timer de 5 segundos — confirma entrega independente do popup
   _timersEntrega[parada.id] = setTimeout(async () => {
     delete _timersEntrega[parada.id];
     // Fecha popup desta parada se ainda aberto
@@ -825,22 +717,12 @@ async function confirmarEntregaModal() {
 }
 
 async function executarMarcarEntregue(id, nome) {
-  // BUG FIX 3: Lock para evitar race condition quando duas paradas próximas são detectadas simultaneamente
-  if (_entregandoIds.has(id)) return;
   const p = paradasList.find(x => x.id===id);
   if (!p || p.status==='entregue') return;
-  _entregandoIds.add(id);
-
   p.status = 'entregue';
   p.entregue_em = agoraISO();
   cacheRotaCompleta = null; cacheRotaCompletaKey = ''; ultimaProximaId = null;
   setGJ('rota-proxima', null);
-
-  // ===== CURSOR: avança para o índice desta parada entregue =====
-  // Assim, se o entregador foi avulso ao cliente 7, após entregar
-  // o cursor vai para 7 e a próxima será a 8 (não a 4 ou 5 que foram puladas)
-  const idxEntregue = paradasList.indexOf(p);
-  if (idxEntregue > _cursorIndex) _cursorIndex = idxEntregue;
 
   // Salva progresso no banco (só para rota normal — rota aleatória é gerenciada pela fila)
   if (!rotaAtual._ehAleatoria) {
@@ -858,44 +740,12 @@ async function executarMarcarEntregue(id, nome) {
     }).eq("id", rotaAtual.id);
   }
 
-  const todasEntregues = paradasList.every(p2 => p2.status==='entregue');
   const proxNome = paradasList.find(x => x.status==='pendente')?.nome;
   showToast(proxNome ? `✅ ${nome} entregue! Próximo: ${proxNome}` : `✅ ${nome} entregue! Rota concluída!`, 'success');
-
-  // BUG FIX 8: Após ÚLTIMA entrega, calcula e desenha rota de VOLTA À FÁBRICA
-  if (todasEntregues) {
-    showToast('🏭 Todas as entregas concluídas! Calculando retorno à fábrica...', 'success');
-    falarVoz('Todas as entregas concluídas. Retornando à fábrica.');
-    // Desenha linha azul de volta à fábrica
-    const origem = posAtual || p.coords;
-    if (origem) {
-      const coords = await buscarOSRM([origem, FABRICA]);
-      setGJ('rota-proxima', coords, [origem, FABRICA]);
-    }
-    // Chip de direção à fábrica
-    const chip = document.getElementById('proximidadeChip');
-    if (chip) {
-      chip.style.display = 'block';
-      chip.className = 'proximidadeChip longe';
-      chip.textContent = '🏭 Retornando à fábrica...';
-    }
+  if (paradasList.every(p2 => p2.status==='entregue')) {
+    showToast('🏁 Todas as entregas concluídas! Retornando à fábrica...', 'success');
   }
-
   renderTudo(); renderizarMarcadores();
-  _entregandoIds.delete(id); // libera lock
-
-  // Recalcula ETAs reais via OSRM para as paradas restantes
-  if (!todasEntregues) atualizarETAsRota();
-
-  // BUG FIX 9: Após confirmar entrega, verifica IMEDIATAMENTE se a próxima parada
-  // também está dentro do raio (sem precisar sair e entrar da área de novo)
-  if (!todasEntregues && posAtual) {
-    // Pequeno delay para o estado se estabilizar
-    setTimeout(async () => {
-      paradaAtualId = null; estavaNaParada = false;
-      await verificarProximidade(posAtual[0], posAtual[1]);
-    }, 800);
-  }
 }
 
 // ===== OSRM =====
@@ -908,69 +758,6 @@ async function buscarOSRM(pontos) {
     const j = await r.json();
     return j.code==='Ok' && j.routes?.length ? j.routes[0].geometry.coordinates : null;
   } catch(e) { return null; }
-}
-
-// Calcula ETA real de cada parada via OSRM (uma única chamada com todos os waypoints)
-// Retorna array de { id, eta_min, dist_m } na mesma ordem das paradas fornecidas
-// origem: [lat,lng] — posição atual do entregador (ou FABRICA se não disponível)
-async function calcularETAsOSRM(origem, paradas) {
-  const pendentes = paradas.filter(p => p.status !== 'entregue' && p.coords);
-  if (!pendentes.length) return [];
-  const pontos = [origem, ...pendentes.map(p => p.coords)];
-  // ?annotations=duration,distance retorna legs com duration em segundos e distance em metros
-  const url = `${OSRM_BASE}${pontos.map(p=>`${p[1]},${p[0]}`).join(';')}?overview=false&steps=false&annotations=duration,distance`;
-  try {
-    const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    if (!r.ok) return [];
-    const j = await r.json();
-    if (j.code !== 'Ok' || !j.routes?.length) return [];
-    const legs = j.routes[0].legs; // N-1 legs para N pontos
-    let acumSeg = 0, acumM = 0;
-    return pendentes.map((p, i) => {
-      const leg = legs[i];
-      acumSeg += leg?.duration || 0;
-      acumM   += leg?.distance || 0;
-      return { id: p.id, eta_min: Math.max(1, Math.round(acumSeg / 60)), dist_m: Math.round(acumM) };
-    });
-  } catch(e) { return []; }
-}
-
-// Aplica os ETAs calculados nas paradas e salva no banco
-async function atualizarETAsRota() {
-  if (!rotaAtual || rotaAtual._ehAleatoria) return;
-  const origem = posAtual || FABRICA;
-  const resultados = await calcularETAsOSRM(origem, paradasList);
-  if (!resultados.length) return;
-
-  let totalSeg = 0, countSeg = 0;
-  resultados.forEach(({ id, eta_min }) => {
-    const p = paradasList.find(x => x.id === id);
-    if (p) { p.eta_min = eta_min; }
-  });
-
-  // Calcula media_min_por_parada real desta rota (diferença entre ETAs consecutivos)
-  if (resultados.length >= 2) {
-    for (let i = 1; i < resultados.length; i++) {
-      totalSeg += (resultados[i].eta_min - resultados[i-1].eta_min);
-      countSeg++;
-    }
-    // Adiciona primeiro trecho (origem → primeira parada)
-    totalSeg += resultados[0].eta_min;
-    countSeg++;
-    mediaMinPorParada = totalSeg / countSeg;
-  } else {
-    mediaMinPorParada = resultados[0].eta_min;
-  }
-
-  // Persiste paradas atualizadas e media_min_por_parada no banco
-  try {
-    await sb.from('rotas').update({
-      paradas: paradasList,
-      media_min_por_parada: Math.round(mediaMinPorParada * 10) / 10
-    }).eq('id', rotaAtual.id);
-  } catch(e) {}
-
-  renderTudo();
 }
 function setGJ(src, coords, fallbackPts) {
   try {
@@ -996,79 +783,6 @@ async function desenharRotaProxima(pa, prox) {
   setTimeout(() => iniciarNavegacaoVoz(), 800);
 }
 
-// ===== CLIENTE ACTION SHEET =====
-function abrirClienteSheet(cliente, paradasAtivas) {
-  const nome = cliente.name || cliente.nome || 'Cliente';
-  const coords = cliente.coords;
-  const pa = (paradasAtivas||[]).find(x =>
-    x.coords &&
-    Math.abs(x.coords[0]-coords[0])<0.0001 &&
-    Math.abs(x.coords[1]-coords[1])<0.0001 &&
-    (x.nome===nome || x.client_id===cliente.id || x.cliente_phone===cliente.phone)
-  );
-  const ent = pa?.status==='entregue';
-  const isPend = pa && pa.status==='pendente';
-
-  const sl = ent ? '✅ Entregue' : isPend ? '🟣 Pendente na rota' : '🔵 Sem rota ativa';
-  const sc = ent ? '#00e87a' : isPend ? '#9b59b6' : '#3d9cff';
-
-  document.getElementById('clienteSheetNome').textContent = nome;
-  const statusEl = document.getElementById('clienteSheetStatus');
-  statusEl.textContent = sl;
-  statusEl.style.color = sc;
-
-  const btns = document.getElementById('clienteSheetBtns');
-
-  // Botão ENTREGUE (esquerda) — só aparece se estiver pendente
-  const btnEntregue = (isPend && !ent) ? `
-    <button onclick="sheetMarcarEntregue('${pa.id}','${nome.replace(/'/g,"\\'")}');fecharClienteSheet();"
-      style="padding:16px 8px;border:none;border-radius:18px;font-size:15px;font-weight:800;cursor:pointer;
-             font-family:'DM Sans',sans-serif;background:var(--green);color:#000;
-             display:flex;flex-direction:column;align-items:center;gap:6px;">
-      <span style="font-size:24px;">✅</span>
-      <span>Entregue</span>
-    </button>` : `<div></div>`;
-
-  // Botão IR ATÉ O CLIENTE (direita) — sempre aparece
-  const btnIr = `
-    <button onclick="ativarNavAvulsa(${JSON.stringify({name:nome,coords:coords})});fecharClienteSheet();"
-      style="padding:16px 8px;border:1px solid rgba(61,156,255,0.45);border-radius:18px;font-size:15px;
-             font-weight:800;cursor:pointer;font-family:'DM Sans',sans-serif;
-             background:rgba(61,156,255,0.15);color:var(--blue);
-             display:flex;flex-direction:column;align-items:center;gap:6px;">
-      <span style="font-size:24px;">🛵</span>
-      <span>Ir até ele</span>
-    </button>`;
-
-  btns.innerHTML = btnEntregue + btnIr;
-
-  // Se cliente não tem parada pendente, ocupa largura total com só o botão Ir
-  if (!isPend || ent) {
-    btns.style.gridTemplateColumns = '1fr';
-    btns.innerHTML = btnIr;
-  } else {
-    btns.style.gridTemplateColumns = '1fr 1fr';
-  }
-
-  const sheet = document.getElementById('clienteSheet');
-  sheet.style.display = 'flex';
-}
-
-async function sheetMarcarEntregue(paradaId, nome) {
-  if (navigator.vibrate) navigator.vibrate([60, 40, 120]);
-  const parada = paradasList.find(p => p.id === paradaId);
-  if (parada) {
-    const idxParada = paradasList.indexOf(parada);
-    if (idxParada > _cursorIndex) _cursorIndex = idxParada;
-  }
-  await executarMarcarEntregue(paradaId, nome);
-  falarVoz(`${nome} marcado como entregue`);
-}
-
-function fecharClienteSheet() {
-  document.getElementById('clienteSheet').style.display = 'none';
-}
-
 // ===== NAVEGAÇÃO AVULSA =====
 async function ativarNavAvulsa(cliente) {
   const nome = cliente.name||cliente.nome||'Cliente';
@@ -1076,20 +790,6 @@ async function ativarNavAvulsa(cliente) {
   if (navAvulsaDestino?.nome===nome && navAvulsaDestino?.coords[0]===coords[0]) { cancelarNavAvulsa(); return; }
   cancelarNavAvulsa(false);
   navAvulsaDestino = { nome, coords };
-
-  // ===== CURSOR: se o cliente clicado é uma parada da rota,
-  // atualiza o cursor para UMA ANTES dele.
-  // Assim ao entregar, o cursor avança para ele e o próximo será o seguinte na sequência.
-  if (rotaAtual && paradasList.length) {
-    const idxCliente = paradasList.findIndex(p =>
-      p.coords && p.coords[0] === coords[0] && p.coords[1] === coords[1] && p.status === 'pendente'
-    );
-    if (idxCliente > -1) {
-      // Posiciona cursor logo antes do cliente escolhido
-      // para que após a entrega o próximo seja o que vem depois dele
-      _cursorIndex = idxCliente - 1;
-    }
-  }
 
   if (navAvulsaMarcador) { navAvulsaMarcador.remove(); navAvulsaMarcador=null; }
   const el = document.createElement('div');
@@ -1227,18 +927,6 @@ async function carregarDados() {
 
   const em = todasAsRotas.find(r=>r.status==='em_andamento');
   rotaAtual = em||null; paradasList = em?.paradas||[];
-
-  // Reconstrói cursor baseado nas paradas já entregues (ao recarregar o app)
-  // Cursor = índice da última parada entregue em sequência
-  if (paradasList.length) {
-    let ultimo = -1;
-    for (let i = 0; i < paradasList.length; i++) {
-      if (paradasList[i].status === 'entregue') ultimo = i;
-    }
-    _cursorIndex = ultimo;
-  } else {
-    _cursorIndex = -1;
-  }
   renderTudo();
   if (map.isStyleLoaded()) renderizarMarcadores();
   else map.once('load', renderizarMarcadores);
@@ -1248,47 +936,27 @@ async function carregarDados() {
 async function verificarAutoInicioRotas(horaAgoraMin) {
   // Já tem rota em andamento → nada a fazer
   if (todasAsRotas.some(r=>r.status==='em_andamento')) return;
-  // Já tem rota pendente esperando GPS → não sobrescreve
-  if (_rotaPendentePronto) return;
 
   // Encontra rotas prontas: status criada/aguardando, com paradas, e horário chegou
   const candidatas = todasAsRotas.filter(r => {
     if (r.status==='em_andamento'||r.status==='concluido') return false;
     if (!r.paradas?.length) return false;
-    if (!r.hora_saida) return false; // sem horário → só inicia manual ou ao sair da fábrica
+    if (!r.hora_saida) return true; // sem horário definido → sempre elegível
     const [h,m] = r.hora_saida.split(':').map(Number);
     const horaSaida = h*60 + m;
-    // Só ativa se estiver dentro da janela: horário chegou E não passou mais de 60 min
+    // Só inicia se estiver dentro da janela: horário chegou E não passou mais de 60 min
     return horaAgoraMin >= horaSaida && horaAgoraMin <= horaSaida + 60;
   });
 
   if (candidatas.length === 0) return;
 
+  // Sempre inicia automaticamente: escolhe a de horário mais cedo (ou a primeira da lista)
   const melhor = candidatas.sort((a, b) => {
     const toMin = h => { if (!h) return 9999; const [hh,mm]=h.split(':').map(Number); return hh*60+mm; };
     return toMin(a.hora_saida) - toMin(b.hora_saida);
   })[0];
 
-  // BUG FIX 1+6: NÃO inicia a rota imediatamente.
-  // 1. Guarda a rota para iniciar quando o GPS detectar > 60m da fábrica
-  // 2. Pré-calcula e desenha rota VERMELHA TRACEJADA completa (prévia visual)
-  // 3. Linha azul de navegação só aparece quando o entregador sair do raio
-  _rotaPendentePronto = melhor;
-
-  // Calcula e desenha a prévia da rota (vermelha tracejada) SE ainda não foi desenhada
-  const previewKey = melhor.id + melhor.paradas.map(p=>p.id).join('|');
-  if (_previewCalcKey !== previewKey && melhor.paradas?.length > 0) {
-    _previewCalcKey = previewKey;
-    const paradasComCoords = melhor.paradas.filter(p=>p.coords);
-    if (paradasComCoords.length) {
-      buscarOSRM([FABRICA, ...paradasComCoords.map(p=>p.coords), FABRICA]).then(coords => {
-        setGJ('rota-preview', coords, [FABRICA, ...paradasComCoords.map(p=>p.coords), FABRICA]);
-      }).catch(()=>{});
-    }
-    showToast(`⏰ Rota "${melhor.nome}" pronta! Saia da fábrica para iniciar 🛵`, 'success');
-    renderTudo();
-    if (map.isStyleLoaded()) renderizarMarcadores();
-  }
+  await iniciarRota(melhor);
 }
 
 async function iniciarRota(rota) {
@@ -1296,7 +964,7 @@ async function iniciarRota(rota) {
   const agora = new Date();
   const agoraBRT2 = horasBRT(agora);
   const hoje = hojeStr();
-  const ontem = (() => { const d = new Date(); d.setDate(d.getDate()-1); return _brtStr(d).split(' ')[0]; })();
+  const ontem = new Date(new Date().getTime() - 86400000 + (-3*60 - new Date().getTimezoneOffset())*60000).toISOString().split('T')[0];
   const depoisDas1130 = agoraBRT2.getHours() > 11 || (agoraBRT2.getHours() === 11 && agoraBRT2.getMinutes() >= 30);
   const janela_inicio = depoisDas1130 ? hoje + 'T11:30:00' : ontem + 'T11:30:00';
 
@@ -1319,24 +987,15 @@ async function iniciarRota(rota) {
   rota.saida_em = ts;
   rotaAtual = rota;
   paradasList = rota.paradas || [];
-  _cursorIndex = -1; // reseta cursor ao iniciar nova rota
 
-  // BUG FIX 1: Limpa prévia vermelha e já desenha a rota completa (fica vermelha tracejada suave)
-  setGJ('rota-preview', null);
-  _rotaPendentePronto = null;
-  _previewCalcKey = '';
-
-  showToast(`🛵 Rota "${rota.nome}" iniciada! Boa entrega!`, 'success');
-  falarVoz(`Rota ${rota.nome} iniciada. ${paradasList.length} entrega${paradasList.length!==1?'s':''}.`);
+  showToast(`🛵 Rota "${rota.nome}" iniciada!`, 'success');
   renderTudo();
   if (map.isStyleLoaded()) renderizarMarcadores();
-  // Calcula ETAs reais via OSRM logo ao iniciar
-  atualizarETAsRota();
 }
 
 async function calcularMediaEta() {
   const ontem = new Date(); ontem.setDate(ontem.getDate()-1);
-  const base = _brtStr(ontem).split(' ')[0];
+  const base = new Date(ontem.getTime() + (-3*60 - ontem.getTimezoneOffset())*60000).toISOString().split('T')[0];
   const {data:hist} = await sb.from("rotas").select("paradas,saida_em,fim_em")
     .gte("created_at",base+'T00:00:00').lte("created_at",base+'T23:59:59').eq("status","concluido").limit(5);
   if (hist?.length) {
@@ -1348,24 +1007,7 @@ async function calcularMediaEta() {
 function iniciarRealtime() {
   if (realtimeCh) { try{sb.removeChannel(realtimeCh);}catch(e){} }
   realtimeCh = sb.channel('entregador_rotas')
-    .on('postgres_changes',{event:'*',schema:'public',table:'rotas'}, async(payload) => {
-      // BUG FIX 2: Ignora atualizações que são APENAS de GPS para não entrar em loop
-      // GPS updates contêm gps_lat/gps_lon/gps_ts — se só esses campos mudaram, ignora
-      const novas = payload.new || {};
-      const velhas = payload.old || {};
-      const soCamposGPS = Object.keys(novas).every(k =>
-        ['gps_lat','gps_lon','gps_ts','gps_precisao','posicao_entregador','updated_at'].includes(k)
-        || novas[k] === velhas[k]
-      );
-      if (soCamposGPS) return;
-
-      // BUG FIX 4: Debounce de 1.5s para evitar múltiplos reloads em cascata
-      if (_realtimeDebounce) clearTimeout(_realtimeDebounce);
-      _realtimeDebounce = setTimeout(async () => {
-        _realtimeDebounce = null;
-        await carregarDados();
-      }, 1500);
-    })
+    .on('postgres_changes',{event:'*',schema:'public',table:'rotas'}, async()=>{ await carregarDados(); })
     .subscribe();
 }
 
@@ -1373,22 +1015,8 @@ function iniciarRealtime() {
 function limparMarcadores() { marcadoresMapLibre.forEach(m=>m.remove()); marcadoresMapLibre=[]; }
 
 function renderizarMarcadores() {
-  // BUG FIX 4: Debounce — não re-renderiza se chamado com menos de 1.2s do último render
-  const agora = Date.now();
-  if (agora - _ultimoRenderMarcadores < 1200) return;
-  _ultimoRenderMarcadores = agora;
-
-  // Hash dos dados relevantes — evita re-render idêntico
-  const hashNovo = JSON.stringify(todosOsClientes.map(c=>c.phone+c.coords))
-    + JSON.stringify(paradasList.map(p=>p.id+p.status))
-    + (rotaAtual?.id||'') + (_rotaPendentePronto?.id||'');
-  if (hashNovo === _marcadorHashAtual) return;
-  _marcadorHashAtual = hashNovo;
-
   limparMarcadores();
-  // Usa cursor: próxima após cursor, senão qualquer pendente (pulados)
-  let prox = paradasList.slice(_cursorIndex + 1).find(p=>p.status==='pendente');
-  if (!prox) prox = paradasList.find(p=>p.status==='pendente');
+  const prox = paradasList.find(p=>p.status==='pendente');
   const RAIO_GRUPO = 0.00027;
   const grupos = [], usados = new Set();
 
@@ -1447,7 +1075,7 @@ function renderizarMarcadores() {
     el.style.cssText='display:flex;flex-direction:row;align-items:flex-end;gap:4px;';
     el.innerHTML = clientesHTML;
 
-    // Popup — somente nome + status (sem botões, o toque no ícone abre o sheet)
+    // Popup
     const popupHTML = clientes.map(p => {
       const pa=paradasList.find(x=>x.coords&&x.coords[0]===p.coords[0]&&x.coords[1]===p.coords[1]&&(x.nome===(p.name||p.nome)||x.client_id===p.id||x.cliente_phone===p.phone));
       const ent=pa?.status==='entregue', isP=prox&&pa?.id===prox.id, isPend=pa&&pa.status==='pendente';
@@ -1456,29 +1084,23 @@ function renderizarMarcadores() {
       const jaEmRota = ent || isP || isPend;
       const coordsCli = p.coords || (p.delivery_lat ? [parseFloat(p.delivery_lat), parseFloat(p.delivery_lon)] : []);
       const btnAdicionar = !jaEmRota ? `<button onclick="adicionarClienteNaRota('${(p.name||p.nome||'').replace(/'/g,"\'")  }','${p.phone||''}',${JSON.stringify(coordsCli)},'${(p.delivery_address||p.endereco||'').replace(/'/g,"\'")}'  )" style="margin-top:8px;width:100%;padding:8px;border:1px solid rgba(245,166,35,0.5);border-radius:10px;background:rgba(245,166,35,0.12);color:#f5a623;font-size:12px;font-weight:800;cursor:pointer;font-family:'DM Sans',sans-serif;">➕ Adicionar à rota</button>`: '';
-      return `<div style="padding:6px 0;${clientes.length>1?'border-bottom:1px solid rgba(255,255,255,0.08);':''}">`+
-        `<div style="font-weight:800;font-size:14px;">${p.name||p.nome}</div>`+
-        `<div style="font-size:11px;font-weight:700;color:${sc};margin-top:4px;">${sl}</div>`+
-        btnAdicionar+
-      `</div>`;
+      return `<div style="padding:6px 0;${clientes.length>1?'border-bottom:1px solid rgba(255,255,255,0.08);':''}">
+        <div style="font-weight:800;font-size:13px;">${p.name||p.nome}</div>
+        <div style="font-size:11px;color:rgba(240,240,248,0.55);">📍 ${p.delivery_address||p.endereco||''}</div>
+        ${p.phone?`<div style="font-size:11px;color:rgba(240,240,248,0.45);">📞 ${p.phone}</div>`:''}
+        ${p.debt>0?`<div style="font-size:11px;font-weight:700;color:#ff4757;">💳 Fiado: R$ ${Number(p.debt).toFixed(2).replace('.',',')}</div>`:''}
+        <div style="font-size:11px;font-weight:700;color:${sc};margin-top:2px;">${sl}</div>
+        ${btnAdicionar}
+      </div>`;
     }).join('');
 
     const marker = new maplibregl.Marker({ element:el, anchor:'bottom' })
       .setLngLat([coords[1],coords[0]])
+      .setPopup(new maplibregl.Popup({offset:[0,-10],maxWidth:'240px'}).setHTML(`<div style="min-width:160px;max-width:220px;">${popupHTML}</div>`))
       .addTo(map);
     marcadoresMapLibre.push(marker);
 
-    // TOQUE SIMPLES → abre sheet de ação para cada cliente no grupo
-    el.addEventListener('click', (e) => {
-      e.stopPropagation();
-      let elT = e.target; let uid = null;
-      for(let i=0;i<6&&elT;i++){if(elT.dataset?.uid){uid=elT.dataset.uid;break;}elT=elT.parentElement;}
-      const ci = uid ? (parseInt(uid.split('_').pop())||0) : 0;
-      const clienteAlvo = clientes[Math.min(ci, clientes.length-1)];
-      abrirClienteSheet(clienteAlvo, paradasList);
-    });
-
-    // LONG-PRESS 2s — mantém animação de anel mas agora só para clientes sem rota (nav avulsa)
+    // LONG-PRESS 2s
     const HOLD_MS=2000;
     let pTimer=null,rAF=null,pStart=0,pAtivo=false,uidAtivo=null;
     function iniciarHold(e) {
@@ -1506,34 +1128,7 @@ function renderizarMarcadores() {
           setTimeout(()=>{ring.style.strokeDashoffset=C.toFixed(1);ring.style.opacity='1';ring.style.transition='stroke-dashoffset 0.05s linear';},350);},280);}
       if(ico){ico.style.transform='scale(1.25)';setTimeout(()=>{ico.style.transform='';},300);}
       const ci=parseInt((uid.split('_').pop()))||0;
-      const clienteAlvo = clientes[Math.min(ci,clientes.length-1)];
-      const nome = clienteAlvo?.name || clienteAlvo?.nome || 'Cliente';
-
-      // ===== LONG PRESS: marcar como entregue direto =====
-      // Se o cliente tem parada na rota pendente → marca entregue no sistema
-      // Se não tem parada na rota → só ativa navegação avulsa (comportamento anterior)
-      if (rotaAtual && paradasList.length) {
-        const parada = paradasList.find(p =>
-          p.status === 'pendente' &&
-          p.coords &&
-          Math.abs(p.coords[0] - clienteAlvo.coords[0]) < 0.0001 &&
-          Math.abs(p.coords[1] - clienteAlvo.coords[1]) < 0.0001
-        );
-        if (parada) {
-          // Vibra para confirmar (se disponível)
-          if (navigator.vibrate) navigator.vibrate([60, 40, 120]);
-          // Cancela navegação avulsa se estava ativa para este cliente
-          if (navAvulsaDestino?.nome === nome) cancelarNavAvulsa(false);
-          // Marca entregue: atualiza cursor para que o próximo seja o seguinte na sequência
-          const idxParada = paradasList.indexOf(parada);
-          if (idxParada > _cursorIndex) _cursorIndex = idxParada;
-          await executarMarcarEntregue(parada.id, parada.nome);
-          falarVoz(`${parada.nome} marcado como entregue`);
-          return;
-        }
-      }
-      // Cliente sem parada na rota → ativa navegação avulsa (comportamento original)
-      await ativarNavAvulsa(clienteAlvo);
+      await ativarNavAvulsa(clientes[Math.min(ci,clientes.length-1)]);
     }
     function cancelarHold(){
       if(!pAtivo)return; pAtivo=false; cancelAnimationFrame(rAF); clearTimeout(pTimer);
@@ -1561,25 +1156,6 @@ function renderRotaAtiva() {
   if(!rotaAtual){
     const agora = new Date();
     const horaAgoraMin = horasBRT(agora).getHours()*60 + horasBRT(agora).getMinutes();
-
-    // BUG FIX 6: Mostra estado "aguardando saída da fábrica" quando rota foi pré-calculada
-    if (_rotaPendentePronto) {
-      el.innerHTML=`<div style="text-align:center;padding:28px 20px 16px;">
-        <div style="font-size:48px;margin-bottom:12px;animation:logoPulse 1.4s ease-in-out infinite;">🛵</div>
-        <div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:900;color:var(--primary);margin-bottom:6px;">Rota pronta!</div>
-        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-bottom:16px;">
-          <b style="color:var(--text);">${_rotaPendentePronto.nome}</b><br>
-          📦 ${_rotaPendentePronto.paradas?.length||0} entrega${(_rotaPendentePronto.paradas?.length||0)!==1?'s':''}<br><br>
-          <span style="color:var(--primary);">Saia da fábrica para iniciar automaticamente</span><br>
-          <span style="font-size:11px;opacity:0.6;">📡 A linha azul de navegação aparece ao ultrapassar ${RAIO_FABRICA_AUTO}m</span>
-        </div>
-        <div style="background:rgba(245,166,35,0.08);border:1px solid rgba(245,166,35,0.25);border-radius:12px;padding:10px 14px;font-size:12px;color:var(--text-dim);">
-          🔴 Prévia do percurso no mapa (tracejado vermelho)
-        </div>
-      </div>`;
-      return;
-    }
-
     const disponiveis=todasAsRotas.filter(r=>(r.status==='criada'||r.status==='aguardando')&&r.paradas?.length);
     if(disponiveis.length>0){
       el.innerHTML=`<div style="text-align:center;padding:32px 20px 16px;">
@@ -1605,9 +1181,7 @@ function renderRotaAtiva() {
   }
   const ent=paradasList.filter(p=>p.status==='entregue').length, total=paradasList.length;
   const pend=total-ent, min=Math.round(pend*mediaMinPorParada);
-  // Usa cursor: próxima após cursor, senão qualquer pendente (pulados)
-  let prox = paradasList.slice(_cursorIndex + 1).find(p => p.status==='pendente');
-  if (!prox) prox = paradasList.find(p => p.status==='pendente');
+  const prox=paradasList.find(p=>p.status==='pendente');
   const navBtns=prox?.coords?`<div class="nav-btns"><button class="btn-nav-maps" onclick="navegarMaps(${prox.coords[0]},${prox.coords[1]})">🗺️ Maps</button><button class="btn-nav-waze" onclick="navegarWaze(${prox.coords[0]},${prox.coords[1]})">🚗 Waze</button></div>`:'';
   el.innerHTML=`
   <div class="rota-ativa-card">
@@ -1639,18 +1213,11 @@ function renderProximaCard(parada, dist) {
 function renderParadas() {
   const el=document.getElementById('paradasContent');
   if(!rotaAtual||!paradasList.length){el.innerHTML=`<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">Sem paradas</div><div class="empty-sub">As paradas aparecerão aqui quando a rota for iniciada.</div></div>`;return;}
-  // Usa cursor: próxima após cursor, senão qualquer pendente (pulados)
-  let prox = paradasList.slice(_cursorIndex + 1).find(p => p.status==='pendente');
-  if (!prox) prox = paradasList.find(p => p.status==='pendente');
+  const prox=paradasList.find(p=>p.status==='pendente');
   el.innerHTML=paradasList.map((p,i)=>{
     const ent=p.status==='entregue', isP=prox&&p.id===prox.id;
     const nomeEsc=(p.name||p.nome||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-    const etaTag = ent
-      ? `<div class="parada-eta">✅</div>`
-      : p.eta_min
-        ? `<div class="parada-eta" style="font-size:11px;color:var(--blue);font-weight:800;">⏱️ ${p.eta_min}min</div>`
-        : '';
-    const btnMarcar=!ent?`<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">${etaTag}<button onclick="marcarEntregueManual('${p.id}','${nomeEsc}');event.stopPropagation();" style="flex-shrink:0;padding:7px 13px;border:1px solid rgba(0,232,122,0.4);border-radius:10px;background:rgba(0,232,122,0.1);color:var(--green);font-size:11px;font-weight:800;cursor:pointer;font-family:'DM Sans',sans-serif;">✓ Entregue</button></div>`:etaTag;
+    const btnMarcar=!ent?`<button onclick="marcarEntregueManual('${p.id}','${nomeEsc}');event.stopPropagation();" style="flex-shrink:0;padding:7px 13px;border:1px solid rgba(0,232,122,0.4);border-radius:10px;background:rgba(0,232,122,0.1);color:var(--green);font-size:11px;font-weight:800;cursor:pointer;font-family:'DM Sans',sans-serif;">✓ Entregue</button>`:`<div class="parada-eta">✅</div>`;
     return `<div class="parada-item ${ent?'entregue':''}"><div class="parada-num ${ent?'entregue':isP?'proxima':'pendente'}">${ent?'✓':String(i+1)}</div><div class="parada-info"><div class="parada-nome-item">${p.name||p.nome}</div><div class="parada-end-item">📍 ${p.endereco}</div></div>${btnMarcar}</div>`;
   }).join('');
 }
@@ -1827,12 +1394,8 @@ async function executarFinalizarRota() {
   cacheRotaCompleta = null;
   cacheRotaCompletaKey = '';
   ultimaProximaId = null;
-  _rotaPendentePronto = null; // BUG FIX 7: garante que próxima rota começa do zero
-  _previewCalcKey = '';
-  _entregandoIds.clear();     // BUG FIX 3: limpa locks pendentes
   setGJ('rota-completa', null);
   setGJ('rota-proxima', null);
-  setGJ('rota-preview', null); // BUG FIX 1: limpa preview da rota anterior
   document.getElementById('proximidadeChip').style.display = 'none';
 
   // PASSO 5: Renderiza a UI para indicar que não há rota ativa
@@ -1901,7 +1464,7 @@ function showToast(msg, type='') {
 
 // ===== ROTA ALEATÓRIA — LÓGICA COMPLETA =====
 // Regras:
-// - Config salva no banco (chave: rota_aleatoria) — tabela config_app
+// - Config salva no banco (chave: rota_aleatoria) — mesma tabela rota_especial_gps
 // - Tem janela de horário (hora_inicio → hora_fim) e dias da semana
 // - Clientes que fazem pedido dentro da janela entram na fila automaticamente
 // - O ENTREGADOR decide quando sair (botão "Sair agora com X clientes")
@@ -1911,13 +1474,13 @@ function showToast(msg, type='') {
 
 async function carregarConfigRA() {
   try {
-    const { data } = await sb.from('config_app').select('valor').eq('chave', RA_CHAVE).maybeSingle();
+    const { data } = await sb.from('rota_especial_gps').select('valor').eq('chave', RA_CHAVE).maybeSingle();
     _raConfig = data ? JSON.parse(data.valor) : null;
   } catch(e) { console.warn('RA config:', e); _raConfig = null; }
 }
 
 async function _salvarRA() {
-  await sb.from('config_app').upsert(
+  await sb.from('rota_especial_gps').upsert(
     { chave: RA_CHAVE, valor: JSON.stringify(_raConfig) },
     { onConflict: 'chave' }
   );
@@ -1974,18 +1537,6 @@ async function sairComFilaAleatoria() {
   await carregarConfigRA();
   if (!_raConfig) { showToast('⚠️ Rota aleatória não configurada', 'warn'); return; }
 
-  // BUG FIX 5: Remove clientes que entraram na fila em dias anteriores (acúmulo fora do horário)
-  const hoje = hojeStr();
-  const filaFiltrada = (_raConfig.clientes_fila || []).filter(c => {
-    // Mantém clientes sem data (retrocompatibilidade) e clientes de hoje
-    if (!c.hora_pedido_data) return true;
-    return c.hora_pedido_data === hoje;
-  });
-  if (filaFiltrada.length !== (_raConfig.clientes_fila||[]).length) {
-    _raConfig.clientes_fila = filaFiltrada;
-    await _salvarRA();
-  }
-
   const fila = (_raConfig.clientes_fila || []).filter(c => c.status === 'pendente' && c.coords);
   if (!fila.length) { showToast('🎲 Nenhum cliente na fila ainda', 'warn'); return; }
 
@@ -2041,11 +1592,7 @@ async function finalizarSaidaAleatoria() {
   rotaAtual = null;
   paradasList = [];
   cacheRotaCompleta = null; cacheRotaCompletaKey = ''; ultimaProximaId = null;
-  _rotaPendentePronto = null; // BUG FIX 7
-  _previewCalcKey = '';
-  _entregandoIds.clear(); // BUG FIX 3
   setGJ('rota-completa', null); setGJ('rota-proxima', null); setGJ('rota-avulsa', null);
-  setGJ('rota-preview', null); // BUG FIX 1
   document.getElementById('proximidadeChip').style.display = 'none';
   renderTudo();
   // Recarrega dados do banco para os marcadores voltarem ao estado correto (sem rota)
@@ -2073,7 +1620,6 @@ async function adicionarNaFilaRA(pedido) {
     endereco: cli.delivery_address || `${cli.delivery_lat}, ${cli.delivery_lon}`,
     coords: [parseFloat(cli.delivery_lat), parseFloat(cli.delivery_lon)],
     hora_pedido: agoraISO().substring(11, 16),
-    hora_pedido_data: hojeStr(), // BUG FIX 5: salva data para filtrar acúmulo de dias anteriores
     status: 'pendente'
   });
   _raConfig.clientes_fila = fila;
