@@ -895,21 +895,32 @@ function _onMoveNavAvulsa() {
 // ===== DADOS =====
 async function carregarDados() {
   await calcularMediaEta();
-  const hoje = hojeStr();
   const agora = new Date();
   const agoraBRT = horasBRT(agora);
-  const horaAgora = agoraBRT.getHours() * 60 + agoraBRT.getMinutes(); // minutos desde meia-noite (BRT)
-  const diaSemana = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][agoraBRT.getDay()];
+  const horaAgora = agoraBRT.getHours() * 60 + agoraBRT.getMinutes();
 
-  // BRT = UTC-3 → meia-noite BRT = 03:00 UTC. Usamos o offset real calculado por agoraISO.
-  const offsetStr = agoraISO().slice(19); // ex: "-03:00"
+  // Offset real de SP para queries no Supabase (ex: "-03:00")
+  const offsetStr = agoraISO().slice(19);
+
+  // Janela de pedidos: das 14h de hoje BRT até 14h de amanhã BRT
+  // Pedidos feitos após 14h entram na rota do dia seguinte
+  const pHoje = _partesSP(agora);
+  const amanhaDate = new Date(agora.getTime() + 86400000);
+  const pAmanha = _partesSP(amanhaDate);
+
+  const inicioPedidos = `${pHoje.year}-${pHoje.month}-${pHoje.day}T14:00:00${offsetStr}`;
+  const fimPedidos    = `${pAmanha.year}-${pAmanha.month}-${pAmanha.day}T14:00:00${offsetStr}`;
+
+  // Dia da semana de AMANHÃ (as rotas saem amanhã com os pedidos de hoje)
+  const diaSemana = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][horasBRT(amanhaDate).getDay()];
+
   const [{ data:rotas },{ data:clientes },{ data:pedidosHoje }] = await Promise.all([
     sb.from("rotas").select('*').order("hora_saida",{ascending:true}),
     sb.from("cadastros").select("*"),
     sb.from("pedidos")
       .select("customer_phone, customer_name, total, payment_method, id, items")
-      .gte("created_at", hoje+'T00:00:00'+offsetStr)
-      .lte("created_at", hoje+'T23:59:59'+offsetStr)
+      .gte("created_at", inicioPedidos)
+      .lte("created_at", fimPedidos)
   ]);
 
   const phonesComPedido = new Set((pedidosHoje||[]).map(p=>p.customer_phone).filter(Boolean));
