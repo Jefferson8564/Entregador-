@@ -332,6 +332,35 @@ const FABRICA = [-8.1837523, -34.9383004]; // [lat, lng]
 const RAIO_ENTREGA = 40; // metros
 const OSRM_BASE = 'https://router.project-osrm.org/route/v1/driving/';
 
+// ── Timeout sem AbortSignal (compatível com todos os Androids) ───────────────
+function _fetchTimeout(url, opts, ms) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('timeout')), ms);
+    fetch(url, opts || {}).then(r => { clearTimeout(t); resolve(r); }).catch(e => { clearTimeout(t); reject(e); });
+  });
+}
+function _fetchPostTimeout(url, body, ms) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('timeout')), ms);
+    fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body })
+      .then(r => { clearTimeout(t); resolve(r); }).catch(e => { clearTimeout(t); reject(e); });
+  });
+}
+// ── Decodificador polyline precisão 6 (Valhalla) ─────────────────────────────
+function _decodPoly6(enc) {
+  const out = []; let i = 0, lat = 0, lng = 0;
+  while (i < enc.length) {
+    let b, sh = 0, res = 0;
+    do { b = enc.charCodeAt(i++) - 63; res |= (b & 0x1f) << sh; sh += 5; } while (b >= 0x20);
+    lat += (res & 1) ? ~(res >> 1) : (res >> 1);
+    sh = 0; res = 0;
+    do { b = enc.charCodeAt(i++) - 63; res |= (b & 0x1f) << sh; sh += 5; } while (b >= 0x20);
+    lng += (res & 1) ? ~(res >> 1) : (res >> 1);
+    out.push([lng / 1e6, lat / 1e6]);
+  }
+  return out;
+}
+
 // ===== FUSO HORÁRIO BRASÍLIA (America/Sao_Paulo) =====
 const TZ_SP = 'America/Sao_Paulo';
 
@@ -438,34 +467,53 @@ function initMap() {
     ['rota-completa','rota-volta','rota-proxima','rota-avulsa'].forEach(src => {
       map.addSource(src, { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
     });
-
-    // IDA: fábrica → clientes (vermelho tracejado + setas)
     map.addLayer({ id:'rota-completa-layer', type:'line', source:'rota-completa',
-      layout:{ 'line-join':'round','line-cap':'round' },
       paint:{ 'line-color':'#ff4757', 'line-width':3, 'line-opacity':0.55, 'line-dasharray':[8,5] } });
-    (function() {
-      const sz=32, cv=document.createElement('canvas'); cv.width=sz; cv.height=sz;
-      const cx=cv.getContext('2d'); cx.fillStyle='#ffffff';
-      cx.beginPath(); cx.moveTo(sz-4,sz/2); cx.lineTo(4,6); cx.lineTo(10,sz/2); cx.lineTo(4,sz-6); cx.closePath(); cx.fill();
-      const id=cx.getImageData(0,0,sz,sz);
-      if(!map.hasImage('seta-rota')) map.addImage('seta-rota',{width:sz,height:sz,data:id.data},{sdf:true});
-    })();
-    map.addLayer({ id:'rota-completa-setas', type:'symbol', source:'rota-completa',
-      layout:{ 'symbol-placement':'line','symbol-spacing':90,'icon-image':'seta-rota','icon-size':0.55,
-               'icon-rotation-alignment':'map','icon-keep-upright':false,'icon-allow-overlap':true,'icon-ignore-placement':true },
-      paint:{ 'icon-color':'#ff4757','icon-opacity':0.95 }
-    });
-
-    // VOLTA: última parada → fábrica (laranja tracejado + setas)
     map.addLayer({ id:'rota-volta-layer', type:'line', source:'rota-volta',
-      layout:{ 'line-join':'round','line-cap':'round' },
-      paint:{ 'line-color':'#f5a623', 'line-width':3, 'line-opacity':0.6, 'line-dasharray':[8,5] } });
+      paint:{ 'line-color':'#f5a623', 'line-width':3, 'line-opacity':0.55, 'line-dasharray':[8,5] } });
+    // Seta SDF apontando para DIREITA (→) — MapLibre rotaciona seguindo a linha
+    (function() {
+      const sz = 32;
+      const c = document.createElement('canvas'); c.width = sz; c.height = sz;
+      const x = c.getContext('2d');
+      x.clearRect(0, 0, sz, sz);
+      x.fillStyle = '#ffffff';
+      x.beginPath();
+      x.moveTo(sz-4,  sz/2);     // ponta direita
+      x.lineTo(4,     6);        // canto superior esquerdo
+      x.lineTo(10,    sz/2);     // chanfro central esquerdo
+      x.lineTo(4,     sz-6);     // canto inferior esquerdo
+      x.closePath();
+      x.fill();
+      const id = x.getImageData(0, 0, sz, sz);
+      map.addImage('seta-rota', { width:sz, height:sz, data:id.data }, { sdf: true });
+    })();
     map.addLayer({ id:'rota-volta-setas', type:'symbol', source:'rota-volta',
-      layout:{ 'symbol-placement':'line','symbol-spacing':90,'icon-image':'seta-rota','icon-size':0.55,
-               'icon-rotation-alignment':'map','icon-keep-upright':false,'icon-allow-overlap':true,'icon-ignore-placement':true },
-      paint:{ 'icon-color':'#f5a623','icon-opacity':0.95 }
+      layout:{
+        'symbol-placement':'line',
+        'symbol-spacing':90,
+        'icon-image':'seta-rota',
+        'icon-size':0.55,
+        'icon-rotation-alignment':'map',
+        'icon-keep-upright':false,
+        'icon-allow-overlap':true,
+        'icon-ignore-placement':true
+      },
+      paint:{ 'icon-color':'#f5a623', 'icon-opacity':0.95 }
     });
-
+    map.addLayer({ id:'rota-completa-setas', type:'symbol', source:'rota-completa',
+      layout:{
+        'symbol-placement':'line',
+        'symbol-spacing':90,
+        'icon-image':'seta-rota',
+        'icon-size':0.55,
+        'icon-rotation-alignment':'map',
+        'icon-keep-upright':false,
+        'icon-allow-overlap':true,
+        'icon-ignore-placement':true
+      },
+      paint:{ 'icon-color':'#ff4757', 'icon-opacity':0.95 }
+    });
     map.addLayer({ id:'rota-proxima-layer', type:'line', source:'rota-proxima',
       paint:{ 'line-color':'#3d9cff', 'line-width':5, 'line-opacity':0.9 } });
     map.addLayer({ id:'rota-avulsa-layer', type:'line', source:'rota-avulsa',
@@ -622,15 +670,61 @@ async function processarPosicao(pos) {
     await enviarPosicaoSupabase(lat, lon, acc);
   }
   if (rotaAtual && paradasList.length) await verificarProximidade(lat, lon);
-  if (rotaAtual && distMovida > 80) {
+  if (rotaAtual) {
     const prox = paradasList.find(p => p.status==='pendente' && p.coords);
     if (prox) {
-      ultimaProximaId = null;
-      desenharRotaProxima([lat,lon], prox);
+      // Recalcula linha azul se moveu >80m (atualização normal)
+      if (distMovida > 80) {
+        ultimaProximaId = null;
+        desenharRotaProxima([lat,lon], prox);
+      }
+      // Recalcula se desviou >60m da linha azul atual
+      _verificarDesvioRota(lat, lon, prox);
     }
   }
   await tickRotaAleatoria(lat, lon);
 }
+// ===== RECÁLCULO POR DESVIO =====
+let _cacheLinhaProxima = null; // coordenadas [lng,lat] da linha azul atual
+let _ultimoRecalculo = 0;
+
+// Intercepta setGJ para guardar cache da linha azul
+const _setGJOrig = setGJ;
+function setGJ(src, coords, fallbackPts) {
+  if (src === 'rota-proxima') _cacheLinhaProxima = coords || null;
+  _setGJOrig(src, coords, fallbackPts);
+}
+
+function _distPontoSegmento(px, py, ax, ay, bx, by) {
+  const dx = bx-ax, dy = by-ay;
+  if (dx===0 && dy===0) return Math.hypot(px-ax, py-ay);
+  const t = Math.max(0, Math.min(1, ((px-ax)*dx+(py-ay)*dy)/(dx*dx+dy*dy)));
+  return Math.hypot(px-(ax+t*dx), py-(ay+t*dy));
+}
+
+function _distPontoLinha(lat, lon, linha) {
+  // linha = [[lng,lat], ...] — converte para graus simples (suficiente para 60m)
+  if (!linha || linha.length < 2) return Infinity;
+  let minDist = Infinity;
+  for (let i = 0; i < linha.length-1; i++) {
+    const d = _distPontoSegmento(lon, lat, linha[i][0], linha[i][1], linha[i+1][0], linha[i+1][1]);
+    // Converte graus → metros (aproximação: 1° ≈ 111000m)
+    if (d * 111000 < minDist) minDist = d * 111000;
+  }
+  return minDist;
+}
+
+async function _verificarDesvioRota(lat, lon, prox) {
+  const agora = Date.now();
+  if (agora - _ultimoRecalculo < 10000) return; // no máximo 1x a cada 10s
+  const dist = _distPontoLinha(lat, lon, _cacheLinhaProxima);
+  if (dist > 60) {
+    _ultimoRecalculo = agora;
+    ultimaProximaId = null;
+    desenharRotaProxima([lat, lon], prox);
+  }
+}
+
 async function enviarPosicaoSupabase(lat, lon, acc=0) {
   try {
     const ts = agoraISO();
@@ -807,14 +901,6 @@ async function executarMarcarEntregue(id, nome) {
   p.entregue_em = agoraISO();
   cacheRotaCompleta = null; cacheRotaCompletaKey = ''; ultimaProximaId = null;
   setGJ('rota-proxima', null);
-  const pendentesRestantes = paradasList.filter(x => x.coords && x.status !== 'entregue');
-  if (pendentesRestantes.length) {
-    desenharRotaCompleta(pendentesRestantes);
-    desenharRotaVolta(pendentesRestantes);
-  } else {
-    setGJ('rota-completa', null);
-    setGJ('rota-volta', null);
-  }
 
   // Salva progresso no banco (só para rota normal — rota aleatória é gerenciada pela fila)
   if (!rotaAtual._ehAleatoria) {
@@ -842,14 +928,47 @@ async function executarMarcarEntregue(id, nome) {
 
 // ===== OSRM =====
 async function buscarOSRM(pontos) {
-  if (pontos.length < 2) return null;
-  const url = `${OSRM_BASE}${pontos.map(p=>`${p[1]},${p[0]}`).join(';')}?overview=full&geometries=geojson&steps=false`;
+  if (!pontos || pontos.length < 2) return null;
+  const coordStr = pontos.map(p => `${p[1]},${p[0]}`).join(';');
+
+  // 1) OSRM servidor principal
+  const osrmServers = [
+    'https://router.project-osrm.org/route/v1/driving/',
+    'https://routing.openstreetmap.de/routed-car/route/v1/driving/',
+  ];
+  for (const base of osrmServers) {
+    try {
+      const url = `${base}${coordStr}?overview=full&geometries=geojson&steps=false`;
+      const r = await _fetchTimeout(url, {}, 7000);
+      if (!r.ok) continue;
+      const j = await r.json();
+      if (j.code === 'Ok' && j.routes?.[0]?.geometry?.coordinates?.length > 1) {
+        console.log('[Rota] OSRM OK:', base);
+        return j.routes[0].geometry.coordinates;
+      }
+    } catch(e) { console.warn('[Rota] OSRM falhou:', e.message); }
+  }
+
+  // 2) Valhalla — otima cobertura no Brasil
   try {
-    const r = await fetch(url, { signal:AbortSignal.timeout(8000) });
-    if (!r.ok) return null;
-    const j = await r.json();
-    return j.code==='Ok' && j.routes?.length ? j.routes[0].geometry.coordinates : null;
-  } catch(e) { return null; }
+    const locations = pontos.map(p => ({ lon: p[1], lat: p[0] }));
+    const body = JSON.stringify({ locations, costing: 'auto', directions_options: { units: 'km' } });
+    const r = await _fetchPostTimeout('https://valhalla.openstreetmap.de/route', body, 10000);
+    if (r.ok) {
+      const j = await r.json();
+      if (j.trip?.legs?.length) {
+        const allCoords = [];
+        for (const leg of j.trip.legs) { allCoords.push(..._decodPoly6(leg.shape)); }
+        if (allCoords.length > 1) {
+          console.log('[Rota] Valhalla OK:', allCoords.length, 'pontos');
+          return allCoords;
+        }
+      }
+    }
+  } catch(e) { console.warn('[Rota] Valhalla falhou:', e.message); }
+
+  console.warn('[Rota] Todos falharam - linha reta');
+  return null;
 }
 function setGJ(src, coords, fallbackPts) {
   try {
@@ -859,31 +978,35 @@ function setGJ(src, coords, fallbackPts) {
   } catch(e){}
 }
 async function desenharRotaCompleta(paradas) {
+  if (!paradas.length) { setGJ('rota-completa',null); setGJ('rota-volta',null); return; }
+
+  // IDA: fábrica → todos os clientes (vermelho)
+  const pontosIda = [FABRICA, ...paradas.map(p=>p.coords)];
+  // VOLTA: último cliente → fábrica (laranja)
+  const pontosVolta = [paradas[paradas.length-1].coords, FABRICA];
+
   const key = paradas.map(p=>p.id+p.status).join('|');
-  let coords;
-  if (cacheRotaCompletaKey===key && cacheRotaCompleta) { coords = cacheRotaCompleta; }
-  else { coords = await buscarOSRM([FABRICA,...paradas.map(p=>p.coords)]); if(coords){cacheRotaCompleta=coords;cacheRotaCompletaKey=key;} }
-  setGJ('rota-completa', coords, [FABRICA,...paradas.map(p=>p.coords)]);
+  let coordsIda;
+  if (cacheRotaCompletaKey===key && cacheRotaCompleta) {
+    coordsIda = cacheRotaCompleta;
+  } else {
+    coordsIda = await buscarOSRM(pontosIda);
+    if (coordsIda) { cacheRotaCompleta=coordsIda; cacheRotaCompletaKey=key; }
+  }
+  setGJ('rota-completa', coordsIda, pontosIda);
+
+  // Volta sempre busca separado (sem cache pois depende da posição atual)
+  const coordsVolta = await buscarOSRM(pontosVolta);
+  setGJ('rota-volta', coordsVolta, pontosVolta);
 }
 async function desenharRotaProxima(pa, prox) {
-  if (!prox?.coords) { setGJ('rota-proxima',null); ultimaProximaId=null; return; }
-  // Se ainda não tem GPS, parte da fábrica
-  const origem = pa || FABRICA;
-  if (ultimaProximaId===prox.id && pa) return; // só pula cache se já tem GPS real
+  if (!pa || !prox?.coords) { setGJ('rota-proxima',null); ultimaProximaId=null; return; }
+  if (ultimaProximaId===prox.id) return;
   ultimaProximaId = prox.id;
-  const coords = await buscarOSRM([origem, prox.coords]);
-  setGJ('rota-proxima', coords, [origem, prox.coords]);
+  const coords = await buscarOSRM([pa, prox.coords]);
+  setGJ('rota-proxima', coords, [pa, prox.coords]);
   // Fala instrução da próxima manobra
   setTimeout(() => iniciarNavegacaoVoz(), 800);
-}
-
-async function desenharRotaVolta(paradas) {
-  const pendentes = paradas.filter(p => p.coords && p.status !== 'entregue');
-  if (!pendentes.length) { setGJ('rota-volta', null); return; }
-  const ultima = pendentes[pendentes.length - 1];
-  const pts = [ultima.coords, FABRICA];
-  const coords = await buscarOSRM(pts);
-  setGJ('rota-volta', coords, pts);
 }
 
 // ===== NAVEGAÇÃO AVULSA =====
@@ -1143,16 +1266,29 @@ function renderizarMarcadores() {
     .addTo(map);
   marcadoresMapLibre.push(fm);
 
-  // Rotas
+  // Linha vermelha: uma rota por vez
+  // Se tem rota em andamento → mostra ela; senão → mostra a próxima rota a sair
   const pCoordsArr = paradasList.filter(p=>p.coords);
   if (pCoordsArr.length) {
+    // Rota em andamento → usa paradasList
     desenharRotaCompleta(pCoordsArr);
-    desenharRotaVolta(pCoordsArr);
   } else {
-    setGJ('rota-completa', null);
-    setGJ('rota-volta', null);
+    // Sem rota ativa → pega a próxima rota na fila (menor hora_saida com paradas)
+    const proximaRota = todasAsRotas
+      .filter(r => (r.status==='criada'||r.status==='aguardando') && r.paradas?.length)
+      .sort((a,b) => {
+        const toMin = h => { if(!h) return 9999; const [hh,mm]=h.split(':').map(Number); return hh*60+mm; };
+        return toMin(a.hora_saida) - toMin(b.hora_saida);
+      })[0];
+    if (proximaRota?.paradas?.length) {
+      desenharRotaCompleta(proximaRota.paradas.filter(p=>p.coords));
+    } else {
+      setGJ('rota-completa', null);
+    }
   }
-  desenharRotaProxima(posAtual, prox);
+  // Linha azul: só aparece quando rota está em andamento
+  if (rotaAtual) desenharRotaProxima(posAtual, prox);
+  else setGJ('rota-proxima', null);
 
   // Clientes
   grupos.forEach(({ coords, clientes }) => {
@@ -1856,7 +1992,7 @@ async function iniciarNavegacaoVoz() {
   if (!prox) return;
   try {
     const url = `${OSRM_BASE}${posAtual[1]},${posAtual[0]};${prox.coords[1]},${prox.coords[0]}?overview=full&geometries=geojson&steps=true`;
-    const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    const r = await _fetchTimeout(url, {}, 6000);
     if (!r.ok) return;
     const j = await r.json();
     if (j.code !== 'Ok' || !j.routes?.length) return;
