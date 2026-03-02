@@ -782,6 +782,7 @@ function setBadge(on, txt) {
 
 // ===== PROXIMIDADE =====
 async function verificarProximidade(lat, lon) {
+  if (rotaAtual?.status === 'concluido') return;
   // Se todas entregues, verifica se chegou na fábrica
   if (rotaAtual && paradasList.length && paradasList.every(p => p.status==='entregue')) {
     const distFab = calcDistM(lat, lon, FABRICA[0], FABRICA[1]);
