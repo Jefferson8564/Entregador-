@@ -1168,7 +1168,6 @@ async function carregarDados() {
         const endereco = p.endereco || cli?.delivery_address || '';
 
         // Status preservado se rota já em andamento
-        // Preserva status salvo tanto em rotas em andamento quanto concluídas
         const _paradaSalva = (rota.status==='em_andamento'||rota.status==='concluido') ? rota.paradas?.find(a=>a.cliente_phone===p.cliente_phone) : null;
         const statusSalvo = _paradaSalva?.status || 'pendente';
 
@@ -1202,7 +1201,10 @@ async function carregarDados() {
   await verificarAutoInicioRotas(horaAgora);
 
   const em = todasAsRotas.find(r=>r.status==='em_andamento');
-  rotaAtual = em||null; paradasList = em?.paradas||[];
+  // Se não há rota em andamento, verifica se há uma concluída hoje para mostrar o resumo
+  const concluida = !em ? todasAsRotas.find(r=>r.status==='concluido') : null;
+  rotaAtual = em || concluida || null;
+  paradasList = rotaAtual?.paradas || [];
   renderTudo();
   if (map.isStyleLoaded()) renderizarMarcadores();
   else map.once('load', renderizarMarcadores);
@@ -1316,11 +1318,11 @@ function renderizarMarcadores() {
     .addTo(map);
   marcadoresMapLibre.push(fm);
 
-  // Linhas: só aparecem se há clientes reais pendentes. Rota concluida → sem linhas.
-  const pCoordsArr = paradasList.filter(p=>p.coords);
-  if (pCoordsArr.length && rotaAtual) {
-    desenharRotaCompleta(pCoordsArr);
-  } else if (!rotaAtual) {
+  // Linhas: só aparecem se há clientes pendentes. Rota concluida → sem linhas.
+  const pCoordsArr = paradasList.filter(p=>p.coords && p.status!=='entregue');
+  if (pCoordsArr.length && rotaAtual?.status==='em_andamento') {
+    desenharRotaCompleta(paradasList.filter(p=>p.coords));
+  } else if (!rotaAtual || rotaAtual.status==='concluido') {
     const proximaRota = todasAsRotas
       .filter(r => (r.status==='criada'||r.status==='aguardando') && r.paradas?.filter(p=>p.coords)?.length)
       .sort((a,b) => {
@@ -1338,8 +1340,8 @@ function renderizarMarcadores() {
     setGJ('rota-completa', null);
     setGJ('rota-volta', null);
   }
-  // Linha azul: só aparece quando rota está em andamento com próxima parada pendente
-  if (rotaAtual && prox) desenharRotaProxima(posAtual, prox);
+  // Linha azul: só quando em andamento com próxima parada
+  if (rotaAtual?.status==='em_andamento' && prox) desenharRotaProxima(posAtual, prox);
   else setGJ('rota-proxima', null);
 
   // Clientes
@@ -1475,17 +1477,20 @@ function renderRotaAtiva() {
   const ent=paradasList.filter(p=>p.status==='entregue').length, total=paradasList.length;
   const pend=total-ent, min=Math.round(pend*mediaMinPorParada);
   const prox=paradasList.find(p=>p.status==='pendente');
+  const eConcluida = rotaAtual.status==='concluido';
   const navBtns=prox?.coords?`<div class="nav-btns"><button class="btn-nav-maps" onclick="navegarMaps(${prox.coords[0]},${prox.coords[1]})">🗺️ Maps</button><button class="btn-nav-waze" onclick="navegarWaze(${prox.coords[0]},${prox.coords[1]})">🚗 Waze</button></div>`:'';
   el.innerHTML=`
   <div class="rota-ativa-card">
-    <div class="rota-ativa-header"><div class="rota-nome">${rotaAtual.nome}</div><div class="rota-status-badge">🟢 Em andamento</div></div>
+    <div class="rota-ativa-header"><div class="rota-nome">${rotaAtual.nome}</div><div class="rota-status-badge" style="${eConcluida?'background:rgba(85,85,85,0.2);color:#888;border-color:rgba(85,85,85,0.3);':''}">
+      ${eConcluida?'✅ Concluída':'🟢 Em andamento'}</div></div>
     <div class="rota-stats">
       <div class="rota-stat"><div class="rota-stat-val" style="color:var(--green);">${ent}</div><div class="rota-stat-lbl">Entregues</div></div>
       <div class="rota-stat"><div class="rota-stat-val" style="color:var(--primary);">${pend}</div><div class="rota-stat-lbl">Restantes</div></div>
-      <div class="rota-stat"><div class="rota-stat-val" style="color:var(--blue);">${min}</div><div class="rota-stat-lbl">min est.</div></div>
+      <div class="rota-stat"><div class="rota-stat-val" style="color:var(--blue);">${eConcluida?'—':min}</div><div class="rota-stat-lbl">min est.</div></div>
     </div>
   </div>
-  <button onclick="abrirFinalizarRota()" style="width:100%;margin-top:0;margin-bottom:8px;padding:11px;border:1px solid rgba(0,232,122,0.3);border-radius:14px;background:rgba(0,232,122,0.08);color:var(--green);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.2px;">🏁 Finalizar rota</button>
+  ${eConcluida ? '<div style="text-align:center;padding:10px 0 4px;font-size:13px;color:var(--text-muted);">🏭 Rota finalizada. Novos pedidos entram após as 14h.</div>' :
+  `<button onclick="abrirFinalizarRota()" style="width:100%;margin-top:0;margin-bottom:8px;padding:11px;border:1px solid rgba(0,232,122,0.3);border-radius:14px;background:rgba(0,232,122,0.08);color:var(--green);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.2px;">🏁 Finalizar rota</button>`}
   ${prox?`<div class="proxima-card" id="proximaCard">
     <div class="proxima-lbl">▶ Próxima parada</div>
     <div class="proxima-nome">${prox.nome}</div>
