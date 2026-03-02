@@ -210,7 +210,7 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); col
       <div class="pag-icon">💰</div>
       <div class="pag-info">
         <div class="pag-title" id="pagNome">Cliente pagou?</div>
-        <div class="pag-sub">Pagar na entrega</div>
+        <div class="pag-sub" id="pagSub">Pagar na entrega</div>
       </div>
       <div class="pag-valor" id="pagValor">R$ 0,00</div>
     </div>
@@ -395,6 +395,39 @@ function horasBRT(d) {
 function hojeStr() {
   const p = _partesSP();
   return `${p.year}-${p.month}-${p.day}`;
+}
+
+/**
+ * Janela de pedido com a regra das 14h:
+ * - Antes das 14h: janela = ontem 14h → hoje 13:59
+ * - Depois das 14h: janela = hoje 14h → amanhã 13:59
+ * Retorna { inicio, fim } como strings ISO com offset de SP.
+ */
+function _janelaPedido() {
+  const agora = new Date();
+  const p = _partesSP(agora);
+  const hoje = `${p.year}-${p.month}-${p.day}`;
+  const horaAtual = parseInt(p.hour) * 60 + parseInt(p.minute);
+  const corte14h = 14 * 60;
+
+  let diaInicio, diaFim;
+  if (horaAtual >= corte14h) {
+    // Depois das 14h → janela começa hoje 14h, vai até amanhã 13:59
+    diaInicio = hoje;
+    const amanhaDate = new Date(agora.getTime() + 86400000);
+    const pa = _partesSP(amanhaDate);
+    diaFim = `${pa.year}-${pa.month}-${pa.day}`;
+  } else {
+    // Antes das 14h → janela começa ontem 14h, vai até hoje 13:59
+    const ontemDate = new Date(agora.getTime() - 86400000);
+    const po = _partesSP(ontemDate);
+    diaInicio = `${po.year}-${po.month}-${po.day}`;
+    diaFim = hoje;
+  }
+  return {
+    inicio: diaInicio + 'T14:00:00-03:00',
+    fim:    diaFim   + 'T13:59:59-03:00'
+  };
 }
 
 /**
@@ -667,7 +700,7 @@ async function processarPosicao(pos) {
   const agora = Date.now();
   if (agora - ultimoEnvioGPS >= THROTTLE_GPS_MS) {
     ultimoEnvioGPS = agora;
-    await enviarPosicaoSupabase(lat, lon, acc);
+    await enviarPosicaoSupabase(lat, lon, acc, speedKmh);
   }
   if (rotaAtual && paradasList.length) await verificarProximidade(lat, lon);
   if (rotaAtual) {
@@ -725,19 +758,19 @@ async function _verificarDesvioRota(lat, lon, prox) {
   }
 }
 
-async function enviarPosicaoSupabase(lat, lon, acc=0) {
+async function enviarPosicaoSupabase(lat, lon, acc=0, vel=0) {
   try {
     const ts = agoraISO();
     if (rotaAtual?.id) {
       // GPS direto na rotas — cardápio lê via Realtime
       await sb.from("rotas")
         .update({ gps_lat:lat, gps_lon:lon, gps_ts:ts, gps_precisao:acc,
-                  posicao_entregador:{lat,lon,ts,precisao:acc,velocidade:speedKmh} })
+                  posicao_entregador:{lat,lon,ts,precisao:acc,velocidade:vel} })
         .eq("id", rotaAtual.id);
     }
     // Sempre salva posição avulsa no rota_especial_gps — cardápio consegue ver mesmo sem rota ativa
     await sb.from("rota_especial_gps").upsert(
-      { chave: "entregador_gps", valor: JSON.stringify({ lat, lon, ts, precisao: acc, velocidade: speedKmh }) },
+      { chave: "entregador_gps", valor: JSON.stringify({ lat, lon, ts, precisao: acc, velocidade: vel }) },
       { onConflict: "chave" }
     );
   } catch(e) { console.warn("GPS send:", e); }
@@ -793,6 +826,11 @@ async function verificarProximidade(lat, lon) {
     } else {
       chip.className = 'proximidadeChip longe';
       chip.textContent = dist<=200 ? `🛵 ${Math.round(dist)}m de ${prox.nome}` : `🏁 ${Math.round(dist)}m — ${prox.nome}`;
+      // Se saiu da área antes do timer concluir, cancela o timer e reseta estado
+      if (paradaAtualId === prox.id && _timersEntrega[prox.id]) {
+        clearTimeout(_timersEntrega[prox.id]);
+        delete _timersEntrega[prox.id];
+      }
       estavaNaParada = false; paradaAtualId = null;
       renderProximaCard(prox, dist);
     }
@@ -805,12 +843,12 @@ let _timersEntrega = {}; // guarda timers por parada id
 async function iniciarFluxoEntrega(parada) {
   if (_timersEntrega[parada.id]) return; // já iniciado
 
-  // Busca pedido do dia
-  const hoje = hojeStr();
+  // Busca pedido na janela correta (regra das 14h)
+  const _janelaEnt = _janelaPedido();
   const { data: pedidos } = await sb.from("pedidos")
     .select("id,total,payment_method,customer_name")
     .eq("customer_phone", parada.cliente_phone)
-    .gte("created_at", hoje+'T00:00:00').lte("created_at", hoje+'T23:59:59')
+    .gte("created_at", _janelaEnt.inicio).lte("created_at", _janelaEnt.fim)
     .order("created_at",{ascending:false}).limit(1);
 
   const pedido = pedidos?.[0] || null;
@@ -1069,12 +1107,15 @@ async function carregarDados() {
   const horaAgora = agoraBRT.getHours() * 60 + agoraBRT.getMinutes(); // minutos desde meia-noite (BRT)
   const diaSemana = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][agoraBRT.getDay()];
 
+  // Regra das 14h: pedidos após 14h entram na rota do dia seguinte
+  const _janela = _janelaPedido();
+
   const [{ data:rotas },{ data:clientes },{ data:pedidosHoje }] = await Promise.all([
     sb.from("rotas").select('*').order("hora_saida",{ascending:true}),
     sb.from("cadastros").select("*"),
     sb.from("pedidos")
       .select("customer_phone, customer_name, total, payment_method, id, items")
-      .gte("created_at",hoje+'T00:00:00').lte("created_at",hoje+'T23:59:59')
+      .gte("created_at", _janela.inicio).lte("created_at", _janela.fim)
   ]);
 
   const phonesComPedido = new Set((pedidosHoje||[]).map(p=>p.customer_phone).filter(Boolean));
