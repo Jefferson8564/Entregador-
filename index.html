@@ -782,25 +782,29 @@ function setBadge(on, txt) {
 
 // ===== PROXIMIDADE =====
 async function verificarProximidade(lat, lon) {
-  if (rotaAtual?.status === 'concluido') return;
   // Se todas entregues, verifica se chegou na fábrica
-  if (rotaAtual && paradasList.length && paradasList.every(p => p.status==='entregue')) {
+  if (rotaAtual && !rotaAtual._ehAleatoria && paradasList.length && paradasList.every(p => p.status==='entregue')) {
+    if (_finalizandoRota) return; // já está finalizando, ignora chamadas duplicadas
     const distFab = calcDistM(lat, lon, FABRICA[0], FABRICA[1]);
     const chip = document.getElementById('proximidadeChip');
     chip.style.display = 'block';
     if (distFab <= RAIO_ENTREGA * 3) {
+      _finalizandoRota = true;
       chip.className = 'proximidadeChip chegando';
       chip.textContent = '🏭 Chegou na fábrica!';
       const rotaId = rotaAtual.id;
       rotaAtual = null; setGJ('rota-completa',null); setGJ('rota-proxima',null);
-      await sb.from("rotas").update({
-        status:'concluido', fim_em:agoraISO(),
-        gps_lat:null, gps_lon:null, gps_ts:null
-      }).eq("id", rotaId);
+      try {
+        await sb.from("rotas").update({
+          status:'concluido', fim_em:agoraISO(),
+          gps_lat:null, gps_lon:null, gps_ts:null
+        }).eq("id", rotaId);
+      } catch(e) { console.warn('Erro ao finalizar rota na fábrica:', e); }
       chip.style.display = 'none';
       falarVoz('Rota finalizada. Você chegou à fábrica.');
       showToast('🏭 Rota finalizada!', 'success');
       renderTudo(); renderizarMarcadores();
+      _finalizandoRota = false;
     } else {
       chip.className = 'proximidadeChip longe';
       chip.textContent = `🏭 ${Math.round(distFab)}m da fábrica`;
@@ -839,6 +843,7 @@ async function verificarProximidade(lat, lon) {
 
 // ===== FLUXO DE ENTREGA: popup + timer 5s + voz =====
 let _timersEntrega = {}; // guarda timers por parada id
+let _finalizandoRota = false; // flag para evitar finalização duplicada
 
 async function iniciarFluxoEntrega(parada) {
   if (_timersEntrega[parada.id]) return; // já iniciado
@@ -1818,7 +1823,10 @@ async function tickRotaAleatoria(lat, lon) {
   if (!_dentroFabrica && dentroAgora) {
     _dentroFabrica = true;
     if (rotaAtual?._ehAleatoria) {
-      await finalizarSaidaAleatoria();
+      if (_finalizandoRota) return; // já está finalizando
+      _finalizandoRota = true;
+      try { await finalizarSaidaAleatoria(); } catch(e) { console.warn(e); }
+      _finalizandoRota = false;
     }
     await carregarConfigRA();
     const filaAcum = (_raConfig?.clientes_fila || []).filter(c => c.status === 'pendente').length;
