@@ -1249,24 +1249,38 @@ async function verificarAutoInicioRotas(horaAgoraMin) {
   // Já tem rota em andamento → nada a fazer
   if (todasAsRotas.some(r=>r.status==='em_andamento')) return;
 
+  const toMin = h => { if (!h) return 9999; const [hh,mm]=(h||'0:0').split(':').map(Number); return hh*60+mm; };
+
   // Encontra rotas prontas: status criada/aguardando, com paradas, e horário chegou
   const candidatas = todasAsRotas.filter(r => {
     if (r.status==='em_andamento'||r.status==='concluido') return false;
     if (!r.paradas?.length) return false;
-    if (!r.hora_saida) return true; // sem horário definido → sempre elegível
-    const [h,m] = r.hora_saida.split(':').map(Number);
-    const horaSaida = h*60 + m;
-    // Só inicia se estiver dentro da janela: horário chegou E não passou mais de 60 min
-    return horaAgoraMin >= horaSaida && horaAgoraMin <= horaSaida + 60;
+    const horaSaida = toMin(r.hora_saida);
+    // Horário ainda não chegou
+    if (r.hora_saida && horaAgoraMin < horaSaida) return false;
+    // Passou mais de 90 min sem iniciar → janela expirou
+    if (r.hora_saida && horaAgoraMin > horaSaida + 90) return false;
+    return true;
   });
 
   if (candidatas.length === 0) return;
 
-  // Sempre inicia automaticamente: escolhe a de horário mais cedo (ou a primeira da lista)
-  const melhor = candidatas.sort((a, b) => {
-    const toMin = h => { if (!h) return 9999; const [hh,mm]=h.split(':').map(Number); return hh*60+mm; };
-    return toMin(a.hora_saida) - toMin(b.hora_saida);
-  })[0];
+  // Escolhe a candidata de horário mais cedo
+  const melhor = candidatas.sort((a, b) => toMin(a.hora_saida) - toMin(b.hora_saida))[0];
+
+  // REGRA: Só inicia se todas as rotas com horário ANTERIOR já estão concluídas
+  const horaMelhor = toMin(melhor.hora_saida);
+  const rotasAnterioresPendentes = todasAsRotas.filter(r => {
+    if (r.id === melhor.id) return false;
+    if (r.status === 'concluido') return false; // já concluída → ok
+    const h = toMin(r.hora_saida);
+    return h < horaMelhor; // tem horário anterior e NÃO está concluída
+  });
+
+  if (rotasAnterioresPendentes.length > 0) {
+    console.log('[AutoInício] Aguardando conclusão de rotas anteriores:', rotasAnterioresPendentes.map(r=>r.nome));
+    return;
+  }
 
   await iniciarRota(melhor);
 }
@@ -1485,22 +1499,29 @@ function renderRotaAtiva() {
   if(!rotaAtual){
     const agora = new Date();
     const horaAgoraMin = horasBRT(agora).getHours()*60 + horasBRT(agora).getMinutes();
+    const toMin = h => { if(!h) return 9999; const [hh,mm]=h.split(':').map(Number); return hh*60+(mm||0); };
     const disponiveis=todasAsRotas.filter(r=>(r.status==='criada'||r.status==='aguardando')&&r.paradas?.length);
     if(disponiveis.length>0){
-      el.innerHTML=`<div style="text-align:center;padding:32px 20px 16px;">
-        <div style="font-size:48px;margin-bottom:12px;">🛵</div>
-        <div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:900;color:var(--text);margin-bottom:6px;">Pronto para sair?</div>
-        <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px;line-height:1.6;">${disponiveis.length} rota${disponiveis.length>1?'s disponíveis':' disponível'} com pedidos de hoje.</div>
-        ${disponiveis.map(r=>{
-          const horaSaidaMin = r.hora_saida ? (Number(r.hora_saida.split(':')[0])*60 + Number(r.hora_saida.split(':')[1])) : 0;
-          const liberado = !r.hora_saida || horaAgoraMin >= horaSaidaMin;
-          return liberado ? `<button onclick="iniciarRotaManual('${r.id}')" style="display:block;width:100%;padding:16px;margin-bottom:10px;background:linear-gradient(135deg,rgba(245,166,35,0.18),rgba(255,140,0,0.1));border:1px solid rgba(245,166,35,0.45);border-radius:16px;color:var(--primary);font-family:'Syne',sans-serif;font-size:15px;font-weight:900;cursor:pointer;text-align:left;">
-                <div>🛵 ${r.nome}</div>
-                <div style="font-size:11px;font-weight:700;color:var(--text-muted);margin-top:4px;">📦 ${r.paradas.length} entrega${r.paradas.length!==1?'s':''} ${r.hora_saida?'· ⏰ '+r.hora_saida.substring(0,5):''}</div>
-              </button>`: `<div style="display:block;width:100%;padding:16px;margin-bottom:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:16px;text-align:left;box-sizing:border-box;">
-                <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:900;color:var(--text-muted);">🕐 ${r.nome}</div>
-                <div style="font-size:11px;font-weight:700;color:var(--text-muted);margin-top:4px;">📦 ${r.paradas.length} entrega${r.paradas.length!==1?'s':''} · Disponível às ${r.hora_saida.substring(0,5)}</div>
-              </div>`;
+      // Ordena por horário de saída
+      const ordenadas = [...disponiveis].sort((a,b)=>toMin(a.hora_saida)-toMin(b.hora_saida));
+      el.innerHTML=`<div style="padding:20px 16px 8px;">
+        <div style="font-size:36px;text-align:center;margin-bottom:10px;">🕐</div>
+        <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:900;color:var(--text);text-align:center;margin-bottom:6px;">Aguardando horário</div>
+        <div style="font-size:12px;color:var(--text-muted);text-align:center;margin-bottom:20px;line-height:1.6;">As rotas iniciam automaticamente no horário programado, após a rota anterior ser concluída.</div>
+        ${ordenadas.map((r,i)=>{
+          const hMin = toMin(r.hora_saida);
+          const jaNoHorario = horaAgoraMin >= hMin;
+          // Verifica se há rota anterior pendente
+          const anteriorPendente = todasAsRotas.some(x => x.id!==r.id && x.status!=='concluido' && toMin(x.hora_saida)<hMin);
+          const statusTxt = anteriorPendente ? '⏳ Aguardando rota anterior' : jaNoHorario ? '🟢 Iniciando...' : `🕐 Inicia às ${r.hora_saida?r.hora_saida.substring(0,5):'--'}`;
+          const corBorda = anteriorPendente ? 'rgba(255,255,255,0.1)' : jaNoHorario ? 'rgba(0,232,122,0.4)' : 'rgba(245,166,35,0.3)';
+          return `<div style="padding:14px;margin-bottom:8px;background:var(--surface2);border:1px solid ${corBorda};border-radius:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;">${r.nome}</div>
+              <span style="font-size:10px;font-weight:700;color:var(--text-muted);">${statusTxt}</span>
+            </div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:5px;">📦 ${r.paradas.length} entrega${r.paradas.length!==1?'s':''} ${r.hora_saida?'· ⏰ '+r.hora_saida.substring(0,5):''}</div>
+          </div>`;
         }).join('')}
       </div>`;
     } else {
@@ -1611,8 +1632,13 @@ function renderTodasRotas() {
     const horaAgoraMin = horasBRT(agora).getHours()*60 + horasBRT(agora).getMinutes();
     const horaSaidaMin = r.hora_saida ? (Number(r.hora_saida.split(':')[0])*60 + Number(r.hora_saida.split(':')[1])) : 0;
     const horarioLiberado = !r.hora_saida || horaAgoraMin >= horaSaidaMin;
-    const podeIniciar=(r.status==='criada'||r.status==='aguardando')&&tot>0&&r.id!==rotaAtual?.id&&horarioLiberado&&!rotaAtual&&!rotaAtual?._ehAleatoria;
-    const btnIniciar=podeIniciar ? `<button onclick="iniciarRotaManual('${r.id}')" style="margin-top:12px;width:100%;padding:12px;border:1px solid rgba(245,166,35,0.45);border-radius:12px;background:rgba(245,166,35,0.12);color:var(--primary);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:800;cursor:pointer;">🛵 Iniciar esta rota</button>`: (r.status==='criada'||r.status==='aguardando')&&tot>0&&r.hora_saida&&!horarioLiberado ? `<div style="margin-top:10px;font-size:12px;color:var(--text-muted);text-align:center;">⏰ Disponível às ${r.hora_saida.substring(0,5)}</div>`: '';
+    // Verifica se há rota anterior pendente (bloqueante)
+    const toMin2 = h => { if(!h) return 9999; const [hh,mm]=h.split(':').map(Number); return hh*60+(mm||0); };
+    const anteriorPendente = todasAsRotas.some(x => x.id!==r.id && x.status!=='concluido' && toMin2(x.hora_saida)<toMin2(r.hora_saida));
+    const btnIniciar = (r.status==='criada'||r.status==='aguardando')&&tot>0 ?
+      anteriorPendente ? `<div style="margin-top:10px;font-size:11px;color:var(--text-muted);text-align:center;">⏳ Aguarda conclusão da rota anterior</div>` :
+      !horarioLiberado ? `<div style="margin-top:10px;font-size:11px;color:var(--text-muted);text-align:center;">🕐 Inicia automaticamente às ${r.hora_saida.substring(0,5)}</div>` :
+      `<div style="margin-top:10px;font-size:11px;color:var(--green);text-align:center;font-weight:700;">🟢 Iniciando automaticamente...</div>` : '';
     return `<div style="background:var(--surface2);border-radius:16px;padding:14px;margin-bottom:8px;border-left:3px solid ${cor};">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;">
         <div><div style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;">${r.nome}</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px;">⏰ ${r.hora_saida||'--'} · ${(r.dias_semana||[]).join(' ')}</div></div>
@@ -1744,25 +1770,7 @@ async function executarFinalizarRota() {
   }, 3000);
 }
 
-async function iniciarRotaManual(rotaId) {
-  const rota = todasAsRotas.find(r=>r.id===rotaId);
-  if (!rota) return;
-
-  // Verifica horário — nunca inicia antes do horário definido
-  if (rota.hora_saida) {
-    const agora = new Date();
-    const horaAgoraMin = horasBRT(agora).getHours()*60 + horasBRT(agora).getMinutes();
-    const [h,m] = rota.hora_saida.split(':').map(Number);
-    const horaSaidaMin = h*60 + m;
-    if (horaAgoraMin < horaSaidaMin) {
-      showToast(`⏰ Esta rota só pode iniciar às ${rota.hora_saida.substring(0,5)}`, 'error');
-      return;
-    }
-  }
-
-  await iniciarRota(rota);
-  fecharPainel();
-}
+// iniciarRotaManual removido — início é 100% automático por horário e conclusão de rota anterior
 
 // ===== TABS =====
 let tabAtual = 'rota';
