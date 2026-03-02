@@ -781,31 +781,40 @@ function setBadge(on, txt) {
 }
 
 // ===== PROXIMIDADE =====
+let _finalizandoRota = false; // guard para evitar dupla finalização
 async function verificarProximidade(lat, lon) {
+  // Rota já concluída → não faz nada (evita loop infinito causado pelo carregarDados via Realtime)
+  if (!rotaAtual || rotaAtual.status === 'concluido') {
+    document.getElementById('proximidadeChip').style.display = 'none';
+    return;
+  }
+
   // Se todas entregues, verifica se chegou na fábrica
-  if (rotaAtual && !rotaAtual._ehAleatoria && paradasList.length && paradasList.every(p => p.status==='entregue')) {
-    if (_finalizandoRota) return; // já está finalizando, ignora chamadas duplicadas
+  if (paradasList.length && paradasList.every(p => p.status==='entregue')) {
     const distFab = calcDistM(lat, lon, FABRICA[0], FABRICA[1]);
     const chip = document.getElementById('proximidadeChip');
     chip.style.display = 'block';
-    if (distFab <= RAIO_ENTREGA * 3) {
+    const RAIO_FABRICA_RETORNO = 150; // raio maior e separado para retorno à fábrica
+    if (distFab <= RAIO_FABRICA_RETORNO && !_finalizandoRota) {
       _finalizandoRota = true;
       chip.className = 'proximidadeChip chegando';
       chip.textContent = '🏭 Chegou na fábrica!';
       const rotaId = rotaAtual.id;
-      rotaAtual = null; setGJ('rota-completa',null); setGJ('rota-proxima',null);
+      // Limpa estado local ANTES da chamada ao banco para evitar re-execução
+      rotaAtual = null; paradasList = [];
+      setGJ('rota-completa',null); setGJ('rota-proxima',null);
       try {
         await sb.from("rotas").update({
           status:'concluido', fim_em:agoraISO(),
           gps_lat:null, gps_lon:null, gps_ts:null
         }).eq("id", rotaId);
-      } catch(e) { console.warn('Erro ao finalizar rota na fábrica:', e); }
+      } catch(e) { console.error('Erro ao finalizar rota GPS:', e); }
       chip.style.display = 'none';
+      _finalizandoRota = false;
       falarVoz('Rota finalizada. Você chegou à fábrica.');
       showToast('🏭 Rota finalizada!', 'success');
       renderTudo(); renderizarMarcadores();
-      _finalizandoRota = false;
-    } else {
+    } else if (!_finalizandoRota) {
       chip.className = 'proximidadeChip longe';
       chip.textContent = `🏭 ${Math.round(distFab)}m da fábrica`;
     }
@@ -831,11 +840,13 @@ async function verificarProximidade(lat, lon) {
     } else {
       chip.className = 'proximidadeChip longe';
       chip.textContent = dist<=200 ? `🛵 ${Math.round(dist)}m de ${prox.nome}` : `🏁 ${Math.round(dist)}m — ${prox.nome}`;
-      if (paradaAtualId === prox.id && _timersEntrega[prox.id]) {
+      // Só cancela o timer se a pessoa se afastou significativamente (>120m)
+      // Isso evita que oscilação de GPS (±20-50m) cancele e reinicie o fluxo de entrega
+      if (paradaAtualId === prox.id && _timersEntrega[prox.id] && dist > 120) {
         clearTimeout(_timersEntrega[prox.id]);
         delete _timersEntrega[prox.id];
+        estavaNaParada = false; paradaAtualId = null;
       }
-      estavaNaParada = false; paradaAtualId = null;
       renderProximaCard(prox, dist);
     }
   }
@@ -843,7 +854,6 @@ async function verificarProximidade(lat, lon) {
 
 // ===== FLUXO DE ENTREGA: popup + timer 5s + voz =====
 let _timersEntrega = {}; // guarda timers por parada id
-let _finalizandoRota = false; // flag para evitar finalização duplicada
 
 async function iniciarFluxoEntrega(parada) {
   if (_timersEntrega[parada.id]) return; // já iniciado
@@ -940,6 +950,12 @@ async function confirmarEntregaModal() {
 async function executarMarcarEntregue(id, nome) {
   const p = paradasList.find(x => x.id===id);
   if (!p || p.status==='entregue') return;
+  // Guard: rotaAtual pode ter sido limpo por race condition — aborta para não perder a entrega
+  if (!rotaAtual) {
+    console.warn('[Entrega] rotaAtual nulo ao confirmar entrega de', nome, '— aguardando recarregamento');
+    showToast(`⚠️ Aguardando conexão... Confirme manualmente se necessário`, 'warn');
+    return;
+  }
   p.status = 'entregue';
   p.entregue_em = agoraISO();
   cacheRotaCompleta = null; cacheRotaCompletaKey = ''; ultimaProximaId = null;
@@ -1207,10 +1223,22 @@ async function carregarDados() {
   await verificarAutoInicioRotas(horaAgora);
 
   const em = todasAsRotas.find(r=>r.status==='em_andamento');
-  // Se não há rota em andamento, verifica se há uma concluída hoje para mostrar o resumo
+  // Se há rota em andamento → usa ela. Se não há, só mostra concluída na UI (não restaura como ativa p/ GPS)
   const concluida = !em ? todasAsRotas.find(r=>r.status==='concluido') : null;
-  rotaAtual = em || concluida || null;
-  paradasList = rotaAtual?.paradas || [];
+  // Não restaura rotaAtual se já foi finalizado localmente (evita loop de pop-up na fábrica)
+  if (em) {
+    rotaAtual = em;
+    paradasList = rotaAtual?.paradas || [];
+  } else if (concluida && rotaAtual?.id === concluida.id) {
+    // Mantém referência apenas para UI do resumo, mas não re-ativa o rastreamento GPS
+    rotaAtual = concluida;
+    paradasList = []; // ← IMPORTANTE: limpa lista para não reativar verificarProximidade
+  } else if (!rotaAtual) {
+    // Não havia rota antes e não há agora — pode mostrar a concluída apenas para UI
+    rotaAtual = concluida || null;
+    paradasList = rotaAtual?.status === 'concluido' ? [] : (rotaAtual?.paradas || []);
+  }
+  // Se rotaAtual já foi zerado localmente (finalizarRota GPS), não restaura
   renderTudo();
   if (map.isStyleLoaded()) renderizarMarcadores();
   else map.once('load', renderizarMarcadores);
@@ -1823,10 +1851,7 @@ async function tickRotaAleatoria(lat, lon) {
   if (!_dentroFabrica && dentroAgora) {
     _dentroFabrica = true;
     if (rotaAtual?._ehAleatoria) {
-      if (_finalizandoRota) return; // já está finalizando
-      _finalizandoRota = true;
-      try { await finalizarSaidaAleatoria(); } catch(e) { console.warn(e); }
-      _finalizandoRota = false;
+      await finalizarSaidaAleatoria();
     }
     await carregarConfigRA();
     const filaAcum = (_raConfig?.clientes_fila || []).filter(c => c.status === 'pendente').length;
