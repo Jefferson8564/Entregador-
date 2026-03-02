@@ -1330,19 +1330,14 @@ function renderizarMarcadores() {
       const jaEmRota = ent || isP || isPend;
       const coordsCli = p.coords || (p.delivery_lat ? [parseFloat(p.delivery_lat), parseFloat(p.delivery_lon)] : []);
       const btnAdicionar = !jaEmRota ? `<button onclick="adicionarClienteNaRota('${(p.name||p.nome||'').replace(/'/g,"\'")  }','${p.phone||''}',${JSON.stringify(coordsCli)},'${(p.delivery_address||p.endereco||'').replace(/'/g,"\'")}'  )" style="margin-top:8px;width:100%;padding:8px;border:1px solid rgba(245,166,35,0.5);border-radius:10px;background:rgba(245,166,35,0.12);color:#f5a623;font-size:12px;font-weight:800;cursor:pointer;font-family:'DM Sans',sans-serif;">➕ Adicionar à rota</button>`: '';
-      return `<div style="padding:6px 0;${clientes.length>1?'border-bottom:1px solid rgba(255,255,255,0.08);':''}">
-        <div style="font-weight:800;font-size:13px;">${p.name||p.nome}</div>
-        <div style="font-size:11px;color:rgba(240,240,248,0.55);">📍 ${p.delivery_address||p.endereco||''}</div>
-        ${p.phone?`<div style="font-size:11px;color:rgba(240,240,248,0.45);">📞 ${p.phone}</div>`:''}
-        ${p.debt>0?`<div style="font-size:11px;font-weight:700;color:#ff4757;">💳 Fiado: R$ ${Number(p.debt).toFixed(2).replace('.',',')}</div>`:''}
-        <div style="font-size:11px;font-weight:700;color:${sc};margin-top:2px;">${sl}</div>
-        ${btnAdicionar}
+      return `<div style="padding:4px 2px;text-align:center;">
+        <div style="font-size:22px;margin-bottom:4px;">📍</div>
+        <div style="font-weight:900;font-size:15px;font-family:'Syne',sans-serif;">${p.name||p.nome}</div>
       </div>`;
     }).join('');
 
     const marker = new maplibregl.Marker({ element:el, anchor:'bottom' })
       .setLngLat([coords[1],coords[0]])
-      .setPopup(new maplibregl.Popup({offset:[0,-10],maxWidth:'240px'}).setHTML(`<div style="min-width:160px;max-width:220px;">${popupHTML}</div>`))
       .addTo(map);
     marcadoresMapLibre.push(marker);
 
@@ -1955,7 +1950,7 @@ function toggleVoz() {
     btn.style.background = 'rgba(10,10,15,0.88)';
     showToast('🔊 Voz ativada', 'success');
     // Fala confirmação ao ativar
-    setTimeout(() => falarVoz('Orientações por voz ativadas'), 100);
+    setTimeout(() => falarVoz('Navegação por voz ativada'), 100);
   } else {
     window.speechSynthesis.cancel();
     btn.textContent = '🔇';
