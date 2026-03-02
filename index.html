@@ -826,7 +826,6 @@ async function verificarProximidade(lat, lon) {
     } else {
       chip.className = 'proximidadeChip longe';
       chip.textContent = dist<=200 ? `🛵 ${Math.round(dist)}m de ${prox.nome}` : `🏁 ${Math.round(dist)}m — ${prox.nome}`;
-      // Se saiu da área antes do timer concluir, cancela o timer e reseta estado
       if (paradaAtualId === prox.id && _timersEntrega[prox.id]) {
         clearTimeout(_timersEntrega[prox.id]);
         delete _timersEntrega[prox.id];
@@ -1123,11 +1122,19 @@ async function carregarDados() {
   const pedidoPorPhone = {};
   (pedidosHoje||[]).forEach(p=>{ if(p.customer_phone) pedidoPorPhone[p.customer_phone]=p; });
 
-  // Normaliza nome (coluna "Rotas" com maiuscula no banco)
+
+  // Converte ISO (pode ser UTC) para "YYYY-MM-DD" no fuso de SP
+  function _dataEmSP(isoStr) {
+    if (!isoStr) return null;
+    try { const p = _partesSP(new Date(isoStr)); return `${p.year}-${p.month}-${p.day}`; }
+    catch(e) { return isoStr.slice(0,10); }
+  }
+
+  // Normaliza nome
   const rotasNorm = (rotas||[]).map(r => ({ ...r, nome: r["Rotas"] || r.nome || r.name || "Sem nome" }));
   // Normaliza status das rotas conforme o dia
   todasAsRotas = rotasNorm.map(r => {
-    const cHoje = r.fim_em?.startsWith(hoje), aHoje = r.saida_em?.startsWith(hoje);
+    const cHoje = _dataEmSP(r.fim_em) === hoje, aHoje = _dataEmSP(r.saida_em) === hoje;
     if (r.status==='concluido'&&!cHoje) return {...r,status:'criada'};
     if (r.status==='em_andamento'&&!aHoje) return {...r,status:'criada'};
     return r;
@@ -1161,7 +1168,9 @@ async function carregarDados() {
         const endereco = p.endereco || cli?.delivery_address || '';
 
         // Status preservado se rota já em andamento
-        const statusSalvo = rota.status==='em_andamento' ? (rota.paradas?.find(a=>a.cliente_phone===p.cliente_phone)?.status || 'pendente'): 'pendente';
+        // Preserva status salvo tanto em rotas em andamento quanto concluídas
+        const _paradaSalva = (rota.status==='em_andamento'||rota.status==='concluido') ? rota.paradas?.find(a=>a.cliente_phone===p.cliente_phone) : null;
+        const statusSalvo = _paradaSalva?.status || 'pendente';
 
         return {
           ...p,
@@ -1307,28 +1316,30 @@ function renderizarMarcadores() {
     .addTo(map);
   marcadoresMapLibre.push(fm);
 
-  // Linha vermelha: uma rota por vez
-  // Se tem rota em andamento → mostra ela; senão → mostra a próxima rota a sair
+  // Linhas: só aparecem se há clientes reais pendentes. Rota concluida → sem linhas.
   const pCoordsArr = paradasList.filter(p=>p.coords);
-  if (pCoordsArr.length) {
-    // Rota em andamento → usa paradasList
+  if (pCoordsArr.length && rotaAtual) {
     desenharRotaCompleta(pCoordsArr);
-  } else {
-    // Sem rota ativa → pega a próxima rota na fila (menor hora_saida com paradas)
+  } else if (!rotaAtual) {
     const proximaRota = todasAsRotas
-      .filter(r => (r.status==='criada'||r.status==='aguardando') && r.paradas?.length)
+      .filter(r => (r.status==='criada'||r.status==='aguardando') && r.paradas?.filter(p=>p.coords)?.length)
       .sort((a,b) => {
         const toMin = h => { if(!h) return 9999; const [hh,mm]=h.split(':').map(Number); return hh*60+mm; };
         return toMin(a.hora_saida) - toMin(b.hora_saida);
       })[0];
-    if (proximaRota?.paradas?.length) {
-      desenharRotaCompleta(proximaRota.paradas.filter(p=>p.coords));
+    const paradasReais = proximaRota?.paradas?.filter(p=>p.coords) || [];
+    if (paradasReais.length) {
+      desenharRotaCompleta(paradasReais);
     } else {
       setGJ('rota-completa', null);
+      setGJ('rota-volta', null);
     }
+  } else {
+    setGJ('rota-completa', null);
+    setGJ('rota-volta', null);
   }
-  // Linha azul: só aparece quando rota está em andamento
-  if (rotaAtual) desenharRotaProxima(posAtual, prox);
+  // Linha azul: só aparece quando rota está em andamento com próxima parada pendente
+  if (rotaAtual && prox) desenharRotaProxima(posAtual, prox);
   else setGJ('rota-proxima', null);
 
   // Clientes
