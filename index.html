@@ -399,8 +399,8 @@ function hojeStr() {
 
 /**
  * Janela de pedido com a regra das 14h:
- * - Antes das 14h: janela = ontem 14h → hoje 13:59
- * - Depois das 14h: janela = hoje 14h → amanhã 13:59
+ * - Antes das 14:30: janela = ontem 14:30 → hoje 14:29
+ * - Depois das 14:30: janela = hoje 14:30 → amanhã 14:29
  * Retorna { inicio, fim } como strings ISO com offset de SP.
  */
 function _janelaPedido() {
@@ -408,7 +408,7 @@ function _janelaPedido() {
   const p = _partesSP(agora);
   const hoje = `${p.year}-${p.month}-${p.day}`;
   const horaAtual = parseInt(p.hour) * 60 + parseInt(p.minute);
-  const corte14h = 14 * 60;
+  const corte14h = 14 * 60 + 30; // 14:30
 
   let diaInicio, diaFim;
   if (horaAtual >= corte14h) {
@@ -425,8 +425,8 @@ function _janelaPedido() {
     diaFim = hoje;
   }
   return {
-    inicio: diaInicio + 'T14:00:00-03:00',
-    fim:    diaFim   + 'T13:59:59-03:00'
+    inicio: diaInicio + 'T14:30:00-03:00',
+    fim:    diaFim   + 'T14:29:59-03:00'
   };
 }
 
@@ -722,11 +722,7 @@ let _cacheLinhaProxima = null; // coordenadas [lng,lat] da linha azul atual
 let _ultimoRecalculo = 0;
 
 // Intercepta setGJ para guardar cache da linha azul
-const _setGJOrig = setGJ;
-function setGJ(src, coords, fallbackPts) {
-  if (src === 'rota-proxima') _cacheLinhaProxima = coords || null;
-  _setGJOrig(src, coords, fallbackPts);
-}
+// Cache da linha azul — atualizado dentro do setGJ original (abaixo)
 
 function _distPontoSegmento(px, py, ax, ay, bx, by) {
   const dx = bx-ax, dy = by-ay;
@@ -769,7 +765,7 @@ async function enviarPosicaoSupabase(lat, lon, acc=0, vel=0) {
         .eq("id", rotaAtual.id);
     }
     // Sempre salva posição avulsa no rota_especial_gps — cardápio consegue ver mesmo sem rota ativa
-    await sb.from("rota_especial_gps").upsert(
+    await sb.from("gps").upsert(
       { chave: "entregador_gps", valor: JSON.stringify({ lat, lon, ts, precisao: acc, velocidade: vel }) },
       { onConflict: "chave" }
     );
@@ -930,8 +926,8 @@ async function responderPagamento(pagou) {
     showToast(`✅ Pagamento de ${parada.nome} confirmado!`, 'success');
   } else {
     await sb.from("pedidos").update({ payment_method:'FIADO' }).eq("id", pedido.id);
-    const { data: cli } = await sb.from("cadastros").select("debt").eq("phone", parada.cliente_phone).maybeSingle();
-    await sb.from("cadastros").update({ debt:(cli?.debt||0)+Number(pedido.total) }).eq("phone", parada.cliente_phone);
+    const { data: cli } = await sb.from("clientes").select("debt").eq("phone", parada.cliente_phone).maybeSingle();
+    await sb.from("clientes").update({ debt:(cli?.debt||0)+Number(pedido.total) }).eq("phone", parada.cliente_phone);
     showToast(`⚠️ ${parada.nome} lançado no fiado — R$ ${Number(pedido.total).toFixed(2).replace('.',',')}`, 'warn');
   }
   if (filaPagamentos.length > 0) setTimeout(() => processarFilaPagamentos(), 500);
@@ -950,7 +946,6 @@ async function confirmarEntregaModal() {
 async function executarMarcarEntregue(id, nome) {
   const p = paradasList.find(x => x.id===id);
   if (!p || p.status==='entregue') return;
-  // Guard: rotaAtual pode ter sido limpo por race condition — aborta para não perder a entrega
   if (!rotaAtual) {
     console.warn('[Entrega] rotaAtual nulo ao confirmar entrega de', nome, '— aguardando recarregamento');
     showToast(`⚠️ Aguardando conexão... Confirme manualmente se necessário`, 'warn');
@@ -976,6 +971,29 @@ async function executarMarcarEntregue(id, nome) {
       entregas_realizadas: novasEntregas
     }).eq("id", rotaAtual.id);
   }
+
+  // ===== CONFIRMAR ENTREGA NO PEDIDO (Stats.html lê isso em tempo real) =====
+  try {
+    const agora = agoraISO();
+    const _janela = _janelaPedido();
+    // Busca o pedido mais recente do cliente dentro da janela atual
+    const { data: pedidoCliente } = await sb.from("pedidos")
+      .select("id")
+      .eq("customer_phone", p.cliente_phone)
+      .eq("entregue", false)
+      .gte("created_at", _janela.inicio)
+      .lte("created_at", _janela.fim)
+      .order("created_at", { ascending: false })
+      .limit(1).maybeSingle();
+
+    if (pedidoCliente?.id) {
+      await sb.from("pedidos").update({
+        entregue: true,
+        entregue_em: agora
+      }).eq("id", pedidoCliente.id);
+    }
+  } catch(e) { console.warn('[Entrega] Erro ao confirmar pedido:', e); }
+  // ===== FIM CONFIRMAR ENTREGA =====
 
   const proxNome = paradasList.find(x => x.status==='pendente')?.nome;
   showToast(proxNome ? `✅ ${nome} entregue! Próximo: ${proxNome}` : `✅ ${nome} entregue! Rota concluída!`, 'success');
@@ -1030,6 +1048,7 @@ async function buscarOSRM(pontos) {
   return null;
 }
 function setGJ(src, coords, fallbackPts) {
+  if (src === 'rota-proxima') _cacheLinhaProxima = coords || null;
   try {
     if (!coords && !fallbackPts) { map.getSource(src)?.setData({type:'FeatureCollection',features:[]}); return; }
     const lnglat = coords || fallbackPts.map(p=>[p[1],p[0]]);
@@ -1133,7 +1152,7 @@ async function carregarDados() {
 
   const [{ data:rotas },{ data:clientes },{ data:pedidosHoje }] = await Promise.all([
     sb.from("rotas").select('*').order("hora_saida",{ascending:true}),
-    sb.from("cadastros").select("*"),
+    sb.from("clientes").select("*"),
     sb.from("pedidos")
       .select("customer_phone, customer_name, total, payment_method, id, items")
       .gte("created_at", _janela.inicio).lte("created_at", _janela.fim)
@@ -1814,13 +1833,13 @@ function showToast(msg, type='') {
 
 async function carregarConfigRA() {
   try {
-    const { data } = await sb.from('rota_especial_gps').select('valor').eq('chave', RA_CHAVE).maybeSingle();
+    const { data } = await sb.from('gps').select('valor').eq('chave', RA_CHAVE).maybeSingle();
     _raConfig = data ? JSON.parse(data.valor) : null;
   } catch(e) { console.warn('RA config:', e); _raConfig = null; }
 }
 
 async function _salvarRA() {
-  await sb.from('rota_especial_gps').upsert(
+  await sb.from('gps').upsert(
     { chave: RA_CHAVE, valor: JSON.stringify(_raConfig) },
     { onConflict: 'chave' }
   );
@@ -1945,7 +1964,7 @@ async function adicionarNaFilaRA(pedido) {
   await carregarConfigRA();
   if (!_raConfig || !raAtiva()) return;
 
-  const { data: cli } = await sb.from('cadastros')
+  const { data: cli } = await sb.from('clientes')
     .select('name,phone,delivery_lat,delivery_lon,delivery_address')
     .eq('phone', pedido.customer_phone).maybeSingle();
   if (!cli?.delivery_lat || !cli?.delivery_lon) return;
