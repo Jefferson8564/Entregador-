@@ -655,28 +655,68 @@ function recentrarMapa() {
 }
 
 // ===== GPS =====
-function iniciarGPS() {
+async function iniciarGPS() {
   if (!navigator.geolocation) { setBadge(false,'Sem GPS'); return; }
   setBadge(true,'Conectando...');
-  if (_gpsWatchId !== null) { navigator.geolocation.clearWatch(_gpsWatchId); _gpsWatchId = null; }
-  _gpsWatchId = navigator.geolocation.watchPosition(
-    pos => {
-      if (_gpsErroTimer) { clearTimeout(_gpsErroTimer); _gpsErroTimer = null; }
-      processarPosicao(pos);
-    },
-    (err) => {
-      if (!_gpsErroTimer) {
-        _gpsErroTimer = setTimeout(() => {
-          setBadge(false, 'GPS erro');
-          gpsOk = false;
-          setTimeout(() => iniciarGPS(), 3000);
-        }, 10000);
+
+  // Verifica permissao antes de tentar watchPosition
+  if (navigator.permissions) {
+    try {
+      const perm = await navigator.permissions.query({ name: 'geolocation' });
+      if (perm.state === 'denied') {
+        setBadge(false, 'GPS bloqueado');
+        showToast('GPS bloqueado! Ative nas configuracoes do celular.', 'warn');
+        setTimeout(() => iniciarGPS(), 10000);
+        return;
       }
+      perm.onchange = () => {
+        if (perm.state === 'granted') iniciarGPS();
+        else setBadge(false, 'GPS bloqueado');
+      };
+    } catch(e) {}
+  }
+
+  // Faz getCurrentPosition primeiro para forccar popup de permissao
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      processarPosicao(pos);
+      if (_gpsWatchId !== null) { navigator.geolocation.clearWatch(_gpsWatchId); _gpsWatchId = null; }
+      _gpsWatchId = navigator.geolocation.watchPosition(
+        pos => {
+          if (_gpsErroTimer) { clearTimeout(_gpsErroTimer); _gpsErroTimer = null; }
+          processarPosicao(pos);
+        },
+        (err) => {
+          console.warn('[GPS] Erro watchPosition:', err.code, err.message);
+          const msgs = { 1: 'GPS negado', 2: 'Sem sinal GPS', 3: 'GPS timeout' };
+          setBadge(false, msgs[err.code] || 'GPS erro');
+          if (!_gpsErroTimer) {
+            _gpsErroTimer = setTimeout(() => {
+              _gpsErroTimer = null;
+              gpsOk = false;
+              iniciarGPS();
+            }, 8000);
+          }
+        },
+        { enableHighAccuracy:true, timeout:30000, maximumAge:2000 }
+      );
     },
-    { enableHighAccuracy:true, timeout:30000, maximumAge:2000 }
+    err => {
+      console.warn('[GPS] Erro getCurrentPosition:', err.code, err.message);
+      const msgs = { 1: 'GPS negado', 2: 'Sem sinal', 3: 'Timeout GPS' };
+      setBadge(false, msgs[err.code] || 'GPS erro');
+      if (err.code === 1) {
+        showToast('Permissao de GPS negada! Va em Configuracoes > Privacidade > Localizacao.', 'warn');
+      }
+      setTimeout(() => iniciarGPS(), 5000);
+    },
+    { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
   );
+
+  // Watchdog: reinicia GPS se ficar 20s sem posicao
   setInterval(() => {
     if (_ultimaPosicaoTs > 0 && Date.now() - _ultimaPosicaoTs > 20000) {
+      console.warn('[GPS] Watchdog: sem posicao ha 20s, reiniciando...');
       _ultimaPosicaoTs = Date.now();
       iniciarGPS();
     }
