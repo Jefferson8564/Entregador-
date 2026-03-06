@@ -58,6 +58,23 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 #gpsDot.err { background: var(--red); }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
+/* Ping badge dentro do pill */
+#gpsPing {
+  font-family: 'DM Mono', monospace; font-size: 10px;
+  color: var(--green); opacity: 0.7; margin-left: 2px;
+}
+
+/* Botão reload */
+#btnReload {
+  background: rgba(10,10,15,0.85); border: 1px solid var(--border);
+  border-radius: 100px; padding: 6px 12px;
+  font-family: 'Syne', sans-serif; font-size: 12px; font-weight: 800;
+  color: var(--muted); cursor: pointer; backdrop-filter: blur(10px);
+  display: flex; align-items: center; gap: 5px;
+  transition: border-color 0.2s, color 0.2s;
+}
+#btnReload:active { border-color: var(--gold); color: var(--gold); }
+
 /* ── PAINEL INFERIOR ── */
 #painel {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
@@ -291,9 +308,13 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 <!-- Header -->
 <div id="header">
   <div class="header-brand">🛵 <span>Entregador</span></div>
-  <div id="gpsPill">
-    <div id="gpsDot"></div>
-    <span id="gpsLabel">aguardando GPS</span>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <button id="btnReload" onclick="location.reload()">↺ Reload</button>
+    <div id="gpsPill">
+      <div id="gpsDot"></div>
+      <span id="gpsLabel">aguardando GPS</span>
+      <span id="gpsPing"></span>
+    </div>
   </div>
 </div>
 
@@ -497,11 +518,27 @@ function onGPSErro(err) {
   setGPSStatus('err', 'sem sinal');
 }
 
+let _gpsUltimoTs = null;
+
 function setGPSStatus(tipo, txt) {
   const dot = document.getElementById('gpsDot');
   const lbl = document.getElementById('gpsLabel');
+  const ping = document.getElementById('gpsPing');
   dot.className = tipo === 'ok' ? 'ok' : 'err';
   lbl.textContent = txt;
+
+  // Calcula ping entre updates
+  if (tipo === 'ok') {
+    const agora = Date.now();
+    if (_gpsUltimoTs) {
+      const ms = agora - _gpsUltimoTs;
+      ping.textContent = ms < 2000 ? ` · ${ms}ms` : ` · ${(ms/1000).toFixed(1)}s`;
+    }
+    _gpsUltimoTs = agora;
+  } else {
+    ping.textContent = '';
+    _gpsUltimoTs = null;
+  }
 }
 
 async function salvarGPS(lat, lon, acc) {
