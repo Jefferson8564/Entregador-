@@ -418,11 +418,11 @@ function toggle3D() {
   }
 }
 
-// Padding para manter a moto a ~20% da parte inferior da tela
-// O mapa "expande" mais para frente (para cima)
+// Padding: bottom grande empurra o ponto central para baixo
+// Resultado: marcador da moto fica a ~20% da parte inferior da tela
 function _getMapPadding() {
   const h = window.innerHeight;
-  return { top: Math.round(h * 0.65), bottom: Math.round(h * 0.05), left: 0, right: 0 };
+  return { top: 0, bottom: Math.round(h * 0.60), left: 0, right: 0 };
 }
 
 function initMap() {
