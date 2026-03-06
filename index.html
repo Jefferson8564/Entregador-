@@ -447,6 +447,85 @@ function agoraISO() {
   return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}${sign}${absH}:${absM}`;
 }
 
+
+// ═══════════════════════════════════════════════════════════════════
+//  _publicarStatusLive — única fonte de verdade para o Status.html
+//  Chamada em todo evento que muda o estado da rota ou de um pedido.
+//  Grava em dois lugares:
+//    • gps (chave rota_status_live) — snapshot completo da rota
+//    • pedidos — campos por cliente (posicao_fila, eta, status_entrega…)
+// ═══════════════════════════════════════════════════════════════════
+let _pubThrottle = 0;
+
+async function _publicarStatusLive({ forcar = false, lat = null, lon = null, vel = 0 } = {}) {
+  // Throttle: no máximo 1 publicação a cada 4 s (exceto quando forcar=true)
+  const agora = Date.now();
+  if (!forcar && agora - _pubThrottle < 4000) return;
+  _pubThrottle = agora;
+
+  try {
+    const _jan = _janelaPedido();
+    const ts   = agoraISO();
+
+    // ── Paradas com estado real ───────────────────────────────────────
+    const todasParadas  = rotaAtual?.paradas || paradasList || [];
+    const pendentes     = todasParadas.filter(p => p.status === 'pendente');
+    const entregues     = todasParadas.filter(p => p.status === 'entregue');
+    const ehAleatoria   = !!rotaAtual?._ehAleatoria;
+
+    // ── Calcula ETA real (baseado em mediaMinPorParada atualizada) ────
+    const minPorParada  = mediaMinPorParada || 12;
+
+    // ── Snapshot da rota → gps(chave=rota_status_live) ───────────────
+    const snap = {
+      rota_status:        rotaAtual?.status  || 'aguardando',
+      rota_nome:          rotaAtual?.nome    || '',
+      rota_id:            rotaAtual?.id      || null,
+      eh_aleatoria:       ehAleatoria,
+      saida_em:           rotaAtual?.saida_em || null,
+      total_paradas:      todasParadas.length,
+      entregues:          entregues.length,
+      pendentes:          pendentes.length,
+      min_por_parada:     minPorParada,
+      proximas_rotas:     rotaAtual?.proximas_rotas || [],
+      janela_inicio:      _jan.inicio,
+      janela_fim:         _jan.fim,
+      lat,
+      lon,
+      velocidade:         vel,
+      ts,
+    };
+
+    await sb.from('gps').upsert(
+      { chave: 'rota_status_live', valor: JSON.stringify(snap) },
+      { onConflict: 'chave' }
+    );
+
+    // ── Atualiza cada pedido pendente com posição na fila + ETA ──────
+    for (let i = 0; i < pendentes.length; i++) {
+      const phone = pendentes[i].cliente_phone;
+      if (!phone) continue;
+      const eta       = Math.round((i + 1) * minPorParada);
+      const stStatus  = i === 0 ? 'proximo' : 'saiu';
+      await sb.from('pedidos').update({
+        status_entrega:      stStatus,
+        posicao_fila:        i,
+        eta_minutos:         eta,
+        rota_nome:           snap.rota_nome,
+        rota_status:         snap.rota_status,
+        total_paradas_rota:  todasParadas.length,
+        entregues_rota:      entregues.length,
+        entregador_lat:      i === 0 ? lat  : null,
+        entregador_lon:      i === 0 ? lon  : null,
+      })
+        .eq('customer_phone', phone)
+        .gte('created_at', _jan.inicio)
+        .lte('created_at', _jan.fim)
+        .eq('entregue', false);
+    }
+  } catch (e) { console.warn('[_publicarStatusLive]', e); }
+}
+
 // ===== ESTADO =====
 let map, meuMarcador = null, meuMarcadorEl = null;
 let minhaPosicao = null; // [lng, lat] MapLibre
@@ -798,17 +877,18 @@ async function enviarPosicaoSupabase(lat, lon, acc=0, vel=0) {
   try {
     const ts = agoraISO();
     if (rotaAtual?.id) {
-      // GPS direto na rotas — cardápio lê via Realtime
       await sb.from("rotas")
         .update({ gps_lat:lat, gps_lon:lon, gps_ts:ts, gps_precisao:acc,
                   posicao_entregador:{lat,lon,ts,precisao:acc,velocidade:vel} })
         .eq("id", rotaAtual.id);
     }
-    // Sempre salva posição avulsa no rota_especial_gps — cardápio consegue ver mesmo sem rota ativa
+    // GPS avulso — Status.html e cardápio lêem por aqui
     await sb.from("gps").upsert(
       { chave: "entregador_gps", valor: JSON.stringify({ lat, lon, ts, precisao: acc, velocidade: vel }) },
       { onConflict: "chave" }
     );
+    // Publica posição + fila atualizada para o Status.html (throttle 4s)
+    await _publicarStatusLive({ lat, lon, vel });
   } catch(e) { console.warn("GPS send:", e); }
 }
 function setBadge(on, txt) {
@@ -844,6 +924,15 @@ async function verificarProximidade(lat, lon) {
           status:'concluido', fim_em:agoraISO(),
           gps_lat:null, gps_lon:null, gps_ts:null
         }).eq("id", rotaId);
+        // Publica snapshot de rota concluída para o Status.html
+        await sb.from('gps').upsert(
+          { chave: 'rota_status_live', valor: JSON.stringify({
+              rota_status:'concluido', rota_nome:'', rota_id:rotaId,
+              eh_aleatoria:false, total_paradas:0, entregues:0, pendentes:0,
+              lat:null, lon:null, velocidade:0, ts:agoraISO()
+          }) },
+          { onConflict: 'chave' }
+        );
       } catch(e) { console.error('Erro ao finalizar rota GPS:', e); }
       chip.style.display = 'none';
       _finalizandoRota = false;
@@ -1012,11 +1101,12 @@ async function executarMarcarEntregue(id, nome) {
     }).eq("id", rotaAtual.id);
   }
 
-  // ===== CONFIRMAR ENTREGA NO PEDIDO (Stats.html lê isso em tempo real) =====
+  // ===== CONFIRMAR ENTREGA NO PEDIDO + SYNC STATUS.HTML =====
   try {
     const agora = agoraISO();
     const _janela = _janelaPedido();
-    // Busca o pedido mais recente do cliente dentro da janela atual
+
+    // 1) Marca pedido do cliente entregue com todos os campos de rastreio
     const { data: pedidoCliente } = await sb.from("pedidos")
       .select("id")
       .eq("customer_phone", p.cliente_phone)
@@ -1028,10 +1118,20 @@ async function executarMarcarEntregue(id, nome) {
 
     if (pedidoCliente?.id) {
       await sb.from("pedidos").update({
-        entregue: true,
-        entregue_em: agora
+        entregue:            true,
+        entregue_em:         agora,
+        status_entrega:      'entregue',
+        posicao_fila:        0,
+        eta_minutos:         0,
+        entregador_lat:      null,
+        entregador_lon:      null,
+        rota_status:         'concluido_parcial',
       }).eq("id", pedidoCliente.id);
     }
+
+    // 2) Republica fila atualizada para os clientes que ainda aguardam
+    await _publicarStatusLive({ forcar: true, lat: posAtual?.[0] || null, lon: posAtual?.[1] || null });
+
   } catch(e) { console.warn('[Entrega] Erro ao confirmar pedido:', e); }
   // ===== FIM CONFIRMAR ENTREGA =====
 
@@ -1212,7 +1312,7 @@ async function carregarDados() {
   }
 
   // Normaliza nome
-  const rotasNorm = (rotas||[]).map(r => ({ ...r, nome: r["Rotas"] || r.nome || r.name || "Sem nome" }));
+  const rotasNorm = (rotas||[]).map(r => ({ ...r, nome: r["Rotas"] || r.nome_rota || r.nome || r.name || "Sem nome" }));
   // Normaliza status das rotas conforme o dia
   todasAsRotas = rotasNorm.map(r => {
     const cHoje = _dataEmSP(r.fim_em) === hoje, aHoje = _dataEmSP(r.saida_em) === hoje;
@@ -1373,6 +1473,9 @@ async function iniciarRota(rota) {
   rota.saida_em = ts;
   rotaAtual = rota;
   paradasList = rota.paradas || [];
+
+  // Publica para o Status.html: rota saiu, fila inicial, ETA de cada cliente
+  await _publicarStatusLive({ forcar: true });
 
   showToast(`🛵 Rota "${rota.nome}" iniciada!`, 'success');
   renderTudo();
@@ -1805,6 +1908,37 @@ async function executarFinalizarRota() {
   Object.keys(_timersEntrega).forEach(k => { clearTimeout(_timersEntrega[k]); delete _timersEntrega[k]; });
   paradaAtualId = null; estavaNaParada = false;
 
+  // PASSO 3.5: Marca pedidos como entregue/concluido e publica snapshot final no Status.html
+  try {
+    const _janFin = _janelaPedido();
+    for (const pp of paradasFinal) {
+      if (!pp.cliente_phone) continue;
+      await sb.from('pedidos').update({
+        entregue:            true,
+        entregue_em:         pp.entregue_em || agora,
+        status_entrega:      'entregue',
+        posicao_fila:        0,
+        eta_minutos:         0,
+        entregador_lat:      null,
+        entregador_lon:      null,
+        rota_status:         'concluido',
+        rota_nome:           rotaAtual?.nome || '',
+      })
+        .eq('customer_phone', pp.cliente_phone)
+        .gte('created_at', _janFin.inicio)
+        .lte('created_at', _janFin.fim);
+    }
+    // Snapshot final da rota
+    await sb.from('gps').upsert(
+      { chave: 'rota_status_live', valor: JSON.stringify({
+          rota_status:'concluido', rota_nome:'', rota_id: rotaId,
+          eh_aleatoria:false, total_paradas: totalParadas, entregues: totalParadas, pendentes:0,
+          lat:null, lon:null, velocidade:0, ts:agora
+      }) },
+      { onConflict: 'chave' }
+    );
+  } catch(e) { console.warn('[FinalizarRota] sync Status.html:', e); }
+
   // PASSO 4: Limpa a rota atual da memória
   rotaAtual = null;
   paradasList = [];
@@ -1968,6 +2102,9 @@ async function sairComFilaAleatoria() {
   paradasList = paradas;
   _dentroFabrica = true; // Saída confirmada só ao ultrapassar o raio
 
+  // Publica para o Status.html: fila aleatória saiu
+  await _publicarStatusLive({ forcar: true });
+
   showToast(`🎲 Pronto! Saia da fábrica para confirmar (${paradas.length} cliente(s))`, 'success');
   renderTudo();
   if (map.isStyleLoaded()) renderizarMarcadores();
@@ -1988,6 +2125,35 @@ async function finalizarSaidaAleatoria() {
   // Cancela todos os timers de entrega pendentes
   Object.keys(_timersEntrega).forEach(k => { clearTimeout(_timersEntrega[k]); delete _timersEntrega[k]; });
   paradaAtualId = null; estavaNaParada = false;
+
+  // Publica snapshot de conclusão para o Status.html antes de zerar memória
+  try {
+    await sb.from('gps').upsert(
+      { chave: 'rota_status_live', valor: JSON.stringify({
+          rota_status:'concluido', rota_nome:'', rota_id:null,
+          eh_aleatoria:true, total_paradas:0, entregues:0, pendentes:0,
+          lat:null, lon:null, velocidade:0, ts:agoraISO()
+      }) },
+      { onConflict: 'chave' }
+    );
+    // Marca pedidos entregues nesta saída
+    const _janRA = _janelaPedido();
+    const phonesEntreguesRA = (paradasList || []).filter(p => p.status === 'entregue').map(p => p.cliente_phone).filter(Boolean);
+    for (const phone of phonesEntreguesRA) {
+      await sb.from('pedidos').update({
+        status_entrega: 'entregue',
+        posicao_fila:   0,
+        eta_minutos:    0,
+        entregador_lat: null,
+        entregador_lon: null,
+        rota_status:    'concluido',
+      })
+        .eq('customer_phone', phone)
+        .gte('created_at', _janRA.inicio)
+        .lte('created_at', _janRA.fim);
+    }
+  } catch(e) { console.warn('[finalizarSaidaAleatoria] sync:', e); }
+
   rotaAtual = null;
   paradasList = [];
   cacheRotaCompleta = null; cacheRotaCompletaKey = ''; ultimaProximaId = null;
