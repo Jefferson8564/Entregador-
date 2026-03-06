@@ -411,6 +411,11 @@ let modalParada = null;     // parada sendo confirmada
 let pagSelecionado = null;
 let mkClientes = {};        // phone → leaflet marker
 
+// Exploração livre no 2D: pausa o seguimento enquanto o usuário arrasta
+let _explorandoMapa = false;
+let _timerRecentrar = null;
+const TEMPO_RECENTRAR = 10000; // 10 segundos sem toque → recentra
+
 // ── MAPA ─────────────────────────────────────────────────────────────────
 function _calcBearing(lat1, lon1, lat2, lon2) {
   const r = d => d * Math.PI / 180;
@@ -435,15 +440,17 @@ function toggle3D() {
   if (_modo3D) {
     map.easeTo({ center:[posEntregador.lon, posEntregador.lat], pitch:72, bearing:_bearingAtual, zoom:18.5, duration:900, padding:_getMapPadding() });
   } else {
-    map.easeTo({ pitch:0, bearing:0, zoom:15, duration:700, padding:_getMapPadding() });
+    map.easeTo({ pitch:0, bearing:0, zoom:15, duration:700, padding:_paddingNormal });
   }
 }
 
-// top grande empurra o centro para baixo → moto fica a ~20% da parte inferior
+// top grande empurra o centro para baixo → moto fica a ~20% da parte inferior da tela
+// Usado apenas no modo 3D
 function _getMapPadding() {
   const h = window.innerHeight;
   return { top: Math.round(h * 0.60), bottom: 0, left: 0, right: 0 };
 }
+const _paddingNormal = { top: 0, bottom: 0, left: 0, right: 0 };
 
 function initMap() {
   map = new maplibregl.Map({
@@ -462,6 +469,39 @@ function initMap() {
       .setLngLat([FABRICA_LON, FABRICA_LAT])
       .addTo(map);
   });
+
+  // No 2D: detecta quando o usuário começa a arrastar/zoom → pausa o seguimento
+  map.on('dragstart', () => { if (!_modo3D) _iniciarExploracao(); });
+  map.on('zoomstart', (e) => { if (!_modo3D && e.originalEvent) _iniciarExploracao(); });
+  map.on('rotatestart', () => { if (!_modo3D) _iniciarExploracao(); });
+}
+
+function _iniciarExploracao() {
+  _explorandoMapa = true;
+  clearTimeout(_timerRecentrar);
+  // Mostra indicador visual no botão centrar
+  const btn = document.getElementById('btnCentrar');
+  btn.style.opacity = '0.5';
+  btn.textContent = '⏱ 10s';
+  let restante = 10;
+  const intervalo = setInterval(() => {
+    restante--;
+    if (restante > 0) {
+      btn.textContent = `⏱ ${restante}s`;
+    } else {
+      clearInterval(intervalo);
+    }
+  }, 1000);
+
+  _timerRecentrar = setTimeout(() => {
+    clearInterval(intervalo);
+    _explorandoMapa = false;
+    btn.style.opacity = '1';
+    btn.innerHTML = '📍 Centrar';
+    if (posEntregador && !_modo3D) {
+      map.easeTo({ center:[posEntregador.lon, posEntregador.lat], zoom:15, duration:800, padding:_paddingNormal });
+    }
+  }, TEMPO_RECENTRAR);
 }
 
 // ── GPS ──────────────────────────────────────────────────────────────────
@@ -500,8 +540,8 @@ async function onGPSUpdate(pos) {
   // Câmera segue a moto (moto posicionada a ~20% da parte inferior)
   if (_modo3D) {
     map.easeTo({ center:[lon, lat], bearing:_bearingAtual, pitch:72, zoom:18.5, duration:800, essential:true, padding:_getMapPadding() });
-  } else {
-    map.easeTo({ center:[lon, lat], zoom:15, duration:600, padding:_getMapPadding() });
+  } else if (!_explorandoMapa) {
+    map.easeTo({ center:[lon, lat], zoom:15, duration:600, padding:_paddingNormal });
   }
 
   // Salva no Supabase
@@ -860,8 +900,15 @@ function togglePainel() {
 
 // ── CENTRAR MAPA ──────────────────────────────────────────────────────────
 function centrarMapa() {
+  // Cancela exploração livre se estiver ativa
+  clearTimeout(_timerRecentrar);
+  _explorandoMapa = false;
+  const btn = document.getElementById('btnCentrar');
+  btn.style.opacity = '1';
+  btn.innerHTML = '📍 Centrar';
+
   if (posEntregador) {
-    map.flyTo({ center: [posEntregador.lon, posEntregador.lat], zoom: 15, padding: _getMapPadding() });
+    map.flyTo({ center: [posEntregador.lon, posEntregador.lat], zoom: 15, padding: _modo3D ? _getMapPadding() : _paddingNormal });
   }
 }
 
