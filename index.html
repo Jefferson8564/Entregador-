@@ -430,15 +430,15 @@ function setGPSStatus(tipo, txt) {
 
 async function salvarGPS(lat, lon, acc) {
   const now = new Date().toISOString();
+  // Sempre salva em gps.entregador_pos — fonte única de verdade para o Stats
+  await sb.from('gps').upsert({ chave: 'entregador_gps', valor: JSON.stringify({ lat, lon, ts: now, acc }) });
+  // Se tiver rota ativa, atualiza também para o histórico da rota
   if (rotaAtiva?.id) {
     await sb.from('rotas').update({
       gps_lat: lat, gps_lon: lon,
       gps_ts: now, gps_precisao: acc,
       posicao_entregador: { lat, lon, ts: now }
     }).eq('id', rotaAtiva.id);
-  } else {
-    // Sem rota: salva na tabela gps com chave fixa
-    await sb.from('gps').upsert({ chave: 'entregador_pos', valor: JSON.stringify({ lat, lon, ts: now, acc }) });
   }
 }
 
