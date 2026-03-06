@@ -412,10 +412,17 @@ function toggle3D() {
   btn.textContent = _modo3D ? '2D' : '3D';
   if (!map || !posEntregador) return;
   if (_modo3D) {
-    map.easeTo({ center:[posEntregador.lon, posEntregador.lat], pitch:72, bearing:_bearingAtual, zoom:18.5, duration:900 });
+    map.easeTo({ center:[posEntregador.lon, posEntregador.lat], pitch:72, bearing:_bearingAtual, zoom:18.5, duration:900, padding:_getMapPadding() });
   } else {
-    map.easeTo({ pitch:0, bearing:0, zoom:15, duration:700 });
+    map.easeTo({ pitch:0, bearing:0, zoom:15, duration:700, padding:_getMapPadding() });
   }
+}
+
+// Padding para manter a moto a ~20% da parte inferior da tela
+// O mapa "expande" mais para frente (para cima)
+function _getMapPadding() {
+  const h = window.innerHeight;
+  return { top: Math.round(h * 0.65), bottom: Math.round(h * 0.05), left: 0, right: 0 };
 }
 
 function initMap() {
@@ -470,11 +477,11 @@ async function onGPSUpdate(pos) {
   }
   _ultimaPosAnterior = [lat, lon];
 
-  // Câmera segue a moto
+  // Câmera segue a moto (moto posicionada a ~20% da parte inferior)
   if (_modo3D) {
-    map.easeTo({ center:[lon, lat], bearing:_bearingAtual, pitch:72, zoom:18.5, duration:800, essential:true });
+    map.easeTo({ center:[lon, lat], bearing:_bearingAtual, pitch:72, zoom:18.5, duration:800, essential:true, padding:_getMapPadding() });
   } else {
-    map.easeTo({ center:[lon, lat], zoom:15, duration:600 });
+    map.easeTo({ center:[lon, lat], zoom:15, duration:600, padding:_getMapPadding() });
   }
 
   // Salva no Supabase
@@ -818,7 +825,7 @@ function togglePainel() {
 // ── CENTRAR MAPA ──────────────────────────────────────────────────────────
 function centrarMapa() {
   if (posEntregador) {
-    map.flyTo({ center: [posEntregador.lon, posEntregador.lat], zoom: 15 });
+    map.flyTo({ center: [posEntregador.lon, posEntregador.lat], zoom: 15, padding: _getMapPadding() });
   }
 }
 
