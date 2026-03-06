@@ -228,6 +228,25 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 #alertaProx.show { display: flex; }
 @keyframes bounceIn { from{transform:scale(0.8);opacity:0} to{transform:scale(1);opacity:1} }
 
+/* ── BOTÃO 2D/3D ── */
+#btn3D {
+  position: fixed; right: 14px; top: 50%; transform: translateY(-50%);
+  z-index: 110; writing-mode: vertical-rl; text-orientation: mixed;
+  background: rgba(10,10,18,0.88); border: 1.5px solid rgba(245,200,66,0.35);
+  border-radius: 10px; padding: 12px 8px;
+  font-family: 'Syne', sans-serif; font-size: 12px; font-weight: 800;
+  color: rgba(245,200,66,0.8); cursor: pointer;
+  backdrop-filter: blur(12px); letter-spacing: 1px;
+  box-shadow: 0 2px 14px rgba(0,0,0,0.5);
+  transition: all 0.2s;
+}
+#btn3D.ativo {
+  background: rgba(245,200,66,0.15);
+  border-color: var(--gold);
+  color: var(--gold);
+  box-shadow: 0 2px 20px rgba(245,200,66,0.3);
+}
+
 /* marcadores custom */
 .mk-ent { 
   width: 44px; height: 44px; border-radius: 50%;
@@ -339,6 +358,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   </div>
 </div>
 
+<button id="btn3D" onclick="toggle3D()">3D</button>
+
 <div id="toast"></div>
 
 <script>
@@ -354,6 +375,10 @@ const RAIO_ALERTA = 80; // metros para disparar alerta de proximidade
 
 // ── ESTADO ──────────────────────────────────────────────────────────────
 let map, mkEntregador;
+let _modo3D = false;
+let _bearingAtual = 0;
+let _bearingHist = [];
+let _ultimaPosAnterior = null;
 let rotaAtiva = null;       // objeto rota do Supabase
 let paradas = [];           // paradas ativas (sem _meta)
 let posEntregador = null;   // { lat, lon }
@@ -366,6 +391,33 @@ let pagSelecionado = null;
 let mkClientes = {};        // phone → leaflet marker
 
 // ── MAPA ─────────────────────────────────────────────────────────────────
+function _calcBearing(lat1, lon1, lat2, lon2) {
+  const r = d => d * Math.PI / 180;
+  const dL = r(lon2 - lon1);
+  const y  = Math.sin(dL) * Math.cos(r(lat2));
+  const x  = Math.cos(r(lat1)) * Math.sin(r(lat2)) - Math.sin(r(lat1)) * Math.cos(r(lat2)) * Math.cos(dL);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+function _suavizarBearing(b) {
+  _bearingHist.push(b);
+  if (_bearingHist.length > 6) _bearingHist.shift();
+  let s = 0, co = 0;
+  _bearingHist.forEach(v => { s += Math.sin(v*Math.PI/180); co += Math.cos(v*Math.PI/180); });
+  return (Math.atan2(s, co) * 180 / Math.PI + 360) % 360;
+}
+function toggle3D() {
+  _modo3D = !_modo3D;
+  const btn = document.getElementById('btn3D');
+  btn.classList.toggle('ativo', _modo3D);
+  btn.textContent = _modo3D ? '2D' : '3D';
+  if (!map || !posEntregador) return;
+  if (_modo3D) {
+    map.easeTo({ center:[posEntregador.lon, posEntregador.lat], pitch:72, bearing:_bearingAtual, zoom:18.5, duration:900 });
+  } else {
+    map.easeTo({ pitch:0, bearing:0, zoom:15, duration:700 });
+  }
+}
+
 function initMap() {
   map = new maplibregl.Map({
     container: 'map',
@@ -407,7 +459,25 @@ async function onGPSUpdate(pos) {
   setGPSStatus('ok', `±${acc}m`);
   mkEntregador.setLngLat([lon, lat]);
 
-  // Salva no Supabase — tabela rotas se rota ativa, senão tabela gps
+  // Calcular bearing (direção do movimento)
+  if (_ultimaPosAnterior) {
+    const dLat = Math.abs(lat - _ultimaPosAnterior[0]);
+    const dLon = Math.abs(lon - _ultimaPosAnterior[1]);
+    if (dLat + dLon > 0.00003) {
+      const raw = _calcBearing(_ultimaPosAnterior[0], _ultimaPosAnterior[1], lat, lon);
+      _bearingAtual = _suavizarBearing(raw);
+    }
+  }
+  _ultimaPosAnterior = [lat, lon];
+
+  // Câmera segue a moto
+  if (_modo3D) {
+    map.easeTo({ center:[lon, lat], bearing:_bearingAtual, pitch:72, zoom:18.5, duration:800, essential:true });
+  } else {
+    map.easeTo({ center:[lon, lat], zoom:15, duration:600 });
+  }
+
+  // Salva no Supabase
   await salvarGPS(lat, lon, acc);
 
   // Atualizar distâncias na lista
