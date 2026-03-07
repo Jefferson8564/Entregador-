@@ -644,6 +644,7 @@ let rotaSelecionada = null; // rota cujas paradas estão expandidas no painel
 let paradas = [];           // paradas ativas (sem _meta)
 let posEntregador = null;   // { lat, lon }
 let gpsWatcher = null;
+let _gpsHeartbeat = null; // envia posição mesmo parado
 let realtimeCh = null;
 let alertaPhone = null;     // phone do cliente em alerta
 let painelAberto = false;
@@ -798,13 +799,20 @@ function iniciarGPS() {
     onGPSErro,
     { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
   );
+
+  // Heartbeat: a cada 5s salva a última posição mesmo sem movimento
+  _gpsHeartbeat = setInterval(() => {
+    if (posEntregador) {
+      salvarGPS(posEntregador.lat, posEntregador.lon, posEntregador.acc ?? 0);
+    }
+  }, 3000);
 }
 
 async function onGPSUpdate(pos) {
   const lat = pos.coords.latitude;
   const lon = pos.coords.longitude;
   const acc = Math.round(pos.coords.accuracy);
-  posEntregador = { lat, lon };
+  posEntregador = { lat, lon, acc };
 
   setGPSStatus('ok', `±${acc}m`);
   mkEntregador.setLngLat([lon, lat]);
