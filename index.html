@@ -540,21 +540,31 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 
   <!-- Aba Informações -->
   <div id="tabInfo" class="tela-tab ativa">
-    <!-- Cards clicáveis -->
     <div id="infoCardsBox">
-      <div class="info-grid">
-        <div class="info-card" onclick="abrirInfoLista('entregues')" style="cursor:pointer;">
-          <div class="info-card-icon">✅</div>
-          <div class="info-card-val" id="infoEntregues">0</div>
-          <div class="info-card-lbl">entregues</div>
+      <!-- Toggle confirmação automática -->
+      <div onclick="toggleModoConfirmacao()" style="
+        display:flex;align-items:center;justify-content:space-between;
+        background:var(--surface2);border:1px solid var(--border);
+        border-radius:14px;padding:14px 16px;cursor:pointer;
+        user-select:none;
+      ">
+        <div>
+          <div style="font-size:13px;font-weight:700;color:var(--text);" id="modoConfLabel">🤖 Confirmação automática</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px;" id="modoConfDesc">Entrega confirmada ao chegar em 20m</div>
         </div>
-        <div class="info-card" onclick="abrirInfoLista('restantes')" style="cursor:pointer;">
-          <div class="info-card-icon">⏳</div>
-          <div class="info-card-val" id="infoPendentes">0</div>
-          <div class="info-card-lbl">restantes</div>
+        <div id="toggleConfSwitch" style="
+          width:44px;height:26px;border-radius:13px;
+          background:var(--gold);position:relative;transition:background .2s;flex-shrink:0;
+        ">
+          <div id="toggleConfThumb" style="
+            position:absolute;top:3px;left:calc(100% - 23px);
+            width:20px;height:20px;border-radius:50%;
+            background:#fff;transition:left .2s;box-shadow:0 1px 4px rgba(0,0,0,.3);
+          "></div>
         </div>
       </div>
     </div>
+
     <!-- Lista expandida ao clicar num card -->
     <div id="infoListaBox" style="display:none;">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
@@ -567,6 +577,23 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 
   <!-- Aba Rota -->
   <div id="tabRota" class="tela-tab">
+    <!-- Totais globais do dia (todas as rotas) -->
+    <div style="display:flex;gap:10px;margin-bottom:14px;">
+      <div onclick="abrirInfoLista('entregues')" style="
+        flex:1;background:rgba(46,213,115,0.08);border:1px solid rgba(46,213,115,0.2);
+        border-radius:14px;padding:12px 14px;cursor:pointer;text-align:center;
+      ">
+        <div style="font-size:22px;font-weight:900;color:var(--green);" id="infoEntregues">0</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:.8px;">entregues</div>
+      </div>
+      <div onclick="abrirInfoLista('restantes')" style="
+        flex:1;background:rgba(255,140,66,0.08);border:1px solid rgba(255,140,66,0.2);
+        border-radius:14px;padding:12px 14px;cursor:pointer;text-align:center;
+      ">
+        <div style="font-size:22px;font-weight:900;color:var(--orange);" id="infoPendentes">0</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:.8px;">restantes</div>
+      </div>
+    </div>
     <!-- Cards das rotas do dia -->
     <div id="rotaCardsList"></div>
     <!-- Paradas da rota selecionada (expande ao clicar num card) -->
@@ -592,16 +619,23 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       <div id="mItens"></div>
       <div class="modal-pedido-total" id="mTotal"></div>
     </div>
-    <div class="label-sec">Forma de pagamento</div>
-    <div class="pag-grid">
-      <button class="pag-btn" onclick="selPag('dinheiro',this)">💵 Dinheiro</button>
-      <button class="pag-btn" onclick="selPag('pix',this)">📲 Pix</button>
-      <button class="pag-btn" onclick="selPag('fiado',this)">📋 Fiado</button>
+
+    <!-- Seção de pagamento: só aparece quando é "pagar na entrega" -->
+    <div id="secPagamento" style="display:none">
+      <div class="label-sec" style="margin-bottom:10px">Foi pago?</div>
+      <div style="display:flex;gap:10px">
+        <button class="pag-btn" id="btnSimPago" onclick="respPago(true)" style="flex:1;font-size:15px;font-weight:800;">✅ Sim</button>
+        <button class="pag-btn" id="btnNaoPago" onclick="respPago(false)" style="flex:1;font-size:15px;font-weight:800;">❌ Não</button>
+      </div>
     </div>
-    <div id="trocoBox">
-      <div class="label-sec">Troco para quanto?</div>
-      <input id="trocoInput" type="number" placeholder="R$ 0,00" inputmode="decimal">
+
+    <!-- Fiado direto: exibido quando já era fiado -->
+    <div id="secFiado" style="display:none;padding:10px 0">
+      <div style="background:rgba(255,140,66,0.08);border:1px solid rgba(255,140,66,0.3);border-radius:12px;padding:10px 14px;font-size:13px;color:var(--orange);">
+        📋 Pagamento: <strong>Fiado</strong> — será registrado na conta do cliente
+      </div>
     </div>
+
     <div class="modal-btns">
       <button class="btn-cancelar" onclick="fecharModal()">Cancelar</button>
       <button class="btn-confirmar" id="btnConfirmar" onclick="confirmarEntrega()">✅ Confirmar Entrega</button>
@@ -631,8 +665,31 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const FABRICA_LAT = -8.1837748; // ajuste se necessário
 const FABRICA_LON = -34.9384996;
 const RAIO_ALERTA = 80; // metros para disparar alerta de proximidade
+const RAIO_AUTO   = 20; // metros para confirmação automática
+
+// Modo de confirmação: true = automático, false = manual
+// Persiste em localStorage
+let modoAutoConfirmar = localStorage.getItem('modoAutoConfirmar') !== 'false';
 
 // ── ESTADO ──────────────────────────────────────────────────────────────
+
+// Virada do dia = 14:30 (horário São Paulo)
+// Antes das 14:30 ainda é o "dia anterior" para fins de rota
+function getHojeDia() {
+  const agora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+  const h = agora.getHours(), m = agora.getMinutes();
+  // Se antes das 14:30, o "dia de rota" ainda é ontem
+  if (h < 14 || (h === 14 && m < 30)) agora.setDate(agora.getDate() - 1);
+  return agora.toLocaleDateString('pt-BR');
+}
+function getDiaSemanaDia() {
+  const agora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+  const h = agora.getHours(), m = agora.getMinutes();
+  if (h < 14 || (h === 14 && m < 30)) agora.setDate(agora.getDate() - 1);
+  const ds = agora.toLocaleString('pt-BR', { weekday: 'short' });
+  return ds.charAt(0).toUpperCase() + ds.slice(1).replace('.', '');
+}
+
 let map, mkEntregador;
 let _modo3D = false;
 let _bearingAtual = 0;
@@ -909,84 +966,24 @@ async function salvarGPS(lat, lon, acc) {
 
 // ── ROTA ────────────────────────────────────────────────────────────────
 async function carregarRota() {
-  const hoje = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  const hoje = getHojeDia();
+  const diaFormatado = getDiaSemanaDia();
 
   const { data } = await sb.from('rotas')
     .select('*')
     .in('status', ['criada', 'em_andamento', 'aguardando', 'concluido'])
     .order('created_at', { ascending: true });
 
-  if (data && data.length > 0) {
-    // Prioridade 1: rota em andamento hoje — entregador é dono, nunca substituir
-    const emAndamentoHoje = data.find(r => {
-      if (r.status !== 'em_andamento' && r.status !== 'aguardando') return false;
-      const saidaData = r.saida_em
-        ? new Date(r.saida_em).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
-        : null;
-      return saidaData === hoje || !r.saida_em;
-    });
-
-    if (emAndamentoHoje) {
-      // Só atualiza se for a mesma rota (não deixa ADM substituir em meio à entrega)
-      if (!rotaAtiva || rotaAtiva.id === emAndamentoHoje.id) {
-        rotaAtiva = emAndamentoHoje;
-      }
-    } else {
-      // Prioridade 2: próxima rota criada do dia
-      const criada = data.find(r => {
-        if (r.status !== 'criada' && r.status !== 'aguardando') return false;
-        const dtRota = r.saida_em || r.created_at;
-        const dataRota = new Date(dtRota).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-        return dataRota === hoje || !r.saida_em;
-      });
-      rotaAtiva = criada || null;
-    }
-  } else {
-    rotaAtiva = null;
-  }
-
-  // Pega paradas brutas (sem _meta)
-  let paradasBruto = rotaAtiva
-    ? (rotaAtiva.paradas || []).filter(p => !p._meta)
-    : [];
-
-  // Enriquece com coordenadas da tabela clientes (ADM salva template sem coords)
-  if (paradasBruto.length > 0) {
-    const phones = paradasBruto.map(p => p.cliente_phone).filter(Boolean);
-    const { data: clientes } = await sb.from('clientes')
-      .select('phone, delivery_lat, delivery_lon, lat, lon')
-      .in('phone', phones);
-
-    const coordMap = {};
-    (clientes || []).forEach(c => {
-      const cLat = c.delivery_lat ?? c.lat;
-      const cLon = c.delivery_lon ?? c.lon;
-      if (cLat && cLon) coordMap[c.phone] = [cLat, cLon];
-    });
-
-    paradasBruto = paradasBruto.map(p => {
-      if (!p.coords && coordMap[p.cliente_phone]) {
-        return { ...p, coords: coordMap[p.cliente_phone] };
-      }
-      return p;
-    });
-  }
-
-  paradas = paradasBruto;
-
-  // Monta fila de rotas do dia:
-  // - Rotas recorrentes: têm _meta com dias_semana → filtra pelo dia de hoje
-  // - Rotas avulsas/manuais: sem _meta → inclui se status ativo (criada/em_andamento/aguardando)
-  //   ou se foi concluída hoje
-  const diaHoje = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'short' });
-  const diaFormatado = diaHoje.charAt(0).toUpperCase() + diaHoje.slice(1).replace('.','');
+  // ── Monta fila de rotas do dia ordenada por hora_saida ──
+  // Inclui TODAS as rotas do dia (com ou sem pedidos)
   filaRotasHoje = (data || []).filter(r => {
     const meta = (r.paradas || []).find(x => x._meta) || {};
     const dias = meta.dias_semana || [];
     // Rota recorrente: filtra por dia da semana
     if (dias.length > 0) return dias.includes(diaFormatado);
-    // Rota avulsa/manual: inclui se ativa ou concluída hoje
+    // Rota avulsa: inclui se ativa
     if (r.status === 'criada' || r.status === 'em_andamento' || r.status === 'aguardando') return true;
+    // Rota concluída hoje
     if (r.status === 'concluido' && r.fim_em) {
       const fimData = new Date(r.fim_em).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
       return fimData === hoje;
@@ -998,10 +995,96 @@ async function carregarRota() {
     return hA.localeCompare(hB);
   });
 
+  // ── Busca contagem de pedidos feitos por rota ──
+  // Cada parada na rota tem cliente_phone; pedido feito = pedido existe no janelaDia
+  // Carrega pedidos da janela atual (14:30 de ontem até agora)
+  const agoraSP = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+  const virada = new Date(agoraSP);
+  if (agoraSP.getHours() < 14 || (agoraSP.getHours() === 14 && agoraSP.getMinutes() < 30)) {
+    virada.setDate(virada.getDate() - 1);
+  }
+  virada.setHours(14, 30, 0, 0);
+  const { data: pedidosDia } = await sb.from('pedidos')
+    .select('customer_phone, status, entregue')
+    .gte('created_at', virada.toISOString());
+  const pedidosSet = new Set((pedidosDia || []).map(p => p.customer_phone));
+
+  // Guarda pedidosSet nas rotas para usar no render
+  filaRotasHoje._pedidosSet = pedidosSet;
+
+  // ── Auto-finaliza rotas sem pedido quando passou o horário de saída ──
+  const horaAtual = `${String(agoraSP.getHours()).padStart(2,'0')}:${String(agoraSP.getMinutes()).padStart(2,'0')}`;
+  for (const r of filaRotasHoje) {
+    if (r.status !== 'criada') continue;
+    const meta = (r.paradas || []).find(x => x._meta) || {};
+    const horaSaida = meta.hora_saida || '00:00';
+    if (horaAtual < horaSaida) continue; // ainda não chegou o horário
+    // Verifica se algum cliente desta rota fez pedido
+    const phones = (r.paradas || []).filter(p => !p._meta).map(p => p.cliente_phone).filter(Boolean);
+    const temPedido = phones.some(ph => pedidosSet.has(ph));
+    if (!temPedido && phones.length > 0) {
+      // Zero pedidos e já passou o horário → auto-finaliza
+      await sb.from('rotas').update({
+        status: 'concluido',
+        fim_em: new Date().toISOString()
+      }).eq('id', r.id);
+      r.status = 'concluido'; // atualiza local para não reprocessar
+      r.fim_em = new Date().toISOString();
+    }
+  }
+
+  // ── Determina rota ativa ──
+  const emAndamentoHoje = filaRotasHoje.find(r =>
+    r.status === 'em_andamento' || r.status === 'aguardando'
+  );
+
+  if (emAndamentoHoje) {
+    if (!rotaAtiva || rotaAtiva.id === emAndamentoHoje.id) {
+      rotaAtiva = emAndamentoHoje;
+    }
+  } else {
+    let proximaDisponivel = null;
+    for (let i = 0; i < filaRotasHoje.length; i++) {
+      const r = filaRotasHoje[i];
+      if (r.status !== 'criada') continue;
+      if (i === 0) { proximaDisponivel = r; break; }
+      const anterior = filaRotasHoje[i - 1];
+      if (anterior.status === 'concluido') { proximaDisponivel = r; break; }
+      break;
+    }
+    rotaAtiva = proximaDisponivel || null;
+  }
+
+  // ── Paradas da rota ativa ──
+  let paradasBruto = rotaAtiva
+    ? (rotaAtiva.paradas || []).filter(p => !p._meta)
+    : [];
+
+  // Filtra: só mostra paradas de clientes que fizeram pedido
+  paradasBruto = paradasBruto.filter(p => !p.cliente_phone || pedidosSet.has(p.cliente_phone));
+
+  // Enriquece com coordenadas
+  if (paradasBruto.length > 0) {
+    const phones = paradasBruto.map(p => p.cliente_phone).filter(Boolean);
+    const { data: clientes } = await sb.from('clientes')
+      .select('phone, delivery_lat, delivery_lon, lat, lon')
+      .in('phone', phones);
+    const coordMap = {};
+    (clientes || []).forEach(c => {
+      const cLat = c.delivery_lat ?? c.lat;
+      const cLon = c.delivery_lon ?? c.lon;
+      if (cLat && cLon) coordMap[c.phone] = [cLat, cLon];
+    });
+    paradasBruto = paradasBruto.map(p =>
+      (!p.coords && coordMap[p.cliente_phone]) ? { ...p, coords: coordMap[p.cliente_phone] } : p
+    );
+  }
+
+  paradas = paradasBruto;
+
   renderTudo();
   mostrarSemRota();
 
-  // Se o painel de paradas de uma rota está aberto, atualiza ele também
   if (rotaSelecionada) {
     const rotaAtualizada = filaRotasHoje.find(r => r.id === rotaSelecionada.id);
     if (rotaAtualizada) abrirParadasRota(rotaAtualizada.id);
@@ -1204,13 +1287,17 @@ function renderRotaCards() {
   const paradasBox = document.getElementById('rotaParadasBox');
   if (!box) return;
 
-  // Atualiza contadores da aba Informações
-  const elEnt = document.getElementById('infoEntregues');
-  const elPend = document.getElementById('infoPendentes');
-  if (elEnt) elEnt.textContent = paradas.filter(p => p.status === 'entregue').length;
-  if (elPend) elPend.textContent = paradas.filter(p => p.status !== 'entregue').length;
+  const pedidosSet = filaRotasHoje._pedidosSet || new Set();
 
-  // Se não há rotas, mostra vazio
+  // Totais globais — só quem fez pedido
+  const todasComPedido = filaRotasHoje.flatMap(r =>
+    (r.paradas || []).filter(p => !p._meta && pedidosSet.has(p.cliente_phone))
+  );
+  const elEnt  = document.getElementById('infoEntregues');
+  const elPend = document.getElementById('infoPendentes');
+  if (elEnt)  elEnt.textContent  = todasComPedido.filter(p => p.status === 'entregue').length;
+  if (elPend) elPend.textContent = todasComPedido.filter(p => p.status !== 'entregue').length;
+
   if (!filaRotasHoje || filaRotasHoje.length === 0) {
     box.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);font-size:13px;">Nenhuma rota para hoje</div>';
     paradasBox.style.display = 'none';
@@ -1218,36 +1305,50 @@ function renderRotaCards() {
   }
 
   const statusLabel = { criada:'⏳ Aguardando', aguardando:'🏭 Na fábrica', em_andamento:'🛵 Em andamento', concluido:'✅ Concluída' };
-  const badgeClass = { criada:'ag', aguardando:'ag', em_andamento:'em', concluido:'ok' };
+  const badgeClass  = { criada:'ag', aguardando:'ag', em_andamento:'em', concluido:'ok' };
 
   box.innerHTML = filaRotasHoje.map((r, idx) => {
     const meta = (r.paradas || []).find(x => x._meta) || {};
     const hora = meta.hora_saida || '--:--';
     const paradassRota = (r.paradas || []).filter(p => !p._meta);
-    const total = paradassRota.length;
-    const entregues = paradassRota.filter(p => p.status === 'entregue').length;
-    const progresso = total > 0 ? Math.round((entregues/total)*100) : 0;
-    const isAtiva = rotaAtiva && r.id === rotaAtiva.id;
-    const isConcluida = r.status === 'concluido';
-    const posLabel = ['1ª','2ª','3ª','4ª','5ª'][idx] || `${idx+1}ª`;
-    const cardClass = isConcluida ? 'concluida' : isAtiva ? 'ativa' : '';
-    const bc = badgeClass[r.status] || 'ag';
-    const barColor = isConcluida ? 'var(--green)' : isAtiva ? 'var(--gold)' : 'rgba(192,132,252,0.4)';
 
-    return `<div class="rota-card ${cardClass}" onclick="abrirParadasRota('${r.id}')">
+    // Contador = quem fez pedido, não total da rota
+    const comPedido = paradassRota.filter(p => pedidosSet.has(p.cliente_phone));
+    const pedidoQtd = comPedido.length;
+    const entregues = comPedido.filter(p => p.status === 'entregue').length;
+    const progresso = pedidoQtd > 0 ? Math.round((entregues / pedidoQtd) * 100) : 0;
+
+    const isAtiva    = rotaAtiva && r.id === rotaAtiva.id;
+    const isConcluida = r.status === 'concluido';
+    const anterior   = idx > 0 ? filaRotasHoje[idx - 1] : null;
+    const isBloqueada = r.status === 'criada' && anterior && anterior.status !== 'concluido';
+
+    const posLabel  = ['1ª','2ª','3ª','4ª','5ª'][idx] || `${idx+1}ª`;
+    const cardClass = isConcluida ? 'concluida' : isAtiva ? 'ativa' : '';
+    const bc        = badgeClass[r.status] || 'ag';
+    const barColor  = isConcluida ? 'var(--green)' : isAtiva ? 'var(--gold)' : 'rgba(192,132,252,0.4)';
+    const badgeHtml = isBloqueada
+      ? `<span class="rota-card-badge ag">🔒 Aguardando anterior</span>`
+      : `<span class="rota-card-badge ${bc}">${statusLabel[r.status] || r.status}</span>`;
+
+    const pedidoLabel = (isConcluida && pedidoQtd === 0)
+      ? '<span>📦 Sem pedidos</span>'
+      : `<span>📦 ${entregues}/${pedidoQtd} pedido${pedidoQtd !== 1 ? 's' : ''}</span>`;
+
+    return `<div class="rota-card ${cardClass}" style="${isBloqueada ? 'opacity:0.5;' : ''}" onclick="abrirParadasRota('${r.id}')">
       <div class="rota-card-top">
         <div class="rota-card-icon">${isConcluida ? '✓' : posLabel}</div>
         <div class="rota-card-info">
           <div class="rota-card-nome">${r.nome_rota || 'Rota'}</div>
           <div class="rota-card-meta">
             <span>🕐 ${hora}</span>
-            ${total > 0 ? `<span>📦 ${entregues}/${total} entregas</span>` : '<span>Sem clientes hoje</span>'}
+            ${pedidoLabel}
           </div>
         </div>
-        <span class="rota-card-badge ${bc}">${statusLabel[r.status] || r.status}</span>
+        ${badgeHtml}
         <span class="rota-card-chevron">›</span>
       </div>
-      ${total > 0 ? `<div class="rota-card-progress"><div class="rota-card-progress-bar" style="width:${progresso}%;background:${barColor};"></div></div>` : ''}
+      ${pedidoQtd > 0 ? `<div class="rota-card-progress"><div class="rota-card-progress-bar" style="width:${progresso}%;background:${barColor};"></div></div>` : ''}
     </div>`;
   }).join('');
 }
@@ -1357,6 +1458,36 @@ function renderTudo() {
   renderLista();
 }
 
+// ── MODO CONFIRMAÇÃO ─────────────────────────────────────────────────────
+function _atualizarToggleUI() {
+  const sw    = document.getElementById('toggleConfSwitch');
+  const thumb = document.getElementById('toggleConfThumb');
+  const label = document.getElementById('modoConfLabel');
+  const desc  = document.getElementById('modoConfDesc');
+  if (!sw) return;
+  if (modoAutoConfirmar) {
+    sw.style.background = 'var(--gold)';
+    thumb.style.left = 'calc(100% - 23px)';
+    label.textContent = '🤖 Confirmação automática';
+    desc.textContent  = 'Entrega confirmada ao chegar em 20m';
+  } else {
+    sw.style.background = 'rgba(255,255,255,0.12)';
+    thumb.style.left = '3px';
+    label.textContent = '✋ Confirmação manual';
+    desc.textContent  = 'Toque na parada para confirmar entrega';
+  }
+}
+
+function toggleModoConfirmacao() {
+  modoAutoConfirmar = !modoAutoConfirmar;
+  localStorage.setItem('modoAutoConfirmar', modoAutoConfirmar);
+  _atualizarToggleUI();
+  showToast(modoAutoConfirmar ? '🤖 Modo automático ativado' : '✋ Modo manual ativado', 'ok');
+}
+
+// Guarda phones já confirmados automaticamente nesta sessão para não re-disparar
+const _autoConfirmados = new Set();
+
 // ── PROXIMIDADE ───────────────────────────────────────────────────────────
 function verificarProximidade(lat, lon) {
   const pendentes = paradas.filter(p => p.status !== 'entregue' && p.coords);
@@ -1366,6 +1497,15 @@ function verificarProximidade(lat, lon) {
   const [pLat, pLon] = prox.coords;
   const d = distancia(lat, lon, pLat, pLon);
 
+  // ── Automático: 20m → confirma direto ──
+  if (modoAutoConfirmar && d <= RAIO_AUTO && !_autoConfirmados.has(prox.cliente_phone)) {
+    _autoConfirmados.add(prox.cliente_phone);
+    esconderAlerta();
+    _confirmarEntregaAuto(prox);
+    return;
+  }
+
+  // ── Manual: 80m → mostra alerta ──
   if (d <= RAIO_ALERTA) {
     mostrarAlerta(prox);
   } else {
@@ -1389,13 +1529,73 @@ function abrirModalParaProximo() {
   if (p) abrirModal(p);
 }
 
+// Confirmação automática: sem modal, detecta pagamento e confirma direto
+async function _confirmarEntregaAuto(p) {
+  const { data: pedidos } = await sb.from('pedidos')
+    .select('*')
+    .eq('customer_phone', p.cliente_phone)
+    .eq('entregue', false)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  const pedido = pedidos?.[0];
+  const metodo = (pedido?.payment_method || '').toUpperCase();
+  const ehFiado = metodo === 'FIADO';
+  const pagamento = ehFiado ? 'fiado' : (pedido?.payment_method || 'dinheiro');
+  const agora = new Date().toISOString();
+
+  try {
+    // Marca parada como entregue na rota
+    if (rotaAtiva?.id) {
+      const novasParadas = (rotaAtiva.paradas || []).map(x =>
+        (!x._meta && x.cliente_phone === p.cliente_phone)
+          ? { ...x, status: 'entregue', entregue_em: agora, pagamento }
+          : x
+      );
+      const entreguesCount = novasParadas.filter(x => !x._meta && x.status === 'entregue').length;
+      await sb.from('rotas').update({
+        paradas: novasParadas,
+        phones_entregues: [...(rotaAtiva.phones_entregues || []), p.cliente_phone],
+        entregas_realizadas: entreguesCount
+      }).eq('id', rotaAtiva.id);
+    }
+
+    // Atualiza pedido
+    if (pedido?.id) {
+      await sb.from('pedidos').update({
+        entregue: true,
+        entregue_em: agora,
+        payment_method: ehFiado ? 'FIADO' : pagamento,
+        status_entrega: 'entregue'
+      }).eq('id', pedido.id);
+
+      if (ehFiado) {
+        const { data: cli } = await sb.from('clientes').select('debt').eq('phone', p.cliente_phone).maybeSingle();
+        await sb.from('clientes').update({
+          debt: parseFloat(cli?.debt || 0) + Number(pedido.total || 0),
+          fiado: true
+        }).eq('phone', p.cliente_phone);
+      }
+    }
+
+    showToast(`✅ ${p.nome || 'Cliente'} — entrega confirmada automaticamente`, 'ok');
+    await carregarRota();
+
+  } catch(e) {
+    console.error(e);
+    // Se falhar remove do set para poder tentar de novo
+    _autoConfirmados.delete(p.cliente_phone);
+    showToast('Erro na confirmação automática', 'err');
+  }
+}
+
 // ── MODAL DE ENTREGA ──────────────────────────────────────────────────────
 async function abrirModal(p) {
-  if (p.status === 'entregue') return; // já entregue, ignora
+  if (p.status === 'entregue') return;
   modalParada = p;
   pagSelecionado = null;
 
-  // Busca pedido do cliente no ciclo atual
+  // Busca pedido pendente do cliente
   const { data: pedidos } = await sb.from('pedidos')
     .select('*')
     .eq('customer_phone', p.cliente_phone)
@@ -1417,13 +1617,50 @@ async function abrirModal(p) {
     document.getElementById('mTotal').textContent = '';
   }
 
-  // Reset pagamento
-  document.querySelectorAll('.pag-btn').forEach(b => b.classList.remove('sel'));
-  document.getElementById('trocoBox').style.display = 'none';
-  document.getElementById('trocoInput').value = '';
-  document.getElementById('btnConfirmar').disabled = true;
+  // Detecta forma de pagamento
+  const metodo = (pedido?.payment_method || '').toUpperCase();
+  const ehFiado = metodo === 'FIADO';
+  // "pagar na entrega" = dinheiro ou pix (qualquer coisa que não seja fiado e não seja premio)
+  const pagarNaEntrega = !ehFiado && metodo !== 'PREMIO' && pedido;
+
+  document.getElementById('secPagamento').style.display = pagarNaEntrega ? 'block' : 'none';
+  document.getElementById('secFiado').style.display = ehFiado ? 'block' : 'none';
+
+  // Reset botões Sim/Não
+  document.getElementById('btnSimPago').classList.remove('sel');
+  document.getElementById('btnNaoPago').classList.remove('sel');
+
+  const btnConf = document.getElementById('btnConfirmar');
+  // Se fiado ou sem pedido → já pode confirmar direto
+  btnConf.disabled = pagarNaEntrega; // bloqueia até responder Sim ou Não
+  btnConf.textContent = ehFiado ? '📋 Registrar Fiado' : '✅ Confirmar Entrega';
+  btnConf.className = ehFiado ? 'btn-confirmar fiado-btn' : 'btn-confirmar';
+
+  // Guarda contexto para o confirmar saber o que fazer
+  modalParada._pagarNaEntrega = pagarNaEntrega;
+  modalParada._ehFiado = ehFiado;
 
   document.getElementById('modalEntrega').classList.add('open');
+}
+
+function respPago(foiPago) {
+  // foiPago=true → pago; foiPago=false → vira fiado
+  document.getElementById('btnSimPago').classList.toggle('sel', foiPago);
+  document.getElementById('btnNaoPago').classList.toggle('sel', !foiPago);
+
+  pagSelecionado = foiPago
+    ? (modalParada._pedido?.payment_method || 'dinheiro') // mantém o método original
+    : 'fiado';
+
+  const btnConf = document.getElementById('btnConfirmar');
+  btnConf.disabled = false;
+  if (!foiPago) {
+    btnConf.textContent = '📋 Registrar como Fiado';
+    btnConf.className = 'btn-confirmar fiado-btn';
+  } else {
+    btnConf.textContent = '✅ Confirmar Entrega';
+    btnConf.className = 'btn-confirmar';
+  }
 }
 
 function fecharModal() {
@@ -1432,19 +1669,18 @@ function fecharModal() {
   pagSelecionado = null;
 }
 
-function selPag(tipo, btn) {
-  pagSelecionado = tipo;
-  document.querySelectorAll('.pag-btn').forEach(b => b.classList.remove('sel'));
-  btn.classList.add('sel');
-  document.getElementById('trocoBox').style.display = tipo === 'dinheiro' ? 'block' : 'none';
-  const conf = document.getElementById('btnConfirmar');
-  conf.disabled = false;
-  conf.className = tipo === 'fiado' ? 'btn-confirmar fiado-btn' : 'btn-confirmar';
-  conf.textContent = tipo === 'fiado' ? '📋 Registrar Fiado' : '✅ Confirmar Entrega';
-}
-
 async function confirmarEntrega() {
-  if (!modalParada || !pagSelecionado) return;
+  if (!modalParada) return;
+
+  // Se era pagar na entrega, precisa ter respondido Sim ou Não
+  if (modalParada._pagarNaEntrega && !pagSelecionado) return;
+
+  // Se era fiado direto, pagSelecionado fica como 'fiado'
+  if (modalParada._ehFiado) pagSelecionado = 'fiado';
+
+  // Se sem pedido (rota manual sem pedido registrado), confirma entrega sem pagamento
+  if (!modalParada._pedido) pagSelecionado = pagSelecionado || 'sem_pedido';
+
   const btn = document.getElementById('btnConfirmar');
   btn.disabled = true;
   btn.textContent = 'Salvando...';
@@ -1452,6 +1688,7 @@ async function confirmarEntrega() {
   const p = modalParada;
   const pedido = p._pedido;
   const agora = new Date().toISOString();
+  const ehFiado = pagSelecionado === 'fiado';
 
   try {
     // 1. Marca parada como entregue na rota
@@ -1470,21 +1707,18 @@ async function confirmarEntrega() {
       }).eq('id', rotaAtiva.id);
     }
 
-    // 2. Marca pedido como entregue
+    // 2. Atualiza pedido
     if (pedido?.id) {
       const upd = {
         entregue: true,
         entregue_em: agora,
-        payment_method: pagSelecionado,
+        payment_method: ehFiado ? 'FIADO' : pagSelecionado,
         status_entrega: 'entregue'
       };
-      if (pagSelecionado === 'fiado') {
-        upd.payment_method = 'FIADO';
-      }
       await sb.from('pedidos').update(upd).eq('id', pedido.id);
 
       // 3. Se fiado: atualiza débito do cliente
-      if (pagSelecionado === 'fiado') {
+      if (ehFiado) {
         const { data: cli } = await sb.from('clientes').select('debt').eq('phone', p.cliente_phone).maybeSingle();
         const debtAtual = parseFloat(cli?.debt || 0);
         await sb.from('clientes').update({
@@ -1496,16 +1730,14 @@ async function confirmarEntrega() {
 
     fecharModal();
     esconderAlerta();
-    showToast('✅ Entrega confirmada!', 'ok');
-
-    // Recarrega rota
+    showToast(ehFiado ? '📋 Registrado como fiado!' : '✅ Entrega confirmada!', 'ok');
     await carregarRota();
 
   } catch(e) {
     console.error(e);
     showToast('Erro ao salvar', 'err');
     btn.disabled = false;
-    btn.textContent = '✅ Confirmar Entrega';
+    btn.textContent = ehFiado ? '📋 Registrar Fiado' : '✅ Confirmar Entrega';
   }
 }
 
@@ -1557,6 +1789,7 @@ function showToast(msg, tipo='info') {
 async function init() {
   initMap();
   iniciarGPS();
+  _atualizarToggleUI(); // aplica estado salvo do toggle
   await carregarRota();
   iniciarRealtime();
 
