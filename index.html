@@ -720,20 +720,39 @@ let _explorandoMapa = false;
 let _timerRecentrar = null;
 const TEMPO_RECENTRAR = 10000; // 10 segundos sem toque → recentra
 
-// Velocímetro
-let _veloHist = [];
+// Velocímetro — EMA (média exponencial) em vez de array de médias
+let _kmhJanela = []; // janela deslizante de velocidades
+const _KMH_JANELA_MAX = 5; // média dos últimos 5 pontos GPS
+let _ultimaTsAnterior = null;
 let _limiteVia = null;
 let _limiteTimer = null;
 
 // ── VELOCÍMETRO estilo Waze ──────────────────────────────────────────────
+let _veloZerarTimer = null;
 
 function atualizarVelocimetro(kmh) {
   const vel = Math.max(0, Math.min(kmh, 200));
-  document.getElementById('veloNum').textContent = Math.round(vel);
+  const arredondado = Math.round(vel);
 
-  const el = document.getElementById('velocimetro');
+  // Atualiza só se mudou (evita repaint desnecessário)
+  const el = document.getElementById('veloNum');
+  if (el.textContent !== String(arredondado)) {
+    el.textContent = arredondado;
+  }
+
+  const elBox = document.getElementById('velocimetro');
   const overspeed = _limiteVia !== null && vel > _limiteVia + 2;
-  el.classList.toggle('overspeed', overspeed);
+  elBox.classList.toggle('overspeed', overspeed);
+
+  // Zera velocímetro se ficar 4s sem update (parado ou GPS perdido)
+  clearTimeout(_veloZerarTimer);
+  if (vel > 1) {
+    _veloZerarTimer = setTimeout(() => {
+      _kmhJanela = [];
+      document.getElementById('veloNum').textContent = '0';
+      document.getElementById('velocimetro').classList.remove('overspeed');
+    }, 4000);
+  }
 }
 
 async function buscarLimiteVia(lat, lon) {
@@ -852,6 +871,16 @@ function _iniciarExploracao() {
 }
 
 // ── GPS ──────────────────────────────────────────────────────────────────
+// Fila para salvar GPS sem bloquear o update principal
+let _gpsSaveQueue = null;
+let _gpsSaving = false;
+let _renderListaPendente = false;
+let _animFrameId = null;
+let _mkAnimStart = null;   // posição inicial da interpolação
+let _mkAnimTarget = null;  // posição alvo
+let _mkAnimId = null;      // requestAnimationFrame id da interpolação
+const _MK_ANIM_MS = 100;   // duração da animação do marcador (ms)
+
 function iniciarGPS() {
   if (!navigator.geolocation) {
     setGPSStatus('err', 'GPS indisponível');
@@ -860,73 +889,123 @@ function iniciarGPS() {
   gpsWatcher = navigator.geolocation.watchPosition(
     onGPSUpdate,
     onGPSErro,
-    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+    // maximumAge:0 → sempre posição fresca; timeout maior para não perder updates
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 }
   );
 
-  // Heartbeat: a cada 5s salva a última posição mesmo sem movimento
+  // Heartbeat: salva posição a cada 5s sem travar o GPS
   _gpsHeartbeat = setInterval(() => {
     if (posEntregador) {
-      salvarGPS(posEntregador.lat, posEntregador.lon, posEntregador.acc ?? 0);
+      _enfileirarGPS(posEntregador.lat, posEntregador.lon, posEntregador.acc ?? 0);
     }
-  }, 3000);
+  }, 5000);
 }
 
-async function onGPSUpdate(pos) {
+function onGPSUpdate(pos) {
   const lat = pos.coords.latitude;
   const lon = pos.coords.longitude;
   const acc = Math.round(pos.coords.accuracy);
-  posEntregador = { lat, lon, acc };
+  const ts  = pos.timestamp;
+  posEntregador = { lat, lon, acc, ts };
+
+  // ── Marcador no mapa: interpolação suave de 100ms ──
+  if (_mkAnimId) cancelAnimationFrame(_mkAnimId);
+  const origem = mkEntregador ? mkEntregador.getLngLat() : { lng: lon, lat };
+  _mkAnimStart  = { lng: origem.lng, lat: origem.lat };
+  _mkAnimTarget = { lng: lon, lat };
+  const t0 = performance.now();
+  function _animStep(now) {
+    const p = Math.min((now - t0) / _MK_ANIM_MS, 1);
+    const curLng = _mkAnimStart.lng + (_mkAnimTarget.lng - _mkAnimStart.lng) * p;
+    const curLat = _mkAnimStart.lat + (_mkAnimTarget.lat - _mkAnimStart.lat) * p;
+    if (mkEntregador) mkEntregador.setLngLat([curLng, curLat]);
+    if (p < 1) { _mkAnimId = requestAnimationFrame(_animStep); }
+    else { _mkAnimId = null; }
+  }
+  _mkAnimId = requestAnimationFrame(_animStep);
+  _atualizarCamera(lat, lon);
 
   setGPSStatus('ok', `±${acc}m`);
-  mkEntregador.setLngLat([lon, lat]);
 
-  // Velocidade: usa a do GPS se disponível
+  // ── Velocidade: prefere a do GPS (mais precisa), fallback por distância/tempo ──
   let kmh = 0;
   if (pos.coords.speed != null && pos.coords.speed >= 0) {
     kmh = pos.coords.speed * 3.6;
-  }
-  // Suaviza com média dos últimos 4 valores
-  _veloHist.push(kmh);
-  if (_veloHist.length > 4) _veloHist.shift();
-  const kmhSuave = _veloHist.reduce((a,b) => a+b, 0) / _veloHist.length;
-  atualizarVelocimetro(kmhSuave);
-
-  // Busca limite da via a cada ~200m ou na primeira leitura
-  const _posAnteriorLimite = window._posAnteriorLimite;
-  const deveConsultar = !_posAnteriorLimite ||
-    distancia(lat, lon, _posAnteriorLimite[0], _posAnteriorLimite[1]) > 200;
-  if (deveConsultar) {
-    window._posAnteriorLimite = [lat, lon];
-    clearTimeout(_limiteTimer);
-    _limiteTimer = setTimeout(() => buscarLimiteVia(lat, lon), 800);
+  } else if (_ultimaPosAnterior && _ultimaTsAnterior) {
+    const d = distancia(lat, lon, _ultimaPosAnterior[0], _ultimaPosAnterior[1]);
+    const dt = (ts - _ultimaTsAnterior) / 1000;
+    if (dt > 0) kmh = (d / dt) * 3.6;
   }
 
-  // Calcular bearing (direção do movimento)
+  // Janela deslizante: média dos últimos 5 pontos — elimina picos falsos
+  _kmhJanela.push(kmh);
+  if (_kmhJanela.length > _KMH_JANELA_MAX) _kmhJanela.shift();
+  const kmhMedia = _kmhJanela.reduce((a, b) => a + b, 0) / _kmhJanela.length;
+  atualizarVelocimetro(kmhMedia);
+
+  // ── Bearing ──
   if (_ultimaPosAnterior) {
     const dLat = Math.abs(lat - _ultimaPosAnterior[0]);
     const dLon = Math.abs(lon - _ultimaPosAnterior[1]);
-    if (dLat + dLon > 0.00003) {
+    if (dLat + dLon > 0.000015) { // threshold menor = mais responsivo
       const raw = _calcBearing(_ultimaPosAnterior[0], _ultimaPosAnterior[1], lat, lon);
       _bearingAtual = _suavizarBearing(raw);
     }
   }
   _ultimaPosAnterior = [lat, lon];
+  _ultimaTsAnterior  = ts;
 
-  // Câmera segue a moto (moto posicionada a ~20% da parte inferior)
-  if (_modo3D) {
-    map.easeTo({ center:[lon, lat], bearing:_bearingAtual, pitch:72, zoom:18.5, duration:800, essential:true, padding:_getMapPadding() });
-  } else if (!_explorandoMapa) {
-    map.easeTo({ center:[lon, lat], zoom:15, duration:600, padding:_paddingNormal });
+  // ── Busca limite da via a cada ~150m ──
+  const prevLimite = window._posAnteriorLimite;
+  if (!prevLimite || distancia(lat, lon, prevLimite[0], prevLimite[1]) > 150) {
+    window._posAnteriorLimite = [lat, lon];
+    clearTimeout(_limiteTimer);
+    _limiteTimer = setTimeout(() => buscarLimiteVia(lat, lon), 1000);
   }
 
-  // Salva no Supabase
-  await salvarGPS(lat, lon, acc);
+  // ── Salva no Supabase de forma assíncrona sem bloquear ──
+  _enfileirarGPS(lat, lon, acc);
 
-  // Atualizar distâncias na lista
-  renderLista();
+  // ── Render da lista: throttle para não renderizar a cada update ──
+  if (!_renderListaPendente) {
+    _renderListaPendente = true;
+    setTimeout(() => {
+      _renderListaPendente = false;
+      renderLista();
+      verificarProximidade(lat, lon);
+    }, 2000); // atualiza lista no máximo a cada 2s
+  }
+}
 
-  // Verificar proximidade
-  verificarProximidade(lat, lon);
+// Salva GPS sem await — não bloqueia o fluxo principal
+function _enfileirarGPS(lat, lon, acc) {
+  _gpsSaveQueue = { lat, lon, acc };
+  if (!_gpsSaving) _processarFilaGPS();
+}
+
+async function _processarFilaGPS() {
+  if (!_gpsSaveQueue) return;
+  _gpsSaving = true;
+  const { lat, lon, acc } = _gpsSaveQueue;
+  _gpsSaveQueue = null;
+  try {
+    await salvarGPS(lat, lon, acc);
+  } catch(e) { /* ignora erros de rede */ }
+  _gpsSaving = false;
+  if (_gpsSaveQueue) _processarFilaGPS(); // processa o próximo se chegou
+}
+
+function _atualizarCamera(lat, lon) {
+  if (_modo3D) {
+    map.easeTo({
+      center: [lon, lat], bearing: _bearingAtual,
+      pitch: 72, zoom: 18.5,
+      duration: 100, // animação da câmera em 100ms
+      essential: true, padding: _getMapPadding()
+    });
+  } else if (!_explorandoMapa) {
+    map.easeTo({ center: [lon, lat], zoom: 15, duration: 100, padding: _paddingNormal });
+  }
 }
 
 function onGPSErro(err) {
