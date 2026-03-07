@@ -673,19 +673,25 @@ let modoAutoConfirmar = localStorage.getItem('modoAutoConfirmar') !== 'false';
 
 // ── ESTADO ──────────────────────────────────────────────────────────────
 
-// Virada do dia = 14:30 (horário São Paulo)
-// Antes das 14:30 ainda é o "dia anterior" para fins de rota
+// Virada do dia:
+//   Domingo (0)  → 08:00
+//   Seg–Sáb (1–6) → 14:30
+// Antes desse horário ainda é o "dia anterior" para fins de rota
+function _getViradaHoraMin(diaSemana) {
+  return diaSemana === 0 ? [8, 0] : [14, 30];
+}
 function getHojeDia() {
   const agora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+  const [vh, vm] = _getViradaHoraMin(agora.getDay());
   const h = agora.getHours(), m = agora.getMinutes();
-  // Se antes das 14:30, o "dia de rota" ainda é ontem
-  if (h < 14 || (h === 14 && m < 30)) agora.setDate(agora.getDate() - 1);
+  if (h < vh || (h === vh && m < vm)) agora.setDate(agora.getDate() - 1);
   return agora.toLocaleDateString('pt-BR');
 }
 function getDiaSemanaDia() {
   const agora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+  const [vh, vm] = _getViradaHoraMin(agora.getDay());
   const h = agora.getHours(), m = agora.getMinutes();
-  if (h < 14 || (h === 14 && m < 30)) agora.setDate(agora.getDate() - 1);
+  if (h < vh || (h === vh && m < vm)) agora.setDate(agora.getDate() - 1);
   const ds = agora.toLocaleString('pt-BR', { weekday: 'short' });
   return ds.charAt(0).toUpperCase() + ds.slice(1).replace('.', '');
 }
@@ -965,9 +971,60 @@ async function salvarGPS(lat, lon, acc) {
 }
 
 // ── ROTA ────────────────────────────────────────────────────────────────
+
+// Chave do último dia processado (para detectar virada)
+const _CHAVE_DIA = 'ultimoDiaRota';
+
+async function resetarRotasReutilizaveis() {
+  // Busca todas as rotas concluídas que são reutilizáveis (têm dias_semana)
+  const { data: rotasConcluidas } = await sb.from('rotas')
+    .select('id, paradas, phones_entregues, entregas_realizadas')
+    .eq('status', 'concluido');
+
+  if (!rotasConcluidas || rotasConcluidas.length === 0) return;
+
+  const paraReset = rotasConcluidas.filter(r => {
+    const meta = (r.paradas || []).find(x => x._meta) || {};
+    return (meta.dias_semana || []).length > 0; // só reutilizáveis
+  });
+
+  for (const r of paraReset) {
+    // Reseta status de cada parada para pendente e limpa entregue_em/pagamento
+    const paradasReset = (r.paradas || []).map(p => {
+      if (p._meta) return p; // mantém o _meta intacto
+      return { ...p, status: 'pendente', entregue_em: null, pagamento: null };
+    });
+
+    await sb.from('rotas').update({
+      status: 'criada',
+      fim_em: null,
+      phones_entregues: [],
+      entregas_realizadas: 0,
+      paradas: paradasReset
+    }).eq('id', r.id);
+  }
+
+  console.log(`[virada] ${paraReset.length} rota(s) reutilizável(is) resetada(s)`);
+}
+
+async function verificarViradaDia() {
+  const hojeAtual = getHojeDia();
+  const ultimoDia = localStorage.getItem(_CHAVE_DIA);
+
+  if (ultimoDia && ultimoDia !== hojeAtual) {
+    // Dia virou! Reseta rotas reutilizáveis no Supabase
+    await resetarRotasReutilizaveis();
+  }
+  // Salva o dia atual
+  localStorage.setItem(_CHAVE_DIA, hojeAtual);
+}
+
 async function carregarRota() {
   const hoje = getHojeDia();
   const diaFormatado = getDiaSemanaDia();
+
+  // Verifica se o dia virou e reseta rotas reutilizáveis se necessário
+  await verificarViradaDia();
 
   const { data } = await sb.from('rotas')
     .select('*')
@@ -996,14 +1053,14 @@ async function carregarRota() {
   });
 
   // ── Busca contagem de pedidos feitos por rota ──
-  // Cada parada na rota tem cliente_phone; pedido feito = pedido existe no janelaDia
-  // Carrega pedidos da janela atual (14:30 de ontem até agora)
+  // Janela: desde o fechamento da loja (14:30 seg–sáb / 08:00 dom) até agora
   const agoraSP = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
   const virada = new Date(agoraSP);
-  if (agoraSP.getHours() < 14 || (agoraSP.getHours() === 14 && agoraSP.getMinutes() < 30)) {
+  const [_vh, _vm] = _getViradaHoraMin(agoraSP.getDay());
+  if (agoraSP.getHours() < _vh || (agoraSP.getHours() === _vh && agoraSP.getMinutes() < _vm)) {
     virada.setDate(virada.getDate() - 1);
   }
-  virada.setHours(14, 30, 0, 0);
+  virada.setHours(_vh, _vm, 0, 0);
   const { data: pedidosDia } = await sb.from('pedidos')
     .select('customer_phone, status, entregue')
     .gte('created_at', virada.toISOString());
@@ -1229,6 +1286,7 @@ function trocarAba(aba) {
   });
   document.getElementById('tabInfo').classList.toggle('ativa', aba === 'info');
   document.getElementById('tabRota').classList.toggle('ativa', aba === 'rota');
+  if (aba === 'rota') atualizarCountdowns();
 }
 
 // ── INFO LISTA (entregues / restantes) ────────────────────────────────────
@@ -1335,6 +1393,22 @@ function renderRotaCards() {
       ? '<span>📦 Sem pedidos</span>'
       : `<span>📦 ${entregues}/${pedidoQtd} pedido${pedidoQtd !== 1 ? 's' : ''}</span>`;
 
+    // Countdown: toda rota concluída com hora_saida definida → conta até reiniciar no próximo dia
+    let countdownHtml = '';
+    if (isConcluida && hora !== '--:--') {
+      countdownHtml = `<div style="
+        margin-top:10px;display:flex;align-items:center;gap:8px;
+        background:rgba(245,200,66,0.08);border:1px solid rgba(245,200,66,0.2);
+        border-radius:10px;padding:8px 12px;
+      ">
+        <span style="font-size:14px;">🔄</span>
+        <div>
+          <div style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:1px;">Reinicia às ${hora}</div>
+          <div class="rota-countdown" data-hora="${hora}" data-proximo-dia="1" style="font-family:'DM Mono',monospace;font-size:16px;font-weight:500;color:var(--gold);">--:--</div>
+        </div>
+      </div>`;
+    }
+
     return `<div class="rota-card ${cardClass}" style="${isBloqueada ? 'opacity:0.5;' : ''}" onclick="abrirParadasRota('${r.id}')">
       <div class="rota-card-top">
         <div class="rota-card-icon">${isConcluida ? '✓' : posLabel}</div>
@@ -1349,6 +1423,7 @@ function renderRotaCards() {
         <span class="rota-card-chevron">›</span>
       </div>
       ${pedidoQtd > 0 ? `<div class="rota-card-progress"><div class="rota-card-progress-bar" style="width:${progresso}%;background:${barColor};"></div></div>` : ''}
+      ${countdownHtml}
     </div>`;
   }).join('');
 }
@@ -1443,6 +1518,50 @@ function renderListaParadas(paradassRota, isRotaAtiva) {
 // Mantém compatibilidade — renderLista agora só atualiza info e cards
 function renderLista() {
   renderRotaCards();
+  atualizarCountdowns();
+}
+
+// ── COUNTDOWN para próxima rota ──────────────────────────────────────────
+let _countdownInterval = null;
+
+function atualizarCountdowns() {
+  if (_countdownInterval) { clearInterval(_countdownInterval); _countdownInterval = null; }
+
+  function tick() {
+    const agora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+    const els = document.querySelectorAll('.rota-countdown');
+    els.forEach(el => {
+      const hora = el.dataset.hora;
+      if (!hora) return;
+      const [hh, mm] = hora.split(':').map(Number);
+
+      // Sempre aponta para o próximo dia (a rota reinicia no dia seguinte)
+      const alvo = new Date(agora);
+      alvo.setDate(alvo.getDate() + 1); // começa do amanhã
+      alvo.setHours(hh, mm, 0, 0);
+
+      const diffSeg = Math.max(0, Math.floor((alvo - agora) / 1000));
+      const horas   = Math.floor(diffSeg / 3600);
+      const minutos = Math.floor((diffSeg % 3600) / 60);
+      const segs    = diffSeg % 60;
+
+      if (horas > 0) {
+        el.textContent = `${String(horas).padStart(2,'0')}h ${String(minutos).padStart(2,'0')}m`;
+        el.style.color = 'var(--gold)';
+      } else if (minutos > 0) {
+        el.textContent = `${String(minutos).padStart(2,'0')}m ${String(segs).padStart(2,'0')}s`;
+        el.style.color = 'var(--gold)';
+      } else {
+        el.textContent = diffSeg === 0 ? 'Iniciando!' : `${String(segs).padStart(2,'0')}s`;
+        el.style.color = 'var(--green)';
+      }
+    });
+  }
+
+  tick();
+  if (document.querySelectorAll('.rota-countdown').length > 0) {
+    _countdownInterval = setInterval(tick, 1000);
+  }
 }
 
 function distanciaStr(p) {
