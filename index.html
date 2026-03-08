@@ -276,7 +276,8 @@ body::before{content:'';position:fixed;inset:0;z-index:9998;pointer-events:none;
     <div class="pill"><div class="pill-dot" id="rt-dot"></div><span id="rt-txt">RT</span></div>
     <span class="ping-badge" id="ping-badge"></span>
     <div class="topbar-spacer"></div>
-    <button class="topbar-btn" onclick="refresh()">&#8634;</button>
+    <button class="topbar-btn" style="color:var(--red);border-color:var(--red-dim);" onclick="refresh()">&#8634;</button>
+    <button class="topbar-btn" onclick="location.reload()">🔄</button>
     <button class="topbar-btn" onclick="logout()">Sair</button>
   </div>
   <div class="navtabs">
@@ -344,7 +345,7 @@ body::before{content:'';position:fixed;inset:0;z-index:9998;pointer-events:none;
 const SUPABASE_URL = 'https://vpeyqgijajywgswmezlh.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZwZXlxZ2lqYWp5d2dzd21lemxoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEyNTM1MDIsImV4cCI6MjA4NjgyOTUwMn0.LA5Cbof7IKWAA7l8YbCuPzANpCy0rX_Dro4l9fcDgoQ';
 const PIN_SENHA    = '8564';
-const GPS_INTERVAL = 15000;
+const GPS_INTERVAL = 5000;
 const RAIO_CHEGADA = 80;
 
 let sb;
