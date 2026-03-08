@@ -426,6 +426,7 @@ async function loadRota(){
       const m=Object.fromEntries((clis||[]).map(c=>[c.phone,c]));
       pedidosHoje=pedidosHoje.map(p=>({...p,_cli:m[p.customer_phone]||null}));
     }
+    await syncParadas(); // sincroniza paradas com Status.html
     renderRota(sc,janela);
     if(mapgl)renderMapMarkers();
   }catch(e){sc.innerHTML=`<div class="empty-msg"><div class="em">&#9888;</div><p>${e.message}</p></div>`;}
@@ -515,6 +516,31 @@ function haversine(la1,lo1,la2,lo2){
   const R=6371000,dLa=(la2-la1)*Math.PI/180,dLo=(lo2-lo1)*Math.PI/180;
   const a=Math.sin(dLa/2)**2+Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dLo/2)**2;
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+/* ━━ PARADAS SYNC (para Status.html) ━━ */
+// Constrói o array paradas no formato que o Status.html lê
+function buildParadas(){
+  return pedidosHoje.map(p=>{
+    const cli=p._cli;
+    const lat=parseFloat(cli?.delivery_lat||cli?.lat||0);
+    const lon=parseFloat(cli?.delivery_lon||cli?.lon||0);
+    return {
+      cliente_phone: p.customer_phone||null,
+      nome: p.customer_name||'',
+      coords: (lat&&lon) ? [lat,lon] : null,
+      status: p.entregue ? 'entregue' : 'pendente',
+      show_name: true
+    };
+  });
+}
+
+// Salva paradas no rotas.paradas para o Status.html consumir em tempo real
+async function syncParadas(){
+  if(!rotaAtiva?.id||!pedidosHoje.length)return;
+  try{
+    await sb.from('rotas').update({paradas:buildParadas()}).eq('id',rotaAtiva.id);
+  }catch(e){}
 }
 
 /* ━━ GPS ━━ */
