@@ -5,1997 +5,1003 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0a0a0f">
-<title>Entregador · O Rei da Coxinha</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
-<link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet"/>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<title>Diagnóstico · O Rei da Coxinha</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
 :root {
   --bg: #0a0a0f;
-  --surface: #12121a;
-  --surface2: #1a1a28;
+  --surface: #13131e;
+  --surface2: #1c1c2e;
   --border: rgba(255,255,255,0.07);
-  --gold: #f5c842;
-  --gold2: #e8a020;
   --green: #22d97a;
   --red: #ff4d6d;
   --orange: #ff8c42;
+  --gold: #f5c842;
+  --blue: #60a5fa;
+  --purple: #c084fc;
   --text: #f0eeff;
-  --muted: rgba(240,238,255,0.45);
-  --radius: 18px;
+  --muted: rgba(240,238,255,0.4);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-html, body { height: 100%; overflow: hidden; background: var(--bg); font-family: 'Syne', sans-serif; color: var(--text); }
-
-/* ── MAPA ── */
-#map { position: fixed; inset: 0; z-index: 0; }
-.maplibregl-ctrl-attrib, .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-top-right { display:none !important; }
+html, body {
+  min-height: 100%; background: var(--bg);
+  font-family: 'Syne', sans-serif; color: var(--text);
+  padding-bottom: 40px;
+}
 
 /* ── HEADER ── */
-#header {
-  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 16px 10px;
-  background: linear-gradient(to bottom, rgba(10,10,15,0.98), transparent);
-  pointer-events: none;
+.header {
+  position: sticky; top: 0; z-index: 50;
+  background: rgba(10,10,15,0.97);
+  border-bottom: 1px solid var(--border);
+  padding: 18px 18px 14px;
+  backdrop-filter: blur(16px);
 }
-#header > * { pointer-events: auto; }
-.header-brand { font-size: 15px; font-weight: 800; letter-spacing: -0.3px; color: var(--gold); }
-.header-brand span { color: var(--text); font-weight: 400; }
-
-/* GPS status pill */
-#gpsPill {
-  display: flex; align-items: center; gap: 6px;
-  background: rgba(10,10,15,0.85); border: 1px solid var(--border);
-  border-radius: 100px; padding: 5px 12px 5px 8px;
-  font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted);
-  backdrop-filter: blur(10px);
+.header-title {
+  font-size: 20px; font-weight: 800; color: var(--gold);
+  display: flex; align-items: center; gap: 10px;
 }
-#gpsDot { width: 8px; height: 8px; border-radius: 50%; background: #444; flex-shrink: 0; }
-#gpsDot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; }
-#gpsDot.err { background: var(--red); }
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-
-/* Ping badge dentro do pill */
-#gpsPing {
-  font-family: 'DM Mono', monospace; font-size: 10px;
-  color: var(--green); opacity: 0.7; margin-left: 2px;
-}
-
-/* Botão reload */
-#btnReload {
-  background: none; border: none; padding: 4px;
-  font-size: 18px; cursor: pointer; opacity: 0.7;
-  transition: opacity 0.2s, transform 0.2s;
-  line-height: 1;
-}
-#btnReload:active { opacity: 1; transform: rotate(180deg); }
-
-/* Lista de paradas */
-#listaParadas { overflow-y: auto; padding-top: 4px; }
-#listaParadas::-webkit-scrollbar { display: none; }
-
-/* Botão painel 📩 — abaixo do 3D */
-#btnPainel {
-  position: fixed; right: 14px; top: calc(50% + 68px); 
-  z-index: 110;
-  width: 52px; height: 52px; border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #9b59f5, #5b21b6);
-  border: 2px solid rgba(167,110,255,0.6);
-  font-size: 22px; cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 0 16px rgba(139,92,246,0.7), 0 0 32px rgba(139,92,246,0.35), inset 0 1px 0 rgba(255,255,255,0.2);
-  transition: all 0.25s;
-}
-#btnPainel:active { transform: scale(0.93); }
-#btnPainel.ativo {
-  background: radial-gradient(circle at 35% 35%, #c084fc, #7c3aed);
-  border-color: rgba(192,132,252,0.8);
-  box-shadow: 0 0 24px rgba(167,110,255,0.9), 0 0 48px rgba(139,92,246,0.5), inset 0 1px 0 rgba(255,255,255,0.25);
-}
-
-/* ── TELA DE INFORMAÇÕES (substitui o mapa) ── */
-#telaInfo {
-  position: fixed; inset: 0; z-index: 200;
-  background: var(--bg);
-  display: flex; flex-direction: column;
-  transform: translateX(100%);
-  transition: transform 0.32s cubic-bezier(0.4,0,0.2,1);
-  overflow: hidden;
-}
-#telaInfo.aberta { transform: translateX(0); }
-
-/* Header da tela */
-#telaInfoHeader {
-  display: flex; align-items: center; gap: 12px;
-  padding: 52px 20px 16px;
-  background: linear-gradient(to bottom, rgba(10,10,15,0.98), transparent);
-  flex-shrink: 0;
-}
-#btnFecharTela {
-  width: 38px; height: 38px; border-radius: 50%; border: none;
-  background: rgba(139,92,246,0.15); color: #c084fc;
-  font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center;
-  border: 1px solid rgba(139,92,246,0.3); flex-shrink: 0;
-}
-#telaInfoTitulo {
-  font-size: 18px; font-weight: 800; color: var(--text); flex: 1;
-}
-
-/* Abas dentro da tela */
-#telaAbas {
-  display: flex; gap: 8px; padding: 0 20px 16px; flex-shrink: 0;
-}
-.tela-aba {
-  flex: 1; padding: 9px 0; border-radius: 12px; border: none;
-  font-family: 'Syne', sans-serif; font-size: 12px; font-weight: 700;
-  cursor: pointer; transition: all 0.2s;
-  background: rgba(139,92,246,0.08); color: rgba(192,132,252,0.45);
-  border: 1px solid rgba(139,92,246,0.12);
-}
-.tela-aba.ativa {
-  background: rgba(139,92,246,0.22); color: #c084fc;
-  border-color: rgba(139,92,246,0.5);
-  box-shadow: 0 0 12px rgba(139,92,246,0.2);
-}
-
-/* Conteúdo das abas */
-.tela-tab { display: none; flex: 1; overflow-y: auto; padding: 0 20px 32px; }
-.tela-tab.ativa { display: block; }
-.tela-tab::-webkit-scrollbar { display: none; }
-
-/* Cards de info roxos */
-.info-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding-top: 4px;
-}
-.info-card {
-  background: rgba(139,92,246,0.08);
-  border: 1px solid rgba(139,92,246,0.22);
-  border-radius: 18px; padding: 18px 14px;
-  display: flex; flex-direction: column; align-items: center; gap: 8px;
-  position: relative; overflow: hidden;
-}
-.info-card::before {
-  content: ''; position: absolute; inset: 0; border-radius: 18px;
-  background: radial-gradient(circle at 30% 30%, rgba(192,132,252,0.07), transparent 70%);
-}
-.info-card-icon { font-size: 24px; line-height: 1; }
-.info-card-val {
-  font-family: 'DM Mono', monospace; font-size: 28px; font-weight: 500;
-  color: #c084fc; line-height: 1;
-}
-.info-card-lbl {
-  font-size: 9px; text-transform: uppercase; letter-spacing: 1px;
-  color: rgba(192,132,252,0.45); text-align: center;
-}
-
-.rota-card {
-  border-radius: 18px; padding: 16px 18px; margin-bottom: 10px;
-  border: 1.5px solid rgba(139,92,246,0.2);
-  background: rgba(139,92,246,0.06);
-  cursor: pointer; transition: all 0.2s; position: relative; overflow: hidden;
-}
-.rota-card:active { transform: scale(0.98); }
-.rota-card.ativa {
-  border-color: var(--gold);
-  background: rgba(245,200,66,0.07);
-}
-.rota-card.ativa::before {
-  content:''; position:absolute; inset:0; border-radius:18px;
-  box-shadow: 0 0 0 1.5px var(--gold) inset;
-  animation: glowCard 1.5s ease-in-out infinite alternate;
-}
-.rota-card.concluida {
-  border-color: rgba(34,217,122,0.2);
-  background: rgba(34,217,122,0.04);
-}
-.rota-card-top { display:flex; align-items:center; gap:12px; }
-.rota-card-icon {
-  width:40px; height:40px; border-radius:50%; flex-shrink:0;
-  display:flex; align-items:center; justify-content:center;
-  font-size:18px; font-weight:800; font-family:'DM Mono',monospace;
-  background:rgba(139,92,246,0.15); color:rgba(192,132,252,0.7);
-  border:1px solid rgba(139,92,246,0.25);
-}
-.rota-card.ativa .rota-card-icon { background:var(--gold); color:#000; border-color:var(--gold); font-size:16px; }
-.rota-card.concluida .rota-card-icon { background:rgba(34,217,122,0.15); color:var(--green); border-color:rgba(34,217,122,0.3); }
-.rota-card-info { flex:1; min-width:0; }
-.rota-card-nome { font-size:15px; font-weight:800; color:var(--text); }
-.rota-card.ativa .rota-card-nome { color:var(--gold); }
-.rota-card.concluida .rota-card-nome { color:var(--green); }
-.rota-card-meta { font-size:11px; color:var(--muted); margin-top:3px; display:flex; gap:10px; flex-wrap:wrap; }
-.rota-card-badge {
-  font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;
-  padding:3px 9px; border-radius:100px; flex-shrink:0;
-}
-.rota-card-badge.ag { background:rgba(139,92,246,0.15); color:#c084fc; }
-.rota-card-badge.em { background:rgba(245,200,66,0.18); color:var(--gold); }
-.rota-card-badge.ok { background:rgba(34,217,122,0.15); color:var(--green); }
-.rota-card-progress {
-  margin-top:10px; background:rgba(255,255,255,0.06);
-  border-radius:20px; height:5px; overflow:hidden;
-}
-.rota-card-progress-bar {
-  height:100%; border-radius:20px; transition:width 0.4s;
-}
-.rota-card-chevron {
-  font-size:16px; color:var(--muted); flex-shrink:0; transition:transform 0.2s;
-}
-
-.parada-card {
-  border-radius: 14px; padding: 13px 14px; margin-bottom: 8px;
-  border: 1px solid var(--border); background: var(--surface2);
-  display: flex; align-items: center; gap: 12px; cursor: pointer;
-  transition: border-color 0.2s, background 0.2s;
-  position: relative; overflow: hidden;
-}
-.parada-card.pendente { border-color: rgba(255,140,66,0.3); }
-.parada-card.entregue { border-color: rgba(34,217,122,0.25); background: rgba(34,217,122,0.05); }
-.parada-card.proxima { border-color: var(--gold); background: rgba(245,200,66,0.08); }
-.parada-card.proxima::before {
-  content:''; position:absolute; inset:0; border-radius:14px;
-  box-shadow: 0 0 0 2px var(--gold) inset;
-  animation: glowCard 1.5s ease-in-out infinite alternate;
-}
-@keyframes glowCard { from{opacity:0.4} to{opacity:1} }
-
-.parada-ordem {
-  width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 800; font-family: 'DM Mono', monospace;
-  background: rgba(255,255,255,0.08); color: var(--muted);
-}
-.parada-card.proxima .parada-ordem { background: var(--gold); color: #000; }
-.parada-card.entregue .parada-ordem { background: rgba(34,217,122,0.2); color: var(--green); }
-
-.parada-info { flex: 1; min-width: 0; }
-.parada-nome { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.parada-end { font-size: 11px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.parada-dist { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); flex-shrink: 0; }
-
-.parada-status-badge {
-  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
-  padding: 3px 8px; border-radius: 100px; flex-shrink: 0;
-}
-.badge-pendente { background: rgba(255,140,66,0.15); color: var(--orange); }
-.badge-entregue { background: rgba(34,217,122,0.15); color: var(--green); }
-.badge-proxima  { background: var(--gold); color: #000; }
-
-/* ── MODAL DE ENTREGA ── */
-#modalEntrega {
-  position: fixed; inset: 0; z-index: 200;
-  background: rgba(0,0,0,0.7); backdrop-filter: blur(8px);
-  display: none; align-items: flex-end; justify-content: center;
-}
-#modalEntrega.open { display: flex; }
-#modalBox {
-  background: var(--surface); border-radius: var(--radius) var(--radius) 0 0;
-  border-top: 1px solid var(--border);
-  width: 100%; max-width: 600px; padding: 20px 20px 36px;
-  animation: slideUp 0.3s cubic-bezier(0.4,0,0.2,1);
-}
-@keyframes slideUp { from{transform:translateY(40px);opacity:0} to{transform:translateY(0);opacity:1} }
-
-.modal-nome { font-size: 20px; font-weight: 800; margin-bottom: 4px; }
-.modal-end  { font-size: 13px; color: var(--muted); margin-bottom: 18px; }
-
-.modal-pedido-box {
-  background: var(--surface2); border-radius: 12px; padding: 12px 14px;
-  margin-bottom: 16px; border: 1px solid var(--border);
-  font-size: 13px; line-height: 1.7; color: var(--text);
-}
-.modal-pedido-total { font-weight: 800; font-size: 16px; color: var(--gold); margin-top: 8px; }
-
-.label-sec { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 8px; }
-
-/* Pagamento */
-.pag-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
-.pag-btn {
-  padding: 12px 10px; border-radius: 12px; border: 2px solid var(--border);
-  background: var(--surface2); color: var(--text); font-family: 'Syne', sans-serif;
-  font-size: 13px; font-weight: 700; cursor: pointer; text-align: center;
-  transition: border-color 0.15s, background 0.15s;
-}
-.pag-btn.sel { border-color: var(--gold); background: rgba(245,200,66,0.12); color: var(--gold); }
-.pag-btn:nth-child(3) { grid-column: 1/-1; }
-
-/* Troco */
-#trocoBox { margin-bottom: 16px; display: none; }
-#trocoInput {
-  width: 100%; padding: 13px 14px; border-radius: 12px;
-  border: 1.5px solid var(--border); background: var(--surface2);
-  color: var(--text); font-family: 'DM Mono', monospace; font-size: 16px;
-  font-weight: 500; outline: none;
-}
-#trocoInput:focus { border-color: var(--gold); }
-
-/* Botões do modal */
-.modal-btns { display: flex; gap: 10px; }
-.btn-cancelar {
-  flex: 1; padding: 14px; border-radius: 14px; border: 1px solid var(--border);
-  background: transparent; color: var(--muted); font-family: 'Syne', sans-serif;
-  font-size: 14px; font-weight: 700; cursor: pointer;
-}
-.btn-confirmar {
-  flex: 2; padding: 14px; border-radius: 14px; border: none;
-  background: var(--green); color: #000; font-family: 'Syne', sans-serif;
-  font-size: 14px; font-weight: 800; cursor: pointer;
-  transition: opacity 0.15s;
-}
-.btn-confirmar:disabled { opacity: 0.4; }
-.btn-confirmar.fiado-btn { background: var(--orange); }
-
-/* ── TOAST ── */
-#toast {
-  position: fixed; top: 70px; left: 50%; transform: translateX(-50%) translateY(-20px);
-  z-index: 300; background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 100px; padding: 10px 20px; font-size: 13px; font-weight: 700;
-  white-space: nowrap; opacity: 0; transition: opacity 0.2s, transform 0.2s;
-  pointer-events: none;
-}
-#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-#toast.ok   { border-color: var(--green); color: var(--green); }
-#toast.err  { border-color: var(--red); color: var(--red); }
-#toast.info { border-color: var(--gold); color: var(--gold); }
-
-/* ── ALERTA PROXIMIDADE ── */
-#alertaProx {
-  position: fixed; top: 70px; left: 16px; right: 16px; z-index: 150;
-  background: var(--gold); color: #000; border-radius: 16px;
-  padding: 14px 18px; font-weight: 800; font-size: 14px;
-  display: none; align-items: center; gap: 10px;
-  box-shadow: 0 8px 32px rgba(245,200,66,0.4);
-  animation: bounceIn 0.4s cubic-bezier(0.34,1.56,0.64,1);
-  cursor: pointer;
-}
-#alertaProx.show { display: flex; }
-@keyframes bounceIn { from{transform:scale(0.8);opacity:0} to{transform:scale(1);opacity:1} }
-
-/* ── BOTÃO 2D/3D ── */
-#btn3D {
-  position: fixed; right: 14px; top: 50%; transform: translateY(-50%);
-  z-index: 110;
-  width: 52px; height: 52px; border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #9b59f5, #5b21b6);
-  border: 2px solid rgba(167,110,255,0.6);
-  font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 800;
-  color: #fff; cursor: pointer; letter-spacing: 0.5px;
-  display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 0 16px rgba(139,92,246,0.7), 0 0 32px rgba(139,92,246,0.35), inset 0 1px 0 rgba(255,255,255,0.2);
-  transition: all 0.25s;
-}
-#btn3D:active { transform: translateY(-50%) scale(0.93); }
-#btn3D.ativo {
-  background: radial-gradient(circle at 35% 35%, #c084fc, #7c3aed);
-  border-color: rgba(192,132,252,0.8);
-  box-shadow: 0 0 24px rgba(167,110,255,0.9), 0 0 48px rgba(139,92,246,0.5), inset 0 1px 0 rgba(255,255,255,0.25);
-}
-
-/* marcadores custom */
-/* ── MARCADORES DE CLIENTES estilo roxo ── */
-.mk-ent { 
-  width: 46px; height: 46px; border-radius: 50%;
-  background: var(--gold); border: 3px solid #fff;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 22px; box-shadow: 0 4px 16px rgba(245,200,66,0.5);
-}
-
-/* Wrapper do pin do cliente */
-.mk-cli-wrap {
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
-  cursor: pointer;
-}
-
-/* Círculo roxo com ícone de usuário */
-.mk-cli-circle {
-  width: 46px; height: 46px; border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #7c4dbb, #3b1278);
-  border: 2px solid rgba(150,100,210,0.45);
-  display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 2px 8px rgba(80,30,160,0.35);
-  position: relative; overflow: hidden;
-  transition: transform 0.15s;
-  font-size: 22px; line-height: 1;
-}
-.mk-cli-circle:active { transform: scale(0.92); }
-
-/* Estado entregue — verde */
-.mk-cli-circle.entregue {
-  background: radial-gradient(circle at 35% 30%, #1a9e5a, #0f5c33);
-  border-color: rgba(60,180,100,0.4);
-  box-shadow: 0 2px 6px rgba(20,140,70,0.3);
-  opacity: 0.7;
-}
-
-/* Número de ordem — badge no canto superior direito */
-.mk-cli-badge {
-  position: absolute; top: -3px; right: -3px;
-  background: #f5c842; color: #000;
-  border-radius: 50%; width: 18px; height: 18px;
-  font-size: 9px; font-weight: 800;
-  display: flex; align-items: center; justify-content: center;
+.header-sub {
+  font-size: 11px; color: var(--muted); margin-top: 4px;
   font-family: 'DM Mono', monospace;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
-}
-.mk-cli-circle.entregue .mk-cli-badge { display: none; }
-
-/* Nome do cliente embaixo do círculo */
-.mk-cli-label {
-  background: rgba(60,20,100,0.88);
-  color: #e9d5ff; font-family: 'Syne', sans-serif;
-  font-size: 10px; font-weight: 700;
-  padding: 2px 7px; border-radius: 100px;
-  white-space: nowrap; max-width: 90px;
-  overflow: hidden; text-overflow: ellipsis;
-  border: 1px solid rgba(139,92,246,0.4);
-  box-shadow: 0 1px 6px rgba(0,0,0,0.5);
-  backdrop-filter: blur(4px);
-}
-.mk-cli-circle.entregue + .mk-cli-label {
-  background: rgba(10,50,30,0.85);
-  color: #86efac; border-color: rgba(34,217,122,0.3);
 }
 
-/* ── VELOCÍMETRO estilo Waze ── */
-#velocimetro {
-  position: fixed; left: 14px; bottom: 110px; z-index: 110;
-  width: 90px; height: 90px; border-radius: 50%;
-  background: rgba(30,30,40,0.75);
-  border: 3px solid #9b59f5;
-  box-shadow: 0 0 12px rgba(139,92,246,0.45), inset 0 0 12px rgba(139,92,246,0.08);
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 0; transition: border-color 0.3s, box-shadow 0.3s, background 0.3s;
-  cursor: default; user-select: none;
+/* ── BOTÃO PRINCIPAL ── */
+#btnRodar {
+  display: flex; align-items: center; justify-content: center; gap-10px;
+  margin: 20px 18px 0;
+  width: calc(100% - 36px);
+  padding: 16px;
+  background: linear-gradient(135deg, #7c3aed, #5b21b6);
+  border: none; border-radius: 16px;
+  color: #fff; font-family: 'Syne', sans-serif;
+  font-size: 15px; font-weight: 800; cursor: pointer;
+  box-shadow: 0 0 24px rgba(124,58,237,0.5);
+  transition: all 0.2s;
 }
-#velocimetro.overspeed {
-  background: rgba(255,77,109,0.85);
-  border-color: #ff4d6d;
-  box-shadow: 0 0 28px rgba(255,77,109,0.9), 0 0 60px rgba(255,77,109,0.4), inset 0 0 20px rgba(255,0,40,0.3);
-  animation: veloShake 0.4s ease;
-}
-#velocimetro.overspeed #veloNum { color: #fff; }
-#velocimetro.overspeed #veloUnit { color: rgba(255,255,255,0.8); }
-@keyframes veloShake {
-  0%,100%{transform:translateX(0)} 25%{transform:translateX(-4px)} 75%{transform:translateX(4px)}
-}
-#veloNum {
-  font-family: 'DM Mono', monospace; font-size: 32px; font-weight: 500;
-  color: #c084fc; line-height: 1; letter-spacing: -1px;
-  transition: color 0.3s;
-}
-#veloUnit {
-  font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 1.5px;
-  color: #9b59f5; text-transform: uppercase; margin-top: 2px;
-  transition: color 0.3s; opacity: 0.8;
-}
-/* limite da via */
-#veloLimite {
-  position: fixed; left: 14px; bottom: 78px; z-index: 110;
-  width: 90px; height: 22px; border-radius: 6px;
-  background: rgba(10,10,15,0.7); border: 1px solid rgba(139,92,246,0.25);
-  display: none; align-items: center; justify-content: center; gap: 4px;
-  font-family: 'DM Mono', monospace; font-size: 10px; color: rgba(155,89,245,0.6);
-  backdrop-filter: blur(8px);
-}
-#veloLimite.show { display: flex; }
-#veloLimite span { color: #c084fc; font-weight: 500; }
+#btnRodar:active { transform: scale(0.97); }
+#btnRodar:disabled { opacity: 0.5; }
 
-/* Sem rota ativa */
-#semRota {
-  position: fixed; bottom: 120px; left: 50%; transform: translateX(-50%);
-  z-index: 90; background: rgba(10,10,15,0.85); border: 1px solid var(--border);
-  border-radius: 14px; padding: 10px 18px; font-size: 12px; color: var(--muted);
-  backdrop-filter: blur(10px); text-align: center; white-space: nowrap;
+/* ── BARRA DE PROGRESSO ── */
+#progressBar {
+  margin: 14px 18px 0;
+  height: 4px; background: var(--surface2);
+  border-radius: 4px; overflow: hidden;
+  display: none;
+}
+#progressFill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, #7c3aed, var(--gold));
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
+/* ── RESUMO ── */
+#resumoBox {
+  margin: 14px 18px 0;
+  display: none;
+  gap: 10px;
+}
+.resumo-item {
+  flex: 1; padding: 12px 10px; border-radius: 14px;
+  text-align: center; border: 1px solid var(--border);
+  background: var(--surface);
+}
+.resumo-num { font-size: 26px; font-weight: 800; font-family: 'DM Mono', monospace; }
+.resumo-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-top: 2px; }
+.resumo-num.ok     { color: var(--green); }
+.resumo-num.fail   { color: var(--red); }
+.resumo-num.warn   { color: var(--orange); }
+
+/* ── SEÇÕES ── */
+.secao {
+  margin: 18px 18px 0;
+}
+.secao-titulo {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 1.5px; color: var(--muted);
+  margin-bottom: 10px; padding-left: 2px;
+}
+
+/* ── CARD DE TESTE ── */
+.test-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px; padding: 14px 16px;
+  margin-bottom: 10px;
+  transition: border-color 0.3s;
+}
+.test-card.ok   { border-color: rgba(34,217,122,0.35); }
+.test-card.fail { border-color: rgba(255,77,109,0.35); }
+.test-card.warn { border-color: rgba(255,140,66,0.35); }
+.test-card.running { border-color: rgba(124,58,237,0.4); }
+
+.test-top {
+  display: flex; align-items: center; gap: 12px;
+}
+.test-icon {
+  font-size: 20px; flex-shrink: 0; width: 28px; text-align: center;
+}
+.test-info { flex: 1; min-width: 0; }
+.test-nome {
+  font-size: 14px; font-weight: 700; color: var(--text);
+}
+.test-desc {
+  font-size: 11px; color: var(--muted); margin-top: 2px;
+}
+.test-badge {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.5px; padding: 4px 10px; border-radius: 100px;
+  flex-shrink: 0; font-family: 'DM Mono', monospace;
+}
+.test-badge.ok   { background: rgba(34,217,122,0.15); color: var(--green); }
+.test-badge.fail { background: rgba(255,77,109,0.15); color: var(--red); }
+.test-badge.warn { background: rgba(255,140,66,0.15); color: var(--orange); }
+.test-badge.running { background: rgba(124,58,237,0.15); color: var(--purple); }
+.test-badge.idle { background: rgba(255,255,255,0.06); color: var(--muted); }
+
+/* Detalhe expandido */
+.test-detalhe {
+  margin-top: 12px; padding: 10px 12px;
+  background: var(--surface2); border-radius: 10px;
+  font-family: 'DM Mono', monospace; font-size: 11px;
+  line-height: 1.7; color: var(--muted);
+  display: none; word-break: break-all;
+}
+.test-card.ok .test-detalhe,
+.test-card.fail .test-detalhe,
+.test-card.warn .test-detalhe { display: block; }
+
+.val-ok   { color: var(--green); }
+.val-fail { color: var(--red); }
+.val-warn { color: var(--orange); }
+.val-info { color: var(--blue); }
+.val-gold { color: var(--gold); }
+
+/* Spinner */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  display: inline-block; width: 14px; height: 14px;
+  border: 2px solid rgba(192,132,252,0.3);
+  border-top-color: var(--purple);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: middle; margin-right: 4px;
+}
+
+/* Log ao vivo */
+#logBox {
+  margin: 18px 18px 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px; padding: 14px 16px;
+  display: none;
+}
+#logBox .secao-titulo { margin-bottom: 8px; }
+#logLinhas {
+  font-family: 'DM Mono', monospace; font-size: 11px;
+  line-height: 1.8; max-height: 200px; overflow-y: auto;
+  color: var(--muted);
+}
+#logLinhas::-webkit-scrollbar { display: none; }
+.log-ok   { color: var(--green); }
+.log-fail { color: var(--red); }
+.log-warn { color: var(--orange); }
+.log-info { color: var(--blue); }
+
+/* Botão copiar log */
+#btnCopiar {
+  margin: 10px 18px 0; width: calc(100% - 36px);
+  padding: 12px; border-radius: 12px;
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--muted); font-family: 'Syne', sans-serif;
+  font-size: 13px; font-weight: 700; cursor: pointer;
   display: none;
 }
 </style>
 </head>
 <body>
 
-<div id="map"></div>
+<div class="header">
+  <div class="header-title">🔬 Diagnóstico</div>
+  <div class="header-sub" id="headerSub">Testa conexão, GPS e banco de dados ao vivo</div>
+</div>
 
-<!-- Header -->
-<div id="header">
-  <div class="header-brand">🛵 <span id="headerTxt">Entregador</span></div>
-  <div style="display:flex;align-items:center;gap:8px;">
-    <button id="btnReload" onclick="location.reload()">🔄</button>
-    <div id="gpsPill">
-      <div id="gpsDot"></div>
-      <span id="gpsLabel">aguardando GPS</span>
-      <span id="gpsPing"></span>
-    </div>
+<button id="btnRodar" onclick="rodarDiagnostico()">▶ Rodar diagnóstico completo</button>
+
+<div id="progressBar"><div id="progressFill"></div></div>
+
+<div id="resumoBox" style="display:none; flex-direction:row;">
+  <div class="resumo-item">
+    <div class="resumo-num ok" id="resOk">—</div>
+    <div class="resumo-lbl">OK</div>
+  </div>
+  <div class="resumo-item">
+    <div class="resumo-num warn" id="resWarn">—</div>
+    <div class="resumo-lbl">Atenção</div>
+  </div>
+  <div class="resumo-item">
+    <div class="resumo-num fail" id="resFail">—</div>
+    <div class="resumo-lbl">Falha</div>
+  </div>
+  <div class="resumo-item">
+    <div class="resumo-num" id="resMs" style="color:var(--blue);">—</div>
+    <div class="resumo-lbl">ms total</div>
   </div>
 </div>
 
-<!-- Alerta de proximidade -->
-<div id="alertaProx" onclick="abrirModalParaProximo()">
-  <span style="font-size:20px">📍</span>
-  <div>
-    <div id="alertaNome">Próximo cliente</div>
-    <div style="font-size:11px;font-weight:400;opacity:0.7">Toque para registrar entrega</div>
+<!-- SEÇÃO 1: DISPOSITIVO -->
+<div class="secao">
+  <div class="secao-titulo">📱 Dispositivo</div>
+  <div class="test-card" id="card-dispositivo">
+    <div class="test-top">
+      <div class="test-icon">📱</div>
+      <div class="test-info">
+        <div class="test-nome">Informações do aparelho</div>
+        <div class="test-desc">SO, navegador, memória, bateria</div>
+      </div>
+      <div class="test-badge idle" id="badge-dispositivo">—</div>
+    </div>
+    <div class="test-detalhe" id="det-dispositivo"></div>
+  </div>
+
+  <div class="test-card" id="card-conexao">
+    <div class="test-top">
+      <div class="test-icon">📶</div>
+      <div class="test-info">
+        <div class="test-nome">Tipo de conexão</div>
+        <div class="test-desc">WiFi, 4G, 3G ou offline</div>
+      </div>
+      <div class="test-badge idle" id="badge-conexao">—</div>
+    </div>
+    <div class="test-detalhe" id="det-conexao"></div>
   </div>
 </div>
 
-<!-- Sem rota -->
-<div id="semRota">📡 GPS ativo · Sem rota em andamento</div>
-
-<!-- Painel -->
-<!-- Tela de Informações / Rota (substitui o mapa) -->
-<div id="telaInfo">
-  <div id="telaInfoHeader">
-    <button id="btnFecharTela" onclick="fecharTela()">←</button>
-    <div id="telaInfoTitulo">📩 Painel</div>
-    <div style="font-family:'DM Mono',monospace;font-size:13px;color:#c084fc;margin-left:auto;">
-      Total <span id="totalComLocalizacao" style="font-size:18px;font-weight:700;margin-left:6px;">0</span>
+<!-- SEÇÃO 2: GPS -->
+<div class="secao">
+  <div class="secao-titulo">📍 GPS</div>
+  <div class="test-card" id="card-gps-suporte">
+    <div class="test-top">
+      <div class="test-icon">🛰️</div>
+      <div class="test-info">
+        <div class="test-nome">Suporte a geolocalização</div>
+        <div class="test-desc">Verifica se o navegador tem GPS</div>
+      </div>
+      <div class="test-badge idle" id="badge-gps-suporte">—</div>
     </div>
+    <div class="test-detalhe" id="det-gps-suporte"></div>
   </div>
 
-  <!-- Abas -->
-  <div id="telaAbas">
-    <button class="tela-aba ativa" onclick="trocarAba('info')">ℹ️ Informações</button>
-    <button class="tela-aba" onclick="trocarAba('rota')">🗺️ Rota</button>
+  <div class="test-card" id="card-gps-permissao">
+    <div class="test-top">
+      <div class="test-icon">🔐</div>
+      <div class="test-info">
+        <div class="test-nome">Permissão de GPS</div>
+        <div class="test-desc">granted / denied / prompt</div>
+      </div>
+      <div class="test-badge idle" id="badge-gps-permissao">—</div>
+    </div>
+    <div class="test-detalhe" id="det-gps-permissao"></div>
   </div>
 
-  <!-- Aba Informações -->
-  <div id="tabInfo" class="tela-tab ativa">
-    <div id="infoCardsBox">
-      <!-- Toggle confirmação automática -->
-      <div onclick="toggleModoConfirmacao()" style="
-        display:flex;align-items:center;justify-content:space-between;
-        background:var(--surface2);border:1px solid var(--border);
-        border-radius:14px;padding:14px 16px;cursor:pointer;
-        user-select:none;
-      ">
-        <div>
-          <div style="font-size:13px;font-weight:700;color:var(--text);" id="modoConfLabel">🤖 Confirmação automática</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px;" id="modoConfDesc">Entrega confirmada ao chegar em 20m</div>
-        </div>
-        <div id="toggleConfSwitch" style="
-          width:44px;height:26px;border-radius:13px;
-          background:var(--gold);position:relative;transition:background .2s;flex-shrink:0;
-        ">
-          <div id="toggleConfThumb" style="
-            position:absolute;top:3px;left:calc(100% - 23px);
-            width:20px;height:20px;border-radius:50%;
-            background:#fff;transition:left .2s;box-shadow:0 1px 4px rgba(0,0,0,.3);
-          "></div>
-        </div>
+  <div class="test-card" id="card-gps-posicao">
+    <div class="test-top">
+      <div class="test-icon">📌</div>
+      <div class="test-info">
+        <div class="test-nome">Obter posição atual</div>
+        <div class="test-desc">Solicita coordenadas reais (até 12s)</div>
       </div>
+      <div class="test-badge idle" id="badge-gps-posicao">—</div>
     </div>
-
-    <!-- Lista expandida ao clicar num card -->
-    <div id="infoListaBox" style="display:none;">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-        <button onclick="fecharInfoLista()" style="background:rgba(139,92,246,0.15);border:1px solid rgba(139,92,246,0.3);color:#c084fc;border-radius:50%;width:32px;height:32px;font-size:16px;cursor:pointer;flex-shrink:0;">←</button>
-        <div id="infoListaTitulo" style="font-size:15px;font-weight:800;color:var(--text);"></div>
-      </div>
-      <div id="infoListaConteudo"></div>
-    </div>
-  </div>
-
-  <!-- Aba Rota -->
-  <div id="tabRota" class="tela-tab">
-    <!-- Totais globais do dia (todas as rotas) -->
-    <div style="display:flex;gap:10px;margin-bottom:14px;">
-      <div onclick="abrirInfoLista('entregues')" style="
-        flex:1;background:rgba(46,213,115,0.08);border:1px solid rgba(46,213,115,0.2);
-        border-radius:14px;padding:12px 14px;cursor:pointer;text-align:center;
-      ">
-        <div style="font-size:22px;font-weight:900;color:var(--green);" id="infoEntregues">0</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:.8px;">entregues</div>
-      </div>
-      <div onclick="abrirInfoLista('restantes')" style="
-        flex:1;background:rgba(255,140,66,0.08);border:1px solid rgba(255,140,66,0.2);
-        border-radius:14px;padding:12px 14px;cursor:pointer;text-align:center;
-      ">
-        <div style="font-size:22px;font-weight:900;color:var(--orange);" id="infoPendentes">0</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:.8px;">restantes</div>
-      </div>
-    </div>
-    <!-- Cards das rotas do dia -->
-    <div id="rotaCardsList"></div>
-    <!-- Paradas da rota selecionada (expande ao clicar num card) -->
-    <div id="rotaParadasBox" style="display:none;">
-      <div id="rotaParadasHeader" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-        <button onclick="fecharParadasRota()" style="background:rgba(139,92,246,0.15);border:1px solid rgba(139,92,246,0.3);color:#c084fc;border-radius:50%;width:32px;height:32px;font-size:16px;cursor:pointer;flex-shrink:0;">←</button>
-        <div>
-          <div id="rotaParadasNome" style="font-size:15px;font-weight:800;color:var(--text);"></div>
-          <div id="rotaParadasStats" style="font-size:11px;color:var(--muted);margin-top:1px;"></div>
-        </div>
-      </div>
-      <div id="listaParadas"></div>
-    </div>
+    <div class="test-detalhe" id="det-gps-posicao"></div>
   </div>
 </div>
 
-<!-- Modal de entrega -->
-<div id="modalEntrega">
-  <div id="modalBox">
-    <div class="modal-nome" id="mNome"></div>
-    <div class="modal-end" id="mEnd"></div>
-    <div class="modal-pedido-box">
-      <div id="mItens"></div>
-      <div class="modal-pedido-total" id="mTotal"></div>
-    </div>
+<!-- SEÇÃO 3: SUPABASE -->
+<div class="secao">
+  <div class="secao-titulo">🗄️ Banco de dados (Supabase)</div>
 
-    <!-- Seção de pagamento: só aparece quando é "pagar na entrega" -->
-    <div id="secPagamento" style="display:none">
-      <div class="label-sec" style="margin-bottom:10px">Foi pago?</div>
-      <div style="display:flex;gap:10px">
-        <button class="pag-btn" id="btnSimPago" onclick="respPago(true)" style="flex:1;font-size:15px;font-weight:800;">✅ Sim</button>
-        <button class="pag-btn" id="btnNaoPago" onclick="respPago(false)" style="flex:1;font-size:15px;font-weight:800;">❌ Não</button>
+  <div class="test-card" id="card-ping">
+    <div class="test-top">
+      <div class="test-icon">🏓</div>
+      <div class="test-info">
+        <div class="test-nome">Ping ao Supabase</div>
+        <div class="test-desc">Latência da conexão com o banco</div>
       </div>
+      <div class="test-badge idle" id="badge-ping">—</div>
     </div>
+    <div class="test-detalhe" id="det-ping"></div>
+  </div>
 
-    <!-- Fiado direto: exibido quando já era fiado -->
-    <div id="secFiado" style="display:none;padding:10px 0">
-      <div style="background:rgba(255,140,66,0.08);border:1px solid rgba(255,140,66,0.3);border-radius:12px;padding:10px 14px;font-size:13px;color:var(--orange);">
-        📋 Pagamento: <strong>Fiado</strong> — será registrado na conta do cliente
+  <div class="test-card" id="card-tabela-gps">
+    <div class="test-top">
+      <div class="test-icon">📡</div>
+      <div class="test-info">
+        <div class="test-nome">Tabela GPS</div>
+        <div class="test-desc">Lê posição salva pelo entregador</div>
       </div>
+      <div class="test-badge idle" id="badge-tabela-gps">—</div>
     </div>
+    <div class="test-detalhe" id="det-tabela-gps"></div>
+  </div>
 
-    <div class="modal-btns">
-      <button class="btn-cancelar" onclick="fecharModal()">Cancelar</button>
-      <button class="btn-confirmar" id="btnConfirmar" onclick="confirmarEntrega()">✅ Confirmar Entrega</button>
+  <div class="test-card" id="card-tabela-rotas">
+    <div class="test-top">
+      <div class="test-icon">🗺️</div>
+      <div class="test-info">
+        <div class="test-nome">Tabela Rotas</div>
+        <div class="test-desc">Verifica rotas ativas + campos GPS</div>
+      </div>
+      <div class="test-badge idle" id="badge-tabela-rotas">—</div>
     </div>
+    <div class="test-detalhe" id="det-tabela-rotas"></div>
+  </div>
+
+  <div class="test-card" id="card-write">
+    <div class="test-top">
+      <div class="test-icon">✏️</div>
+      <div class="test-info">
+        <div class="test-nome">Escrita no banco</div>
+        <div class="test-desc">Testa se consegue fazer upsert na tabela GPS</div>
+      </div>
+      <div class="test-badge idle" id="badge-write">—</div>
+    </div>
+    <div class="test-detalhe" id="det-write"></div>
+  </div>
+
+  <div class="test-card" id="card-realtime">
+    <div class="test-top">
+      <div class="test-icon">⚡</div>
+      <div class="test-info">
+        <div class="test-nome">Realtime (WebSocket)</div>
+        <div class="test-desc">Testa conexão WebSocket do Supabase</div>
+      </div>
+      <div class="test-badge idle" id="badge-realtime">—</div>
+    </div>
+    <div class="test-detalhe" id="det-realtime"></div>
   </div>
 </div>
 
-<button id="btn3D" onclick="toggle3D()">3D</button>
-<button id="btnPainel" onclick="togglePainelBtn()">📩</button>
+<!-- SEÇÃO 4: FLUXO PONTA A PONTA -->
+<div class="secao">
+  <div class="secao-titulo">🔄 Fluxo GPS ponta a ponta</div>
+  <div class="test-card" id="card-fluxo">
+    <div class="test-top">
+      <div class="test-icon">🛵</div>
+      <div class="test-info">
+        <div class="test-nome">Simula envio de GPS</div>
+        <div class="test-desc">Grava coordenada de teste → lê de volta → mede tempo</div>
+      </div>
+      <div class="test-badge idle" id="badge-fluxo">—</div>
+    </div>
+    <div class="test-detalhe" id="det-fluxo"></div>
+  </div>
 
-<!-- Velocímetro estilo Waze -->
-<div id="velocimetro">
-  <div id="veloNum">0</div>
-  <div id="veloUnit">km/h</div>
+  <div class="test-card" id="card-ts">
+    <div class="test-top">
+      <div class="test-icon">🕐</div>
+      <div class="test-info">
+        <div class="test-nome">Validade do timestamp GPS</div>
+        <div class="test-desc">Verifica se o ts salvo está recente</div>
+      </div>
+      <div class="test-badge idle" id="badge-ts">—</div>
+    </div>
+    <div class="test-detalhe" id="det-ts"></div>
+  </div>
 </div>
-<div id="veloLimite">lim <span id="veloLimVal">—</span></div>
 
-<div id="toast"></div>
+<!-- LOG AO VIVO -->
+<div id="logBox">
+  <div class="secao-titulo">📋 Log ao vivo</div>
+  <div id="logLinhas"></div>
+</div>
+
+<button id="btnCopiar" onclick="copiarLog()">📋 Copiar log completo</button>
 
 <script>
-// ── CONFIG ──────────────────────────────────────────────────────────────
 const SUPABASE_URL = "https://vpeyqgijajywgswmezlh.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZwZXlxZ2lqYWp5d2dzd21lemxoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEyNTM1MDIsImV4cCI6MjA4NjgyOTUwMn0.LA5Cbof7IKWAA7l8YbCuPzANpCy0rX_Dro4l9fcDgoQ";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// Posição da fábrica (centro inicial) — mesma do Adm
-const FABRICA_LAT = -8.1837748; // ajuste se necessário
-const FABRICA_LON = -34.9384996;
-const RAIO_ALERTA = 50; // metros para disparar alerta de proximidade
-const RAIO_AUTO   = 20; // metros para confirmação automática
+let _logTexto = [];
+let _contadores = { ok: 0, warn: 0, fail: 0 };
+let _inicio = 0;
 
-// Modo de confirmação: true = automático, false = manual
-// Persiste em localStorage
-let modoAutoConfirmar = localStorage.getItem('modoAutoConfirmar') !== 'false';
-
-// ── ESTADO ──────────────────────────────────────────────────────────────
-
-// Virada do dia:
-//   Domingo (0)  → 08:00
-//   Seg–Sáb (1–6) → 14:30
-// Antes desse horário ainda é o "dia anterior" para fins de rota
-function _getViradaHoraMin(diaSemana) {
-  return diaSemana === 0 ? [8, 0] : [14, 30];
-}
-function getHojeDia() {
-  const agora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
-  const [vh, vm] = _getViradaHoraMin(agora.getDay());
-  const h = agora.getHours(), m = agora.getMinutes();
-  if (h < vh || (h === vh && m < vm)) agora.setDate(agora.getDate() - 1);
-  return agora.toLocaleDateString('pt-BR');
-}
-function getDiaSemanaDia() {
-  const agora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
-  const [vh, vm] = _getViradaHoraMin(agora.getDay());
-  const h = agora.getHours(), m = agora.getMinutes();
-  if (h < vh || (h === vh && m < vm)) agora.setDate(agora.getDate() - 1);
-  const ds = agora.toLocaleString('pt-BR', { weekday: 'short' });
-  return ds.charAt(0).toUpperCase() + ds.slice(1).replace('.', '');
+// ── HELPERS ──────────────────────────────────────────────────────────────
+function log(msg, tipo = 'info') {
+  const ts = ((Date.now() - _inicio) / 1000).toFixed(2);
+  const linha = `[${ts}s] ${msg}`;
+  _logTexto.push(linha);
+  const el = document.getElementById('logLinhas');
+  const div = document.createElement('div');
+  div.className = `log-${tipo}`;
+  div.textContent = linha;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
 }
 
-let map, mkEntregador;
-let _modo3D = false;
-let _bearingAtual = 0;
-let _bearingHist = [];
-let _ultimaPosAnterior = null;
-let rotaAtiva = null;       // objeto rota do Supabase
-let filaRotasHoje = [];     // todas as rotas do dia
-let rotaSelecionada = null; // rota cujas paradas estão expandidas no painel
-let paradas = [];           // paradas ativas (sem _meta)
-let posEntregador = null;   // { lat, lon }
-let gpsWatcher = null;
-let _gpsHeartbeat = null; // envia posição mesmo parado
-let realtimeCh = null;
-let alertaPhone = null;     // phone do cliente em alerta
-let painelAberto = false;
-let modalParada = null;     // parada sendo confirmada
-let pagSelecionado = null;
-let mkClientes = {};        // phone → leaflet marker
-
-// Exploração livre no 2D: pausa o seguimento enquanto o usuário arrasta
-let _explorandoMapa = false;
-let _timerRecentrar = null;
-const TEMPO_RECENTRAR = 8000; // 8 segundos sem toque → recentra
-
-// Velocímetro — EMA (média exponencial) em vez de array de médias
-let _kmhEma = -1; // -1 = não inicializado
-let _ultimaTsAnterior = null;
-let _limiteVia = null;
-let _limiteTimer = null;
-
-// ── VELOCÍMETRO estilo Waze ──────────────────────────────────────────────
-let _veloZerarTimer = null;
-
-function atualizarVelocimetro(kmh) {
-  const vel = Math.max(0, Math.min(kmh, 200));
-  const arredondado = Math.round(vel);
-
-  // Atualiza só se mudou (evita repaint desnecessário)
-  const el = document.getElementById('veloNum');
-  if (el.textContent !== String(arredondado)) {
-    el.textContent = arredondado;
-  }
-
-  const elBox = document.getElementById('velocimetro');
-  const overspeed = _limiteVia !== null && vel > _limiteVia + 2;
-  elBox.classList.toggle('overspeed', overspeed);
-
-  // Zera velocímetro se ficar 4s sem update (parado ou GPS perdido)
-  clearTimeout(_veloZerarTimer);
-  if (vel > 1) {
-    _veloZerarTimer = setTimeout(() => {
-      _kmhEma = 0;
-      document.getElementById('veloNum').textContent = '0';
-      document.getElementById('velocimetro').classList.remove('overspeed');
-    }, 4000);
+function setCard(id, estado, badgeTexto, detalheHtml) {
+  const card  = document.getElementById(`card-${id}`);
+  const badge = document.getElementById(`badge-${id}`);
+  const det   = document.getElementById(`det-${id}`);
+  card.className  = `test-card ${estado}`;
+  badge.className = `test-badge ${estado}`;
+  badge.innerHTML = estado === 'running'
+    ? `<span class="spinner"></span>${badgeTexto}`
+    : badgeTexto;
+  if (detalheHtml !== undefined) det.innerHTML = detalheHtml;
+  if (['ok','fail','warn'].includes(estado)) {
+    _contadores[estado]++;
+    atualizarResumo();
   }
 }
 
-async function buscarLimiteVia(lat, lon) {
-  // Consulta Overpass para pegar maxspeed da via mais próxima
-  const query = `[out:json][timeout:5];way(around:25,${lat},${lon})[highway][maxspeed];out 1;`;
+function rodando(id, txt = 'Testando...') {
+  setCard(id, 'running', txt, `<span class="spinner"></span> aguardando...`);
+}
+
+function atualizarResumo() {
+  document.getElementById('resOk').textContent   = _contadores.ok;
+  document.getElementById('resWarn').textContent = _contadores.warn;
+  document.getElementById('resFail').textContent = _contadores.fail;
+  document.getElementById('resMs').textContent   = `${Date.now() - _inicio}`;
+}
+
+function setProgresso(pct) {
+  document.getElementById('progressFill').style.width = pct + '%';
+}
+
+function fmt(val, tipo) { return `<span class="val-${tipo}">${val}</span>`; }
+
+// ── TESTES ──────────────────────────────────────────────────────────────
+
+async function testeDispositivo() {
+  rodando('dispositivo');
+  const ua = navigator.userAgent;
+  const ios    = /iPhone|iPad|iPod/i.test(ua);
+  const android = /Android/i.test(ua);
+  const so = ios ? '🍎 iOS' : android ? '🤖 Android' : '🖥️ Desktop/Outro';
+
+  // Memória (só Chrome)
+  const mem = navigator.deviceMemory ? `${navigator.deviceMemory}GB RAM` : 'n/d';
+
+  // Bateria
+  let bateria = 'n/d';
   try {
-    const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-    const json = await res.json();
-    const via = json.elements?.[0];
-    if (via?.tags?.maxspeed) {
-      const raw = via.tags.maxspeed;
-      // Suporta "40", "40 mph", "BR:urban", etc.
-      const num = parseInt(raw);
-      if (!isNaN(num)) {
-        // Converte mph para km/h se necessário
-        _limiteVia = raw.toLowerCase().includes('mph') ? Math.round(num * 1.609) : num;
-        document.getElementById('veloLimVal').textContent = _limiteVia;
-        document.getElementById('veloLimite').classList.add('show');
-        return;
-      }
-    }
-  } catch(e) { /* sem internet ou timeout — ignora */ }
-  // Se não encontrou limite, tenta fallback por tipo de via
-  try {
-    const q2 = `[out:json][timeout:5];way(around:25,${lat},${lon})[highway];out 1;`;
-    const r2 = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q2)}`);
-    const j2 = await r2.json();
-    const tipo = j2.elements?.[0]?.tags?.highway;
-    const defaults = { motorway:120, trunk:100, primary:80, secondary:60, tertiary:50,
-                       residential:40, living_street:20, service:30, unclassified:50 };
-    if (tipo && defaults[tipo]) {
-      _limiteVia = defaults[tipo];
-      document.getElementById('veloLimVal').textContent = _limiteVia;
-      document.getElementById('veloLimite').classList.add('show');
-    }
-  } catch(e) {}
+    const bat = await navigator.getBattery();
+    const pct = Math.round(bat.level * 100);
+    const carregando = bat.charging ? ' ⚡ carregando' : '';
+    bateria = `${pct}%${carregando}`;
+  } catch(e) { bateria = 'não suportado'; }
+
+  const conexao = navigator.connection;
+  const onlineStr = navigator.onLine ? fmt('online', 'ok') : fmt('offline', 'fail');
+
+  log(`Dispositivo: ${so}, bateria ${bateria}`, 'info');
+
+  setCard('dispositivo', 'ok', 'OK', `
+    <b>SO:</b> ${fmt(so, 'info')}<br>
+    <b>RAM:</b> ${fmt(mem, 'info')}<br>
+    <b>Bateria:</b> ${fmt(bateria, bateria.startsWith('1') || parseInt(bateria) > 20 ? 'ok' : 'warn')}<br>
+    <b>Online:</b> ${onlineStr}<br>
+    <b>Idioma:</b> ${fmt(navigator.language, 'info')}
+  `);
 }
 
+async function testeConexao() {
+  rodando('conexao');
+  const conexao = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
 
-function _calcBearing(lat1, lon1, lat2, lon2) {
-  const r = d => d * Math.PI / 180;
-  const dL = r(lon2 - lon1);
-  const y  = Math.sin(dL) * Math.cos(r(lat2));
-  const x  = Math.cos(r(lat1)) * Math.sin(r(lat2)) - Math.sin(r(lat1)) * Math.cos(r(lat2)) * Math.cos(dL);
-  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
-}
-function _suavizarBearing(b) {
-  _bearingHist.push(b);
-  if (_bearingHist.length > 6) _bearingHist.shift();
-  let s = 0, co = 0;
-  _bearingHist.forEach(v => { s += Math.sin(v*Math.PI/180); co += Math.cos(v*Math.PI/180); });
-  return (Math.atan2(s, co) * 180 / Math.PI + 360) % 360;
-}
-function toggle3D() {
-  _modo3D = !_modo3D;
-  const btn = document.getElementById('btn3D');
-  btn.classList.toggle('ativo', _modo3D);
-  btn.textContent = _modo3D ? '3D' : '2D';
-  if (!map || !posEntregador) return;
-  if (_modo3D) {
-    map.easeTo({ center:[posEntregador.lon, posEntregador.lat], pitch:72, bearing:_bearingAtual, zoom:18.5, duration:900, padding:_getMapPadding() });
-  } else {
-    map.easeTo({ pitch:0, bearing:0, zoom:15, duration:700, padding:_paddingNormal });
+  if (!conexao) {
+    log('Network API não disponível neste navegador', 'warn');
+    setCard('conexao', 'warn', 'N/D', `<span class="val-warn">API de rede não disponível neste navegador</span><br>Use Chrome para mais detalhes.`);
+    return;
   }
+
+  const tipo = conexao.effectiveType || conexao.type || 'desconhecido';
+  const down = conexao.downlink ? `${conexao.downlink} Mbps` : 'n/d';
+  const rtt  = conexao.rtt ? `${conexao.rtt}ms` : 'n/d';
+
+  const ruim = tipo === 'slow-2g' || tipo === '2g';
+  const estado = ruim ? 'warn' : 'ok';
+  log(`Conexão: ${tipo}, downlink ${down}, rtt ${rtt}`, ruim ? 'warn' : 'ok');
+
+  setCard('conexao', estado, tipo.toUpperCase(), `
+    <b>Tipo:</b> ${fmt(tipo, ruim ? 'warn' : 'ok')}<br>
+    <b>Velocidade:</b> ${fmt(down, 'info')}<br>
+    <b>RTT:</b> ${fmt(rtt, rtt !== 'n/d' && parseInt(rtt) > 300 ? 'warn' : 'ok')}
+    ${ruim ? '<br><span class="val-warn">⚠️ Conexão fraca pode causar atrasos no GPS</span>' : ''}
+  `);
 }
 
-// top grande empurra o centro para baixo → moto fica a ~20% da parte inferior da tela
-// Usado apenas no modo 3D
-function _getMapPadding() {
-  const h = window.innerHeight;
-  return { top: Math.round(h * 0.60), bottom: 0, left: 0, right: 0 };
-}
-const _paddingNormal = { top: 0, bottom: 0, left: 0, right: 0 };
-
-function initMap() {
-  map = new maplibregl.Map({
-    container: 'map',
-    style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-    center: [FABRICA_LON, FABRICA_LAT], zoom: 14,
-    attributionControl: false
-  });
-
-  map.on('load', () => {
-    // Marcador do entregador
-    const elEnt = document.createElement('div');
-    elEnt.className = 'mk-ent';
-    elEnt.textContent = '🛵';
-    mkEntregador = new maplibregl.Marker({ element: elEnt, anchor: 'center' })
-      .setLngLat([FABRICA_LON, FABRICA_LAT])
-      .addTo(map);
-  });
-
-  // No 2D: detecta quando o usuário começa a arrastar/zoom → pausa o seguimento
-  map.on('dragstart', () => { if (!_modo3D) _iniciarExploracao(); });
-  map.on('zoomstart', (e) => { if (!_modo3D && e.originalEvent) _iniciarExploracao(); });
-  map.on('rotatestart', () => { if (!_modo3D) _iniciarExploracao(); });
-}
-
-function _iniciarExploracao() {
-  if (_explorandoMapa) return; // já explorando, reinicia timer
-  _explorandoMapa = true;
-  clearTimeout(_timerRecentrar);
-  let restante = 10;
-  const intervalo = setInterval(() => {
-    restante--;
-    if (restante <= 0) clearInterval(intervalo);
-  }, 1000);
-
-  _timerRecentrar = setTimeout(() => {
-    clearInterval(intervalo);
-    _explorandoMapa = false;
-    if (posEntregador && !_modo3D) {
-      map.easeTo({ center:[posEntregador.lon, posEntregador.lat], zoom:15, duration:800, padding:_paddingNormal });
-    }
-  }, TEMPO_RECENTRAR);
-}
-
-// ── GPS ──────────────────────────────────────────────────────────────────
-// Fila para salvar GPS sem bloquear o update principal
-let _gpsSaveQueue = null;
-let _gpsSaving = false;
-let _renderListaPendente = false;
-let _animFrameId = null;
-
-function iniciarGPS() {
+async function testeGPSSuporte() {
+  rodando('gps-suporte');
   if (!navigator.geolocation) {
-    setGPSStatus('err', 'GPS indisponível');
-    return;
-  }
-  gpsWatcher = navigator.geolocation.watchPosition(
-    onGPSUpdate,
-    onGPSErro,
-    // maximumAge:0 → sempre posição fresca; timeout maior para não perder updates
-    { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
-  );
-
-  // Heartbeat: salva posição a cada 4s sem travar o GPS
-  _gpsHeartbeat = setInterval(() => {
-    if (posEntregador) {
-      _enfileirarGPS(posEntregador.lat, posEntregador.lon, posEntregador.acc ?? 0);
-    }
-  }, 4000);
-}
-
-function onGPSUpdate(pos) {
-  const lat = pos.coords.latitude;
-  const lon = pos.coords.longitude;
-  const acc = Math.round(pos.coords.accuracy);
-  const ts  = pos.timestamp;
-  posEntregador = { lat, lon, acc, ts };
-
-  // ── Marcador no mapa: usa requestAnimationFrame para não travar a thread ──
-  if (_animFrameId) cancelAnimationFrame(_animFrameId);
-  _animFrameId = requestAnimationFrame(() => {
-    if (mkEntregador) mkEntregador.setLngLat([lon, lat]);
-    _atualizarCamera(lat, lon);
-  });
-
-  setGPSStatus('ok', `±${acc}m`);
-
-  // ── Velocidade: prefere a do GPS (mais precisa), fallback por distância/tempo ──
-  let kmh = 0;
-  if (pos.coords.speed != null && pos.coords.speed >= 0) {
-    kmh = pos.coords.speed * 3.6;
-  } else if (_ultimaPosAnterior && _ultimaTsAnterior) {
-    const d = distancia(lat, lon, _ultimaPosAnterior[0], _ultimaPosAnterior[1]);
-    const dt = (ts - _ultimaTsAnterior) / 1000; // segundos
-    if (dt > 0) kmh = (d / dt) * 3.6;
-  }
-
-  // Suavização exponencial (EMA) — mais responsiva que média simples
-  // α=0.4: reage rápido a mudanças mas filtra picos falsos
-  _kmhEma = _kmhEma < 0 ? kmh : _kmhEma * 0.6 + kmh * 0.4;
-  atualizarVelocimetro(_kmhEma);
-
-  // ── Bearing ──
-  if (_ultimaPosAnterior) {
-    const dLat = Math.abs(lat - _ultimaPosAnterior[0]);
-    const dLon = Math.abs(lon - _ultimaPosAnterior[1]);
-    if (dLat + dLon > 0.000015) { // threshold menor = mais responsivo
-      const raw = _calcBearing(_ultimaPosAnterior[0], _ultimaPosAnterior[1], lat, lon);
-      _bearingAtual = _suavizarBearing(raw);
-    }
-  }
-  _ultimaPosAnterior = [lat, lon];
-  _ultimaTsAnterior  = ts;
-
-  // ── Busca limite da via a cada ~150m ──
-  const prevLimite = window._posAnteriorLimite;
-  if (!prevLimite || distancia(lat, lon, prevLimite[0], prevLimite[1]) > 150) {
-    window._posAnteriorLimite = [lat, lon];
-    clearTimeout(_limiteTimer);
-    _limiteTimer = setTimeout(() => buscarLimiteVia(lat, lon), 1000);
-  }
-
-  // ── Salva no Supabase de forma assíncrona sem bloquear ──
-  _enfileirarGPS(lat, lon, acc);
-
-  // ── Render da lista: throttle para não renderizar a cada update ──
-  if (!_renderListaPendente) {
-    _renderListaPendente = true;
-    setTimeout(() => {
-      _renderListaPendente = false;
-      renderLista();
-      verificarProximidade(lat, lon);
-    }, 1500); // atualiza lista no máximo a cada 1.5s
-  }
-}
-
-// Salva GPS sem await — não bloqueia o fluxo principal
-function _enfileirarGPS(lat, lon, acc) {
-  _gpsSaveQueue = { lat, lon, acc };
-  if (!_gpsSaving) _processarFilaGPS();
-}
-
-async function _processarFilaGPS() {
-  if (!_gpsSaveQueue) return;
-  _gpsSaving = true;
-  const { lat, lon, acc } = _gpsSaveQueue;
-  _gpsSaveQueue = null;
-  try {
-    await salvarGPS(lat, lon, acc);
-  } catch(e) { /* ignora erros de rede */ }
-  _gpsSaving = false;
-  if (_gpsSaveQueue) _processarFilaGPS(); // processa o próximo se chegou
-}
-
-function _atualizarCamera(lat, lon) {
-  if (_modo3D) {
-    map.easeTo({
-      center: [lon, lat], bearing: _bearingAtual,
-      pitch: 72, zoom: 18.5,
-      duration: 600, // reduzido: menos lag visual
-      essential: true, padding: _getMapPadding()
-    });
-  } else if (!_explorandoMapa) {
-    map.easeTo({ center: [lon, lat], zoom: 15, duration: 400, padding: _paddingNormal });
-  }
-}
-
-function onGPSErro(err) {
-  setGPSStatus('err', 'sem sinal');
-}
-
-let _gpsUltimoTs = null;
-
-function setGPSStatus(tipo, txt) {
-  const dot = document.getElementById('gpsDot');
-  const lbl = document.getElementById('gpsLabel');
-  const ping = document.getElementById('gpsPing');
-  dot.className = tipo === 'ok' ? 'ok' : 'err';
-  lbl.textContent = txt;
-
-  // Calcula ping entre updates
-  if (tipo === 'ok') {
-    const agora = Date.now();
-    if (_gpsUltimoTs) {
-      const ms = agora - _gpsUltimoTs;
-      ping.textContent = ms < 2000 ? ` · ${ms}ms` : ` · ${(ms/1000).toFixed(1)}s`;
-    }
-    _gpsUltimoTs = agora;
-  } else {
-    ping.textContent = '';
-    _gpsUltimoTs = null;
-  }
-}
-
-async function salvarGPS(lat, lon, acc) {
-  const now = new Date().toISOString();
-  // Sempre salva em gps.entregador_pos — fonte única de verdade para o Stats
-  await sb.from('gps').upsert({ chave: 'entregador_gps', valor: JSON.stringify({ lat, lon, ts: now, acc }) });
-  // Se tiver rota ativa, atualiza também para o histórico da rota
-  if (rotaAtiva?.id) {
-    await sb.from('rotas').update({
-      gps_lat: lat, gps_lon: lon,
-      gps_ts: now, gps_precisao: acc,
-      posicao_entregador: { lat, lon, ts: now }
-    }).eq('id', rotaAtiva.id);
-  }
-}
-
-// ── ROTA ────────────────────────────────────────────────────────────────
-
-// Chave do último dia processado (para detectar virada)
-const _CHAVE_DIA = 'ultimoDiaRota';
-
-async function resetarRotasReutilizaveis() {
-  // Busca todas as rotas concluídas que são reutilizáveis (têm dias_semana)
-  const { data: rotasConcluidas } = await sb.from('rotas')
-    .select('id, paradas, phones_entregues, entregas_realizadas')
-    .eq('status', 'concluido');
-
-  if (!rotasConcluidas || rotasConcluidas.length === 0) return;
-
-  const paraReset = rotasConcluidas.filter(r => {
-    const meta = (r.paradas || []).find(x => x._meta) || {};
-    return (meta.dias_semana || []).length > 0; // só reutilizáveis
-  });
-
-  for (const r of paraReset) {
-    // Reseta status de cada parada para pendente e limpa entregue_em/pagamento
-    const paradasReset = (r.paradas || []).map(p => {
-      if (p._meta) return p; // mantém o _meta intacto
-      return { ...p, status: 'pendente', entregue_em: null, pagamento: null };
-    });
-
-    await sb.from('rotas').update({
-      status: 'criada',
-      fim_em: null,
-      phones_entregues: [],
-      entregas_realizadas: 0,
-      paradas: paradasReset
-    }).eq('id', r.id);
-  }
-
-  console.log(`[virada] ${paraReset.length} rota(s) reutilizável(is) resetada(s)`);
-}
-
-async function verificarViradaDia() {
-  const hojeAtual = getHojeDia();
-  const ultimoDia = localStorage.getItem(_CHAVE_DIA);
-
-  if (ultimoDia && ultimoDia !== hojeAtual) {
-    // Dia virou! Reseta rotas reutilizáveis no Supabase
-    await resetarRotasReutilizaveis();
-  }
-  // Salva o dia atual
-  localStorage.setItem(_CHAVE_DIA, hojeAtual);
-}
-
-async function carregarRota() {
-  const hoje = getHojeDia();
-  const diaFormatado = getDiaSemanaDia();
-
-  // Verifica se o dia virou e reseta rotas reutilizáveis se necessário
-  await verificarViradaDia();
-
-  const { data } = await sb.from('rotas')
-    .select('*')
-    .in('status', ['criada', 'em_andamento', 'aguardando', 'concluido'])
-    .order('created_at', { ascending: true });
-
-  // ── Monta fila de rotas do dia ordenada por hora_saida ──
-  // Inclui TODAS as rotas do dia (com ou sem pedidos)
-  filaRotasHoje = (data || []).filter(r => {
-    const meta = (r.paradas || []).find(x => x._meta) || {};
-    const dias = meta.dias_semana || [];
-    // Rota recorrente: filtra por dia da semana
-    if (dias.length > 0) return dias.includes(diaFormatado);
-    // Rota avulsa: inclui se ativa
-    if (r.status === 'criada' || r.status === 'em_andamento' || r.status === 'aguardando') return true;
-    // Rota concluída hoje
-    if (r.status === 'concluido' && r.fim_em) {
-      const fimData = new Date(r.fim_em).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-      return fimData === hoje;
-    }
+    log('GPS: navegador não suporta geolocalização', 'fail');
+    setCard('gps-suporte', 'fail', 'SEM SUPORTE', `<span class="val-fail">Este navegador não suporta geolocalização.</span><br>Use Chrome ou Safari atualizado.`);
     return false;
-  }).sort((a, b) => {
-    const hA = ((a.paradas || []).find(x => x._meta) || {}).hora_saida || '00:00';
-    const hB = ((b.paradas || []).find(x => x._meta) || {}).hora_saida || '00:00';
-    return hA.localeCompare(hB);
-  });
-
-  // ── Busca contagem de pedidos feitos por rota ──
-  // Janela: desde o fechamento da loja (14:30 seg–sáb / 08:00 dom) até agora
-  const agoraSP = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
-  const virada = new Date(agoraSP);
-  const [_vh, _vm] = _getViradaHoraMin(agoraSP.getDay());
-  if (agoraSP.getHours() < _vh || (agoraSP.getHours() === _vh && agoraSP.getMinutes() < _vm)) {
-    virada.setDate(virada.getDate() - 1);
   }
-  virada.setHours(_vh, _vm, 0, 0);
-  const { data: pedidosDia } = await sb.from('pedidos')
-    .select('customer_phone, status, entregue')
-    .gte('created_at', virada.toISOString());
-  const pedidosSet = new Set((pedidosDia || []).map(p => p.customer_phone));
+  log('GPS: geolocalização disponível no navegador', 'ok');
+  setCard('gps-suporte', 'ok', 'OK', `<span class="val-ok">navigator.geolocation disponível</span>`);
+  return true;
+}
 
-  // Guarda pedidosSet nas rotas para usar no render
-  filaRotasHoje._pedidosSet = pedidosSet;
+async function testeGPSPermissao() {
+  rodando('gps-permissao');
+  try {
+    const result = await navigator.permissions.query({ name: 'geolocation' });
+    const estado = result.state;
+    log(`GPS permissão: ${estado}`, estado === 'granted' ? 'ok' : estado === 'denied' ? 'fail' : 'warn');
 
-  // ── Auto-finaliza rotas sem pedido quando passou o horário de saída ──
-  const horaAtual = `${String(agoraSP.getHours()).padStart(2,'0')}:${String(agoraSP.getMinutes()).padStart(2,'0')}`;
-  for (const r of filaRotasHoje) {
-    if (r.status !== 'criada') continue;
-    const meta = (r.paradas || []).find(x => x._meta) || {};
-    const horaSaida = meta.hora_saida || '00:00';
-    if (horaAtual < horaSaida) continue; // ainda não chegou o horário
-    // Verifica se algum cliente desta rota fez pedido
-    const phones = (r.paradas || []).filter(p => !p._meta).map(p => p.cliente_phone).filter(Boolean);
-    const temPedido = phones.some(ph => pedidosSet.has(ph));
-    if (!temPedido && phones.length > 0) {
-      // Zero pedidos e já passou o horário → auto-finaliza
-      await sb.from('rotas').update({
-        status: 'concluido',
-        fim_em: new Date().toISOString()
-      }).eq('id', r.id);
-      r.status = 'concluido'; // atualiza local para não reprocessar
-      r.fim_em = new Date().toISOString();
+    if (estado === 'granted') {
+      setCard('gps-permissao', 'ok', 'PERMITIDO', `<span class="val-ok">✅ Permissão concedida</span>`);
+    } else if (estado === 'denied') {
+      setCard('gps-permissao', 'fail', 'BLOQUEADO', `
+        <span class="val-fail">❌ GPS bloqueado pelo usuário</span><br>
+        Vá em <b>Configurações → Privacidade → Localização</b> e permita para este site.
+      `);
+    } else {
+      setCard('gps-permissao', 'warn', 'PENDENTE', `<span class="val-warn">⚠️ Permissão não concedida ainda — o app precisa solicitar</span>`);
     }
+    return estado;
+  } catch(e) {
+    log('Permissions API não disponível', 'warn');
+    setCard('gps-permissao', 'warn', 'N/D', `<span class="val-warn">Permissions API não disponível neste navegador</span>`);
+    return 'unknown';
   }
+}
 
-  // ── Determina rota ativa ──
-  const emAndamentoHoje = filaRotasHoje.find(r =>
-    r.status === 'em_andamento' || r.status === 'aguardando'
-  );
-
-  if (emAndamentoHoje) {
-    if (!rotaAtiva || rotaAtiva.id === emAndamentoHoje.id) {
-      rotaAtiva = emAndamentoHoje;
-    }
-  } else {
-    let proximaDisponivel = null;
-    for (let i = 0; i < filaRotasHoje.length; i++) {
-      const r = filaRotasHoje[i];
-      if (r.status !== 'criada') continue;
-      if (i === 0) { proximaDisponivel = r; break; }
-      const anterior = filaRotasHoje[i - 1];
-      if (anterior.status === 'concluido') { proximaDisponivel = r; break; }
-      break;
-    }
-    rotaAtiva = proximaDisponivel || null;
-  }
-
-  // ── Paradas da rota ativa ──
-  let paradasBruto = rotaAtiva
-    ? (rotaAtiva.paradas || []).filter(p => !p._meta)
-    : [];
-
-  // Filtra: só mostra paradas de clientes que fizeram pedido
-  paradasBruto = paradasBruto.filter(p => !p.cliente_phone || pedidosSet.has(p.cliente_phone));
-
-  // Enriquece com coordenadas
-  if (paradasBruto.length > 0) {
-    const phones = paradasBruto.map(p => p.cliente_phone).filter(Boolean);
-    const { data: clientes } = await sb.from('clientes')
-      .select('phone, delivery_lat, delivery_lon, lat, lon')
-      .in('phone', phones);
-    const coordMap = {};
-    (clientes || []).forEach(c => {
-      const cLat = c.delivery_lat ?? c.lat;
-      const cLon = c.delivery_lon ?? c.lon;
-      if (cLat && cLon) coordMap[c.phone] = [cLat, cLon];
-    });
-    paradasBruto = paradasBruto.map(p =>
-      (!p.coords && coordMap[p.cliente_phone]) ? { ...p, coords: coordMap[p.cliente_phone] } : p
+async function testeGPSPosicao() {
+  rodando('gps-posicao', 'Aguardando...');
+  return new Promise((resolve) => {
+    const t0 = Date.now();
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const ms = Date.now() - t0;
+        const lat  = pos.coords.latitude.toFixed(6);
+        const lon  = pos.coords.longitude.toFixed(6);
+        const acc  = Math.round(pos.coords.accuracy);
+        const spd  = pos.coords.speed != null ? `${(pos.coords.speed * 3.6).toFixed(1)} km/h` : 'n/d';
+        const estado = acc > 100 ? 'warn' : 'ok';
+        log(`GPS posição: lat=${lat} lon=${lon} acc=±${acc}m em ${ms}ms`, estado === 'warn' ? 'warn' : 'ok');
+        setCard('gps-posicao', estado, `±${acc}m`, `
+          <b>Latitude:</b>  ${fmt(lat, 'info')}<br>
+          <b>Longitude:</b> ${fmt(lon, 'info')}<br>
+          <b>Precisão:</b>  ${fmt(`±${acc}m`, acc > 100 ? 'warn' : 'ok')}
+          ${acc > 100 ? '<br><span class="val-warn">⚠️ Precisão baixa — GPS ainda buscando sinal</span>' : ''}<br>
+          <b>Velocidade:</b> ${fmt(spd, 'info')}<br>
+          <b>Tempo p/ fixar:</b> ${fmt(`${ms}ms`, ms > 8000 ? 'warn' : 'ok')}
+        `);
+        resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+      },
+      (err) => {
+        const msgs = {
+          1: 'Permissão negada pelo usuário',
+          2: 'GPS indisponível (sem sinal ou hardware)',
+          3: 'Timeout — GPS demorou demais para responder'
+        };
+        const msg = msgs[err.code] || err.message;
+        log(`GPS erro: ${msg} (code ${err.code})`, 'fail');
+        setCard('gps-posicao', 'fail', 'ERRO', `
+          <span class="val-fail">❌ ${msg}</span><br>
+          <b>Código:</b> ${fmt(err.code, 'fail')}<br>
+          ${err.code === 1 ? '<span class="val-warn">→ Permita a localização nas configurações do celular</span>' : ''}
+          ${err.code === 2 ? '<span class="val-warn">→ Vá para um lugar com sinal GPS ou ative o WiFi</span>' : ''}
+          ${err.code === 3 ? '<span class="val-warn">→ Conexão lenta ou GPS fraco</span>' : ''}
+        `);
+        resolve(null);
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
     );
-  }
-
-  paradas = paradasBruto;
-
-  renderTudo();
-  mostrarSemRota();
-
-  if (rotaSelecionada) {
-    const rotaAtualizada = filaRotasHoje.find(r => r.id === rotaSelecionada.id);
-    if (rotaAtualizada) abrirParadasRota(rotaAtualizada.id);
-  }
-}
-
-function mostrarSemRota() {
-  document.getElementById('semRota').style.display =
-    (!rotaAtiva && paradas.length === 0) ? 'block' : 'none';
-}
-
-// ── REALTIME ─────────────────────────────────────────────────────────────
-function iniciarRealtime() {
-  if (realtimeCh) sb.removeChannel(realtimeCh);
-  realtimeCh = sb.channel('ent_rota')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'rotas' }, async () => {
-      await carregarRota();
-    })
-    .subscribe();
-}
-
-// ── RENDER MAPA ───────────────────────────────────────────────────────────
-let mkClientesGlobal = {}; // phone → marker (todos os clientes com coords)
-
-async function carregarEPlotarClientes() {
-  // Espera o mapa estar pronto
-  if (!map || !map.loaded()) {
-    map.once('load', () => carregarEPlotarClientes());
-    return;
-  }
-
-  const { data: clientes } = await sb.from('clientes')
-    .select('phone, name, delivery_lat, delivery_lon, lat, lon')
-    .eq('active', true);
-
-  if (!clientes || clientes.length === 0) return;
-
-  // Remove todos os marcadores anteriores
-  Object.values(mkClientesGlobal).forEach(mk => mk.remove());
-  mkClientesGlobal = {};
-
-  // Monta lista com coordenadas válidas
-  const lista = clientes.map(cli => ({
-    ...cli,
-    lat: cli.delivery_lat ?? cli.lat,
-    lon: cli.delivery_lon ?? cli.lon,
-  })).filter(c => c.lat && c.lon);
-
-  // Atualiza total no header do painel
-  const el = document.getElementById('totalComLocalizacao');
-  if (el) el.textContent = lista.length;
-
-  // ── SEPARAÇÃO: só dentro de 20m, lado a lado ─────────────────────────
-  // 20m em graus ≈ 0.00018°
-  const RAIO_20M = 0.00018;
-
-  const posAjustada = lista.map(c => ({ lat: c.lat, lon: c.lon }));
-  const visitado = new Set();
-
-  for (let i = 0; i < lista.length; i++) {
-    if (visitado.has(i)) continue;
-    const grupo = [i];
-    for (let j = i + 1; j < lista.length; j++) {
-      if (visitado.has(j)) continue;
-      const dLat = lista[i].lat - lista[j].lat;
-      const dLon = lista[i].lon - lista[j].lon;
-      if (Math.sqrt(dLat*dLat + dLon*dLon) < RAIO_20M) {
-        grupo.push(j);
-        visitado.add(j);
-      }
-    }
-    visitado.add(i);
-    if (grupo.length === 1) continue;
-
-    // Espaço lateral entre marcadores (~50px em graus no zoom 15)
-    const passo = 0.00045;
-    const total = (grupo.length - 1) * passo;
-    grupo.forEach((idx, k) => {
-      posAjustada[idx] = {
-        lat: lista[idx].lat,
-        lon: lista[idx].lon - total / 2 + k * passo,
-      };
-    });
-  }
-  // ─────────────────────────────────────────────────────────────────────
-
-  lista.forEach((cli, idx) => {
-    const { lat, lon } = posAjustada[idx];
-
-    // Verifica se está na rota ativa e qual status
-    const paradaRota = paradas.find(p => p.cliente_phone === cli.phone);
-    const entregue = paradaRota?.status === 'entregue';
-    const ordem = paradaRota ? paradas.indexOf(paradaRota) + 1 : null;
-    const nome = (cli.name || '').split(' ')[0] || '?';
-
-    // Wrapper
-    const el = document.createElement('div');
-    el.className = 'mk-cli-wrap';
-
-    // Círculo roxo com emoji
-    const circle = document.createElement('div');
-    circle.className = 'mk-cli-circle' + (entregue ? ' entregue' : '');
-    circle.innerHTML = `<span style="font-size:22px;line-height:1">👤</span>`;
-
-    // Badge com número de ordem (só quem está na rota e pendente)
-    if (ordem && !entregue) {
-      const badge = document.createElement('div');
-      badge.className = 'mk-cli-badge';
-      badge.textContent = ordem;
-      circle.appendChild(badge);
-    }
-
-    // Label com nome
-    const label = document.createElement('div');
-    label.className = 'mk-cli-label';
-    label.textContent = entregue ? '✓ ' + nome : nome;
-
-    el.appendChild(label);
-    el.appendChild(circle);
-
-    const mk = new maplibregl.Marker({ element: el, anchor: 'bottom' })
-      .setLngLat([lon, lat])
-      .addTo(map);
-
-    // Clique abre modal só se estiver na rota
-    if (paradaRota) {
-      el.addEventListener('click', () => abrirModal(paradaRota));
-    }
-
-    mkClientesGlobal[cli.phone] = mk;
   });
 }
 
-function renderMarcadoresClientes() {
-  carregarEPlotarClientes();
-}
-
-// ── ABAS DO PAINEL ────────────────────────────────────────────────────────
-function trocarAba(aba) {
-  document.querySelectorAll('.tela-aba').forEach((b, i) => {
-    b.classList.toggle('ativa', (i === 0 && aba === 'info') || (i === 1 && aba === 'rota'));
-  });
-  document.getElementById('tabInfo').classList.toggle('ativa', aba === 'info');
-  document.getElementById('tabRota').classList.toggle('ativa', aba === 'rota');
-  if (aba === 'rota') atualizarCountdowns();
-}
-
-// ── INFO LISTA (entregues / restantes) ────────────────────────────────────
-function abrirInfoLista(tipo) {
-  const box = document.getElementById('infoListaBox');
-  const cards = document.getElementById('infoCardsBox');
-  const titulo = document.getElementById('infoListaTitulo');
-  const conteudo = document.getElementById('infoListaConteudo');
-
-  // Coleta paradas de todas as rotas do dia
-  const todasParadas = filaRotasHoje.flatMap(r =>
-    (r.paradas || []).filter(p => !p._meta)
-  );
-
-  const filtradas = tipo === 'entregues'
-    ? todasParadas.filter(p => p.status === 'entregue')
-    : todasParadas.filter(p => p.status !== 'entregue');
-
-  titulo.textContent = tipo === 'entregues' ? '✅ Entregues' : '⏳ Restantes';
-
-  if (filtradas.length === 0) {
-    conteudo.innerHTML = `<div style="text-align:center;padding:30px;color:var(--muted);font-size:13px;">
-      ${tipo === 'entregues' ? 'Nenhuma entrega ainda' : 'Nenhum pendente'}
-    </div>`;
-  } else {
-    conteudo.innerHTML = filtradas.map(p => `
-      <div style="background:rgba(139,92,246,0.06);border:1px solid rgba(139,92,246,0.15);border-radius:14px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:12px;">
-        <div style="width:34px;height:34px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px;
-          background:${p.status==='entregue'?'rgba(34,217,122,0.15)':'rgba(245,200,66,0.12)'};
-          border:1px solid ${p.status==='entregue'?'rgba(34,217,122,0.3)':'rgba(245,200,66,0.25)'};">
-          ${p.status==='entregue'?'✓':'⏳'}
-        </div>
-        <div style="flex:1;min-width:0;">
-          <div style="font-size:14px;font-weight:700;color:var(--text);">${p.nome || 'Cliente'}</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px;">${p.endereco || ''}</div>
-          ${p.entregue_em ? `<div style="font-size:10px;color:var(--green);margin-top:2px;">
-            ${new Date(p.entregue_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}
-            ${p.pagamento ? '· '+p.pagamento : ''}
-          </div>` : ''}
-        </div>
-      </div>`).join('');
-  }
-
-  cards.style.display = 'none';
-  box.style.display = 'block';
-}
-
-function fecharInfoLista() {
-  document.getElementById('infoListaBox').style.display = 'none';
-  document.getElementById('infoCardsBox').style.display = 'block';
-}
-
-// ── RENDER CARDS DE ROTAS ────────────────────────────────────────────────
-function renderRotaCards() {
-  const box = document.getElementById('rotaCardsList');
-  const paradasBox = document.getElementById('rotaParadasBox');
-  if (!box) return;
-
-  const pedidosSet = filaRotasHoje._pedidosSet || new Set();
-
-  // Totais globais — só quem fez pedido
-  const todasComPedido = filaRotasHoje.flatMap(r =>
-    (r.paradas || []).filter(p => !p._meta && pedidosSet.has(p.cliente_phone))
-  );
-  const elEnt  = document.getElementById('infoEntregues');
-  const elPend = document.getElementById('infoPendentes');
-  if (elEnt)  elEnt.textContent  = todasComPedido.filter(p => p.status === 'entregue').length;
-  if (elPend) elPend.textContent = todasComPedido.filter(p => p.status !== 'entregue').length;
-
-  if (!filaRotasHoje || filaRotasHoje.length === 0) {
-    box.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);font-size:13px;">Nenhuma rota para hoje</div>';
-    paradasBox.style.display = 'none';
-    return;
-  }
-
-  const statusLabel = { criada:'⏳ Aguardando', aguardando:'🏭 Na fábrica', em_andamento:'🛵 Em andamento', concluido:'✅ Concluída' };
-  const badgeClass  = { criada:'ag', aguardando:'ag', em_andamento:'em', concluido:'ok' };
-
-  box.innerHTML = filaRotasHoje.map((r, idx) => {
-    const meta = (r.paradas || []).find(x => x._meta) || {};
-    const hora = meta.hora_saida || '--:--';
-    const paradassRota = (r.paradas || []).filter(p => !p._meta);
-
-    // Contador = quem fez pedido, não total da rota
-    const comPedido = paradassRota.filter(p => pedidosSet.has(p.cliente_phone));
-    const pedidoQtd = comPedido.length;
-    const entregues = comPedido.filter(p => p.status === 'entregue').length;
-    const progresso = pedidoQtd > 0 ? Math.round((entregues / pedidoQtd) * 100) : 0;
-
-    const isAtiva    = rotaAtiva && r.id === rotaAtiva.id;
-    const isConcluida = r.status === 'concluido';
-    const anterior   = idx > 0 ? filaRotasHoje[idx - 1] : null;
-    const isBloqueada = r.status === 'criada' && anterior && anterior.status !== 'concluido';
-
-    const posLabel  = ['1ª','2ª','3ª','4ª','5ª'][idx] || `${idx+1}ª`;
-    const cardClass = isConcluida ? 'concluida' : isAtiva ? 'ativa' : '';
-    const bc        = badgeClass[r.status] || 'ag';
-    const barColor  = isConcluida ? 'var(--green)' : isAtiva ? 'var(--gold)' : 'rgba(192,132,252,0.4)';
-    const badgeHtml = isBloqueada
-      ? `<span class="rota-card-badge ag">🔒 Aguardando anterior</span>`
-      : `<span class="rota-card-badge ${bc}">${statusLabel[r.status] || r.status}</span>`;
-
-    const pedidoLabel = (isConcluida && pedidoQtd === 0)
-      ? '<span>📦 Sem pedidos</span>'
-      : `<span>📦 ${entregues}/${pedidoQtd} pedido${pedidoQtd !== 1 ? 's' : ''}</span>`;
-
-    // Countdown: toda rota concluída com hora_saida definida → conta até reiniciar no próximo dia
-    let countdownHtml = '';
-    if (isConcluida && hora !== '--:--') {
-      countdownHtml = `<div style="
-        margin-top:10px;display:flex;align-items:center;gap:8px;
-        background:rgba(245,200,66,0.08);border:1px solid rgba(245,200,66,0.2);
-        border-radius:10px;padding:8px 12px;
-      ">
-        <span style="font-size:14px;">🔄</span>
-        <div>
-          <div style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:1px;">Reinicia às ${hora}</div>
-          <div class="rota-countdown" data-hora="${hora}" data-proximo-dia="1" style="font-family:'DM Mono',monospace;font-size:16px;font-weight:500;color:var(--gold);">--:--</div>
-        </div>
-      </div>`;
-    }
-
-    return `<div class="rota-card ${cardClass}" style="${isBloqueada ? 'opacity:0.5;' : ''}" onclick="abrirParadasRota('${r.id}')">
-      <div class="rota-card-top">
-        <div class="rota-card-icon">${isConcluida ? '✓' : posLabel}</div>
-        <div class="rota-card-info">
-          <div class="rota-card-nome">${r.nome_rota || 'Rota'}</div>
-          <div class="rota-card-meta">
-            <span>🕐 ${hora}</span>
-            ${pedidoLabel}
-          </div>
-        </div>
-        ${badgeHtml}
-        <span class="rota-card-chevron">›</span>
-      </div>
-      ${pedidoQtd > 0 ? `<div class="rota-card-progress"><div class="rota-card-progress-bar" style="width:${progresso}%;background:${barColor};"></div></div>` : ''}
-      ${countdownHtml}
-    </div>`;
-  }).join('');
-}
-
-// Abre paradas de uma rota específica ao clicar no card
-async function abrirParadasRota(rotaId) {
-  const r = filaRotasHoje.find(x => x.id === rotaId);
-  if (!r) return;
-  rotaSelecionada = r;
-
-  document.getElementById('rotaCardsList').style.display = 'none';
-  document.getElementById('rotaParadasBox').style.display = 'block';
-  document.getElementById('rotaParadasNome').textContent = r.nome_rota || 'Rota';
-
-  // Monta paradas desta rota com coords
-  let paradassRota = (r.paradas || []).filter(p => !p._meta);
-
-  if (paradassRota.length > 0) {
-    const phones = paradassRota.map(p => p.cliente_phone).filter(Boolean);
-    const { data: clientes } = await sb.from('clientes')
-      .select('phone, delivery_lat, delivery_lon, lat, lon').in('phone', phones);
-    const coordMap = {};
-    (clientes || []).forEach(c => {
-      const cLat = c.delivery_lat ?? c.lat;
-      const cLon = c.delivery_lon ?? c.lon;
-      if (cLat && cLon) coordMap[c.phone] = [cLat, cLon];
-    });
-    paradassRota = paradassRota.map(p => (!p.coords && coordMap[p.cliente_phone])
-      ? { ...p, coords: coordMap[p.cliente_phone] } : p);
-  }
-
-  const entregues = paradassRota.filter(p => p.status === 'entregue').length;
-  const pendentes = paradassRota.filter(p => p.status !== 'entregue').length;
-  document.getElementById('rotaParadasStats').textContent = `✅ ${entregues} entregues · ⏳ ${pendentes} restantes`;
-
-  renderListaParadas(paradassRota, r.id === rotaAtiva?.id);
-}
-
-function fecharParadasRota() {
-  rotaSelecionada = null;
-  document.getElementById('rotaCardsList').style.display = 'block';
-  document.getElementById('rotaParadasBox').style.display = 'none';
-}
-
-// ── RENDER LISTA DE PARADAS ───────────────────────────────────────────────
-function renderListaParadas(paradassRota, isRotaAtiva) {
-  const lista = document.getElementById('listaParadas');
-
-  if (!paradassRota || paradassRota.length === 0) {
-    lista.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);font-size:13px;">Nenhuma parada nesta rota hoje</div>';
-    return;
-  }
-
-  const pendentes = paradassRota.filter(p => p.status !== 'entregue');
-  const proximaPhone = pendentes[0]?.cliente_phone;
-
-  lista.innerHTML = paradassRota.map((p, idx) => {
-    const entregue = p.status === 'entregue';
-    const proxima = isRotaAtiva && p.cliente_phone === proximaPhone && !entregue;
-    const dist = distanciaStr(p);
-    const cls = entregue ? 'entregue' : (proxima ? 'proxima' : 'pendente');
-    const badge = entregue
-      ? '<span class="parada-status-badge badge-entregue">✓ Entregue</span>'
-      : (proxima
-        ? '<span class="parada-status-badge badge-proxima">Próxima</span>'
-        : `<span class="parada-status-badge badge-pendente">#${idx+1}</span>`);
-    const clickable = isRotaAtiva && !entregue;
-
-    return `<div class="parada-card ${cls}" ${clickable ? `onclick="abrirModal(paradaSelecionada_${idx})"` : ''} data-idx="${idx}">
-      <div class="parada-ordem">${entregue ? '✓' : idx+1}</div>
-      <div class="parada-info">
-        <div class="parada-nome">${p.nome || 'Cliente'}</div>
-        <div class="parada-end">${p.endereco || p.coords ? (p.endereco || (p.coords[0].toFixed(4)+', '+p.coords[1].toFixed(4))) : 'Endereço não definido'}</div>
-      </div>
-      ${dist ? `<div class="parada-dist">${dist}</div>` : ''}
-      ${badge}
-    </div>`;
-  }).join('');
-
-  // Adiciona eventos de clique nas paradas da rota ativa
-  if (isRotaAtiva) {
-    lista.querySelectorAll('.parada-card[data-idx]').forEach(el => {
-      const idx = parseInt(el.dataset.idx);
-      const p = paradassRota[idx];
-      if (p && p.status !== 'entregue') {
-        el.onclick = () => abrirModal(p);
-      }
-    });
-  }
-}
-
-// Mantém compatibilidade — renderLista agora só atualiza info e cards
-function renderLista() {
-  renderRotaCards();
-  atualizarCountdowns();
-}
-
-// ── COUNTDOWN para próxima rota ──────────────────────────────────────────
-let _countdownInterval = null;
-
-function atualizarCountdowns() {
-  if (_countdownInterval) { clearInterval(_countdownInterval); _countdownInterval = null; }
-
-  function tick() {
-    const agora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
-    const els = document.querySelectorAll('.rota-countdown');
-    els.forEach(el => {
-      const hora = el.dataset.hora;
-      if (!hora) return;
-      const [hh, mm] = hora.split(':').map(Number);
-
-      // Sempre aponta para o próximo dia (a rota reinicia no dia seguinte)
-      const alvo = new Date(agora);
-      alvo.setDate(alvo.getDate() + 1); // começa do amanhã
-      alvo.setHours(hh, mm, 0, 0);
-
-      const diffSeg = Math.max(0, Math.floor((alvo - agora) / 1000));
-      const horas   = Math.floor(diffSeg / 3600);
-      const minutos = Math.floor((diffSeg % 3600) / 60);
-      const segs    = diffSeg % 60;
-
-      if (horas > 0) {
-        el.textContent = `${String(horas).padStart(2,'0')}h ${String(minutos).padStart(2,'0')}m`;
-        el.style.color = 'var(--gold)';
-      } else if (minutos > 0) {
-        el.textContent = `${String(minutos).padStart(2,'0')}m ${String(segs).padStart(2,'0')}s`;
-        el.style.color = 'var(--gold)';
-      } else {
-        el.textContent = diffSeg === 0 ? 'Iniciando!' : `${String(segs).padStart(2,'0')}s`;
-        el.style.color = 'var(--green)';
-      }
-    });
-  }
-
-  tick();
-  if (document.querySelectorAll('.rota-countdown').length > 0) {
-    _countdownInterval = setInterval(tick, 1000);
-  }
-}
-
-function distanciaStr(p) {
-  if (!posEntregador || !p.coords) return '';
-  const [lat, lon] = p.coords;
-  const d = distancia(posEntregador.lat, posEntregador.lon, lat, lon);
-  if (d < 1000) return `${Math.round(d)}m`;
-  return `${(d/1000).toFixed(1)}km`;
-}
-
-function renderTudo() {
-  renderMarcadoresClientes();
-  renderLista();
-}
-
-// ── MODO CONFIRMAÇÃO ─────────────────────────────────────────────────────
-function _atualizarToggleUI() {
-  const sw    = document.getElementById('toggleConfSwitch');
-  const thumb = document.getElementById('toggleConfThumb');
-  const label = document.getElementById('modoConfLabel');
-  const desc  = document.getElementById('modoConfDesc');
-  if (!sw) return;
-  if (modoAutoConfirmar) {
-    sw.style.background = 'var(--gold)';
-    thumb.style.left = 'calc(100% - 23px)';
-    label.textContent = '🤖 Confirmação automática';
-    desc.textContent  = 'Entrega confirmada ao chegar em 20m';
-  } else {
-    sw.style.background = 'rgba(255,255,255,0.12)';
-    thumb.style.left = '3px';
-    label.textContent = '✋ Confirmação manual';
-    desc.textContent  = 'Toque na parada para confirmar entrega';
-  }
-}
-
-function toggleModoConfirmacao() {
-  modoAutoConfirmar = !modoAutoConfirmar;
-  localStorage.setItem('modoAutoConfirmar', modoAutoConfirmar);
-  _atualizarToggleUI();
-  showToast(modoAutoConfirmar ? '🤖 Modo automático ativado' : '✋ Modo manual ativado', 'ok');
-}
-
-// Guarda phones já confirmados automaticamente nesta sessão para não re-disparar
-const _autoConfirmados = new Set();
-
-// ── PROXIMIDADE ───────────────────────────────────────────────────────────
-function verificarProximidade(lat, lon) {
-  const pendentes = paradas.filter(p => p.status !== 'entregue' && p.coords);
-  if (pendentes.length === 0) { esconderAlerta(); return; }
-
-  const prox = pendentes[0]; // primeiro pendente
-  const [pLat, pLon] = prox.coords;
-  const d = distancia(lat, lon, pLat, pLon);
-
-  // ── Automático: 20m → confirma direto ──
-  if (modoAutoConfirmar && d <= RAIO_AUTO && !_autoConfirmados.has(prox.cliente_phone)) {
-    _autoConfirmados.add(prox.cliente_phone);
-    esconderAlerta();
-    _confirmarEntregaAuto(prox);
-    return;
-  }
-
-  // ── Manual: 80m → mostra alerta ──
-  if (d <= RAIO_ALERTA) {
-    mostrarAlerta(prox);
-  } else {
-    esconderAlerta();
-  }
-}
-
-function mostrarAlerta(p) {
-  alertaPhone = p.cliente_phone;
-  document.getElementById('alertaNome').textContent = `📦 ${p.nome || 'Cliente'} — toque para registrar`;
-  document.getElementById('alertaProx').classList.add('show');
-}
-
-function esconderAlerta() {
-  alertaPhone = null;
-  document.getElementById('alertaProx').classList.remove('show');
-}
-
-function abrirModalParaProximo() {
-  const p = paradas.find(x => x.cliente_phone === alertaPhone);
-  if (p) abrirModal(p);
-}
-
-// Confirmação automática: sem modal, detecta pagamento e confirma direto
-async function _confirmarEntregaAuto(p) {
-  const { data: pedidos } = await sb.from('pedidos')
-    .select('*')
-    .eq('customer_phone', p.cliente_phone)
-    .eq('entregue', false)
-    .order('created_at', { ascending: false })
-    .limit(1);
-
-  const pedido = pedidos?.[0];
-  const metodo = (pedido?.payment_method || '').toUpperCase();
-  const ehFiado = metodo === 'FIADO';
-  const pagamento = ehFiado ? 'fiado' : (pedido?.payment_method || 'dinheiro');
-  const agora = new Date().toISOString();
-
+async function testePing() {
+  rodando('ping');
+  const t0 = Date.now();
   try {
-    // Marca parada como entregue na rota
-    if (rotaAtiva?.id) {
-      const novasParadas = (rotaAtiva.paradas || []).map(x =>
-        (!x._meta && x.cliente_phone === p.cliente_phone)
-          ? { ...x, status: 'entregue', entregue_em: agora, pagamento }
-          : x
-      );
-      const entreguesCount = novasParadas.filter(x => !x._meta && x.status === 'entregue').length;
-      await sb.from('rotas').update({
-        paradas: novasParadas,
-        phones_entregues: [...(rotaAtiva.phones_entregues || []), p.cliente_phone],
-        entregas_realizadas: entreguesCount
-      }).eq('id', rotaAtiva.id);
-    }
-
-    // Atualiza pedido
-    if (pedido?.id) {
-      await sb.from('pedidos').update({
-        entregue: true,
-        entregue_em: agora,
-        payment_method: ehFiado ? 'FIADO' : pagamento,
-        status_entrega: 'entregue'
-      }).eq('id', pedido.id);
-
-      if (ehFiado) {
-        const { data: cli } = await sb.from('clientes').select('debt').eq('phone', p.cliente_phone).maybeSingle();
-        await sb.from('clientes').update({
-          debt: parseFloat(cli?.debt || 0) + Number(pedido.total || 0),
-          fiado: true
-        }).eq('phone', p.cliente_phone);
-      }
-    }
-
-    showToast(`✅ ${p.nome || 'Cliente'} — entrega confirmada automaticamente`, 'ok');
-    await carregarRota();
-
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/`, {
+      headers: { 'apikey': SUPABASE_KEY },
+      cache: 'no-store'
+    });
+    const ms = Date.now() - t0;
+    const estado = ms > 1500 ? 'warn' : 'ok';
+    log(`Ping Supabase: ${ms}ms (status ${res.status})`, estado === 'warn' ? 'warn' : 'ok');
+    setCard('ping', estado, `${ms}ms`, `
+      <b>Latência:</b> ${fmt(`${ms}ms`, ms > 1500 ? 'warn' : ms > 800 ? 'warn' : 'ok')}<br>
+      <b>Status HTTP:</b> ${fmt(res.status, res.ok ? 'ok' : 'fail')}<br>
+      ${ms > 1500 ? '<span class="val-warn">⚠️ Latência alta — pode atrasar updates de GPS</span>' : '<span class="val-ok">✅ Conexão rápida</span>'}
+    `);
+    return ms;
   } catch(e) {
-    console.error(e);
-    // Se falhar remove do set para poder tentar de novo
-    _autoConfirmados.delete(p.cliente_phone);
-    showToast('Erro na confirmação automática', 'err');
+    log(`Ping falhou: ${e.message}`, 'fail');
+    setCard('ping', 'fail', 'FALHOU', `<span class="val-fail">❌ Não conseguiu conectar ao Supabase</span><br>${e.message}`);
+    return null;
   }
 }
 
-// ── MODAL DE ENTREGA ──────────────────────────────────────────────────────
-async function abrirModal(p) {
-  if (p.status === 'entregue') return;
-  modalParada = p;
-  pagSelecionado = null;
-
-  // Busca pedido pendente do cliente
-  const { data: pedidos } = await sb.from('pedidos')
-    .select('*')
-    .eq('customer_phone', p.cliente_phone)
-    .eq('entregue', false)
-    .order('created_at', { ascending: false })
-    .limit(1);
-
-  const pedido = pedidos?.[0];
-  modalParada._pedido = pedido;
-
-  document.getElementById('mNome').textContent = p.nome || 'Cliente';
-  document.getElementById('mEnd').textContent = p.endereco || '';
-
-  if (pedido) {
-    document.getElementById('mItens').textContent = (pedido.items || '').replace(/✅ /g, '');
-    document.getElementById('mTotal').textContent = `Total: R$ ${Number(pedido.total || 0).toFixed(2).replace('.', ',')}`;
-  } else {
-    document.getElementById('mItens').textContent = 'Sem pedido pendente registrado';
-    document.getElementById('mTotal').textContent = '';
-  }
-
-  // Detecta forma de pagamento
-  const metodo = (pedido?.payment_method || '').toUpperCase();
-  const ehFiado = metodo === 'FIADO';
-  // "pagar na entrega" = dinheiro ou pix (qualquer coisa que não seja fiado e não seja premio)
-  const pagarNaEntrega = !ehFiado && metodo !== 'PREMIO' && pedido;
-
-  document.getElementById('secPagamento').style.display = pagarNaEntrega ? 'block' : 'none';
-  document.getElementById('secFiado').style.display = ehFiado ? 'block' : 'none';
-
-  // Reset botões Sim/Não
-  document.getElementById('btnSimPago').classList.remove('sel');
-  document.getElementById('btnNaoPago').classList.remove('sel');
-
-  const btnConf = document.getElementById('btnConfirmar');
-  // Se fiado ou sem pedido → já pode confirmar direto
-  btnConf.disabled = pagarNaEntrega; // bloqueia até responder Sim ou Não
-  btnConf.textContent = ehFiado ? '📋 Registrar Fiado' : '✅ Confirmar Entrega';
-  btnConf.className = ehFiado ? 'btn-confirmar fiado-btn' : 'btn-confirmar';
-
-  // Guarda contexto para o confirmar saber o que fazer
-  modalParada._pagarNaEntrega = pagarNaEntrega;
-  modalParada._ehFiado = ehFiado;
-
-  document.getElementById('modalEntrega').classList.add('open');
-}
-
-function respPago(foiPago) {
-  // foiPago=true → pago; foiPago=false → vira fiado
-  document.getElementById('btnSimPago').classList.toggle('sel', foiPago);
-  document.getElementById('btnNaoPago').classList.toggle('sel', !foiPago);
-
-  pagSelecionado = foiPago
-    ? (modalParada._pedido?.payment_method || 'dinheiro') // mantém o método original
-    : 'fiado';
-
-  const btnConf = document.getElementById('btnConfirmar');
-  btnConf.disabled = false;
-  if (!foiPago) {
-    btnConf.textContent = '📋 Registrar como Fiado';
-    btnConf.className = 'btn-confirmar fiado-btn';
-  } else {
-    btnConf.textContent = '✅ Confirmar Entrega';
-    btnConf.className = 'btn-confirmar';
-  }
-}
-
-function fecharModal() {
-  document.getElementById('modalEntrega').classList.remove('open');
-  modalParada = null;
-  pagSelecionado = null;
-}
-
-async function confirmarEntrega() {
-  if (!modalParada) return;
-
-  // Se era pagar na entrega, precisa ter respondido Sim ou Não
-  if (modalParada._pagarNaEntrega && !pagSelecionado) return;
-
-  // Se era fiado direto, pagSelecionado fica como 'fiado'
-  if (modalParada._ehFiado) pagSelecionado = 'fiado';
-
-  // Se sem pedido (rota manual sem pedido registrado), confirma entrega sem pagamento
-  if (!modalParada._pedido) pagSelecionado = pagSelecionado || 'sem_pedido';
-
-  const btn = document.getElementById('btnConfirmar');
-  btn.disabled = true;
-  btn.textContent = 'Salvando...';
-
-  const p = modalParada;
-  const pedido = p._pedido;
-  const agora = new Date().toISOString();
-  const ehFiado = pagSelecionado === 'fiado';
-
+async function testeTabelaGPS() {
+  rodando('tabela-gps');
   try {
-    // 1. Marca parada como entregue na rota
-    if (rotaAtiva?.id) {
-      const novasParadas = (rotaAtiva.paradas || []).map(x => {
-        if (!x._meta && x.cliente_phone === p.cliente_phone) {
-          return { ...x, status: 'entregue', entregue_em: agora, pagamento: pagSelecionado };
+    const t0 = Date.now();
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/gps?select=chave,valor&chave=eq.entregador_gps&limit=1`,
+      {
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Cache-Control': 'no-cache'
+        },
+        cache: 'no-store'
+      }
+    );
+    const ms = Date.now() - t0;
+    const rows = await res.json();
+    const row = rows?.[0];
+
+    if (!row) {
+      log('Tabela GPS: nenhum registro encontrado', 'warn');
+      setCard('tabela-gps', 'warn', 'VAZIO', `
+        <span class="val-warn">⚠️ Nenhum dado GPS na tabela</span><br>
+        O entregador ainda não enviou nenhuma posição.<br>
+        <b>Query em:</b> ${fmt(`${ms}ms`, 'info')}
+      `);
+      return null;
+    }
+
+    // Tenta parsear o valor
+    let g = null;
+    let tipoValor = typeof row.valor;
+    try {
+      g = tipoValor === 'string' ? JSON.parse(row.valor) : row.valor;
+    } catch(e) { /* parse falhou */ }
+
+    if (!g?.lat || !g?.lon) {
+      log('Tabela GPS: registro existe mas lat/lon inválido', 'fail');
+      setCard('tabela-gps', 'fail', 'INVÁLIDO', `
+        <span class="val-fail">❌ Campo valor existe mas lat/lon estão ausentes ou inválidos</span><br>
+        <b>Tipo do campo:</b> ${fmt(tipoValor, 'warn')}<br>
+        <b>Conteúdo raw:</b> ${fmt(JSON.stringify(row.valor).slice(0,80), 'warn')}
+      `);
+      return null;
+    }
+
+    // Verifica o timestamp
+    const tsStr = g.ts;
+    const tsMs  = tsStr ? new Date(tsStr).getTime() : NaN;
+    const diffS = isNaN(tsMs) ? null : Math.round((Date.now() - tsMs) / 1000);
+    const tsOk  = diffS !== null && diffS < 60;
+    const tsLabel = diffS === null ? 'ts inválido' : `${diffS}s atrás`;
+
+    log(`Tabela GPS: lat=${g.lat} lon=${g.lon} ts=${tsLabel} tipo_valor=${tipoValor}`, tsOk ? 'ok' : 'warn');
+    setCard('tabela-gps', tsOk ? 'ok' : 'warn', tsOk ? 'OK' : 'TS ANTIGO', `
+      <b>Latitude:</b>  ${fmt(g.lat, 'info')}<br>
+      <b>Longitude:</b> ${fmt(g.lon, 'info')}<br>
+      <b>Timestamp:</b> ${fmt(tsLabel, tsOk ? 'ok' : 'warn')} ${!tsOk ? '← <span class="val-fail">GPS parado ou ts quebrado</span>' : ''}<br>
+      <b>ts raw:</b>    ${fmt(tsStr || 'ausente', tsStr ? 'info' : 'fail')}<br>
+      <b>Tipo campo valor:</b> ${fmt(tipoValor, 'info')} ${tipoValor !== 'string' && tipoValor !== 'object' ? fmt('← tipo inesperado!', 'fail') : ''}<br>
+      <b>Busca em:</b>  ${fmt(`${ms}ms`, 'info')}
+    `);
+    return g;
+  } catch(e) {
+    log(`Tabela GPS erro: ${e.message}`, 'fail');
+    setCard('tabela-gps', 'fail', 'ERRO', `<span class="val-fail">❌ ${e.message}</span>`);
+    return null;
+  }
+}
+
+async function testeTabelaRotas() {
+  rodando('tabela-rotas');
+  try {
+    const t0 = Date.now();
+    const { data: rotas, error } = await sb.from('rotas')
+      .select('id, status, gps_lat, gps_lon, gps_ts, gps_precisao, created_at')
+      .in('status', ['criada', 'em_andamento', 'aguardando'])
+      .order('created_at', { ascending: false })
+      .limit(3);
+    const ms = Date.now() - t0;
+
+    if (error) throw error;
+
+    if (!rotas || rotas.length === 0) {
+      log('Tabela rotas: nenhuma rota ativa', 'warn');
+      setCard('tabela-rotas', 'warn', 'SEM ROTA', `
+        <span class="val-warn">⚠️ Nenhuma rota ativa no momento</span><br>
+        Isso é normal fora do horário de entregas.<br>
+        <b>Busca em:</b> ${fmt(`${ms}ms`, 'info')}
+      `);
+      return null;
+    }
+
+    const r = rotas[0];
+    const temGPS = r.gps_lat && r.gps_lon;
+    const tsMs = r.gps_ts ? new Date(r.gps_ts).getTime() : NaN;
+    const diffS = isNaN(tsMs) ? null : Math.round((Date.now() - tsMs) / 1000);
+    const tsLabel = diffS === null ? 'ausente' : `${diffS}s atrás`;
+    const estado = temGPS && diffS !== null && diffS < 30 ? 'ok' : temGPS ? 'warn' : 'warn';
+
+    log(`Tabela rotas: ${rotas.length} ativa(s), gps=${temGPS ? 'ok' : 'vazio'}, ts=${tsLabel}`, estado === 'ok' ? 'ok' : 'warn');
+    setCard('tabela-rotas', estado, `${rotas.length} ATIVA(S)`, `
+      <b>Rotas ativas:</b> ${fmt(rotas.length, 'info')}<br>
+      <b>Status:</b> ${fmt(r.status, 'ok')}<br>
+      <b>GPS lat/lon:</b> ${temGPS ? fmt(`${r.gps_lat}, ${r.gps_lon}`, 'ok') : fmt('vazio — entregador não enviou GPS nesta rota', 'warn')}<br>
+      <b>gps_ts:</b> ${fmt(tsLabel, diffS !== null && diffS < 30 ? 'ok' : 'warn')}<br>
+      ${!temGPS ? '<span class="val-warn">⚠️ Os campos gps_lat/gps_lon estão nulos — GPS do entregador não está sendo salvo na rota</span>' : ''}<br>
+      <b>Busca em:</b> ${fmt(`${ms}ms`, 'info')}
+    `);
+    return r;
+  } catch(e) {
+    log(`Tabela rotas erro: ${e.message}`, 'fail');
+    setCard('tabela-rotas', 'fail', 'ERRO', `<span class="val-fail">❌ ${e.message}</span>`);
+    return null;
+  }
+}
+
+async function testeWrite() {
+  rodando('write');
+  const t0 = Date.now();
+  try {
+    const { error } = await sb.from('gps').upsert({
+      chave: 'diagnostico_teste',
+      valor: JSON.stringify({ test: true, ts: new Date().toISOString() })
+    });
+    const ms = Date.now() - t0;
+    if (error) throw error;
+
+    // Limpa o registro de teste
+    await sb.from('gps').delete().eq('chave', 'diagnostico_teste');
+
+    log(`Escrita no Supabase: OK em ${ms}ms`, 'ok');
+    setCard('write', 'ok', `${ms}ms`, `
+      <span class="val-ok">✅ Upsert e delete funcionaram corretamente</span><br>
+      <b>Tempo de escrita:</b> ${fmt(`${ms}ms`, ms > 2000 ? 'warn' : 'ok')}
+      ${ms > 2000 ? '<br><span class="val-warn">⚠️ Escrita lenta — pode causar gap no GPS</span>' : ''}
+    `);
+  } catch(e) {
+    log(`Escrita falhou: ${e.message}`, 'fail');
+    setCard('write', 'fail', 'FALHOU', `
+      <span class="val-fail">❌ Não conseguiu escrever no banco</span><br>
+      ${e.message}<br>
+      <span class="val-warn">→ Verifique as políticas RLS do Supabase para a tabela gps</span>
+    `);
+  }
+}
+
+async function testeRealtime() {
+  rodando('realtime', 'Conectando...');
+  return new Promise((resolve) => {
+    const t0 = Date.now();
+    const timeout = setTimeout(() => {
+      log('Realtime: timeout — WebSocket não conectou em 6s', 'fail');
+      setCard('realtime', 'fail', 'TIMEOUT', `
+        <span class="val-fail">❌ WebSocket não conectou em 6 segundos</span><br>
+        Possíveis causas: bloqueio de rede, proxy, ou firewall no WiFi.<br>
+        <span class="val-warn">→ Tente usar dados móveis (4G) em vez de WiFi</span>
+      `);
+      try { sb.removeChannel(ch); } catch(e) {}
+      resolve(false);
+    }, 6000);
+
+    const ch = sb.channel('diagnostico_test')
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          clearTimeout(timeout);
+          const ms = Date.now() - t0;
+          log(`Realtime: conectado em ${ms}ms`, 'ok');
+          setCard('realtime', 'ok', `${ms}ms`, `
+            <span class="val-ok">✅ WebSocket conectado com sucesso</span><br>
+            <b>Tempo de conexão:</b> ${fmt(`${ms}ms`, ms > 3000 ? 'warn' : 'ok')}
+          `);
+          setTimeout(() => { try { sb.removeChannel(ch); } catch(e) {} }, 500);
+          resolve(true);
         }
-        return x;
+        if (status === 'CHANNEL_ERROR' || status === 'CLOSED') {
+          clearTimeout(timeout);
+          log(`Realtime: erro de conexão (${status})`, 'fail');
+          setCard('realtime', 'fail', 'ERRO', `<span class="val-fail">❌ Falha no WebSocket: ${status}</span>`);
+          resolve(false);
+        }
       });
-      const entreguesCount = novasParadas.filter(x => !x._meta && x.status === 'entregue').length;
-      await sb.from('rotas').update({
-        paradas: novasParadas,
-        phones_entregues: [...(rotaAtiva.phones_entregues || []), p.cliente_phone],
-        entregas_realizadas: entreguesCount
-      }).eq('id', rotaAtiva.id);
-    }
-
-    // 2. Atualiza pedido
-    if (pedido?.id) {
-      const upd = {
-        entregue: true,
-        entregue_em: agora,
-        payment_method: ehFiado ? 'FIADO' : pagSelecionado,
-        status_entrega: 'entregue'
-      };
-      await sb.from('pedidos').update(upd).eq('id', pedido.id);
-
-      // 3. Se fiado: atualiza débito do cliente
-      if (ehFiado) {
-        const { data: cli } = await sb.from('clientes').select('debt').eq('phone', p.cliente_phone).maybeSingle();
-        const debtAtual = parseFloat(cli?.debt || 0);
-        await sb.from('clientes').update({
-          debt: debtAtual + Number(pedido.total || 0),
-          fiado: true
-        }).eq('phone', p.cliente_phone);
-      }
-    }
-
-    fecharModal();
-    esconderAlerta();
-    showToast(ehFiado ? '📋 Registrado como fiado!' : '✅ Entrega confirmada!', 'ok');
-    await carregarRota();
-
-  } catch(e) {
-    console.error(e);
-    showToast('Erro ao salvar', 'err');
-    btn.disabled = false;
-    btn.textContent = ehFiado ? '📋 Registrar Fiado' : '✅ Confirmar Entrega';
-  }
+  });
 }
 
-// ── PAINEL TOGGLE ─────────────────────────────────────────────────────────
-// Tela aberta via botão 📩
-function abrirTela() {
-  document.getElementById('telaInfo').classList.add('aberta');
-  document.getElementById('btnPainel').classList.add('ativo');
-}
-function fecharTela() {
-  document.getElementById('telaInfo').classList.remove('aberta');
-  document.getElementById('btnPainel').classList.remove('ativo');
-}
-function togglePainelBtn() {
-  const aberta = document.getElementById('telaInfo').classList.contains('aberta');
-  aberta ? fecharTela() : abrirTela();
-}
+async function testeFluxoGPS() {
+  rodando('fluxo', 'Simulando...');
+  const tsEnvio = new Date().toISOString();
+  const dadosTeste = { lat: -8.1837748, lon: -34.9384996, ts: tsEnvio, acc: 5, _diag: true };
 
-// ── CENTRAR MAPA ──────────────────────────────────────────────────────────
-function centrarMapa() {
-  clearTimeout(_timerRecentrar);
-  _explorandoMapa = false;
-  if (posEntregador) {
-    map.flyTo({ center: [posEntregador.lon, posEntregador.lat], zoom: 15, padding: _modo3D ? _getMapPadding() : _paddingNormal });
-  }
-}
-
-// ── DISTÂNCIA (Haversine) ─────────────────────────────────────────────────
-function distancia(lat1, lon1, lat2, lon2) {
-  const R = 6371000;
-  const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180;
-  const Δφ = (lat2-lat1) * Math.PI/180;
-  const Δλ = (lon2-lon1) * Math.PI/180;
-  const a = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-}
-
-// ── TOAST ─────────────────────────────────────────────────────────────────
-let _toastTimer;
-function showToast(msg, tipo='info') {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = `show ${tipo}`;
-  clearTimeout(_toastTimer);
-  _toastTimer = setTimeout(() => t.className = '', 3000);
-}
-
-// ── INIT ──────────────────────────────────────────────────────────────────
-async function init() {
-  initMap();
-  iniciarGPS();
-  _atualizarToggleUI(); // aplica estado salvo do toggle
-  await carregarRota();
-  iniciarRealtime();
-
-  // Plota clientes assim que o mapa estiver pronto
-  if (map.loaded()) {
-    carregarEPlotarClientes();
-  } else {
-    map.once('load', () => carregarEPlotarClientes());
-  }
-
-  // Texto "Entregador" some após 2s
-  setTimeout(() => {
-    const txt = document.getElementById('headerTxt');
-    txt.style.transition = 'opacity 0.5s, max-width 0.5s';
-    txt.style.overflow = 'hidden';
-    txt.style.maxWidth = '80px';
-    requestAnimationFrame(() => {
-      txt.style.maxWidth = '0';
-      txt.style.opacity = '0';
+  try {
+    // 1. Grava
+    const t0 = Date.now();
+    const { error: errWrite } = await sb.from('gps').upsert({
+      chave: 'entregador_gps_diag_temp',
+      valor: JSON.stringify(dadosTeste)
     });
-  }, 2000);
+    const msWrite = Date.now() - t0;
+    if (errWrite) throw errWrite;
+
+    // 2. Lê de volta
+    const t1 = Date.now();
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/gps?select=valor&chave=eq.entregador_gps_diag_temp&limit=1`,
+      {
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Cache-Control': 'no-cache' },
+        cache: 'no-store'
+      }
+    );
+    const msLeitura = Date.now() - t1;
+    const rows = await res.json();
+    const raw = rows?.[0]?.valor;
+
+    // 3. Verifica o parse exato que o Status.html faz
+    let g = null;
+    let tipoRetorno = typeof raw;
+    try { g = tipoRetorno === 'string' ? JSON.parse(raw) : raw; } catch(e) {}
+
+    const tsRecuperado = g?.ts;
+    const tsValido = tsRecuperado && !isNaN(new Date(tsRecuperado).getTime());
+    const tsMatch = tsRecuperado === tsEnvio;
+    const latOk = String(g?.lat) === String(dadosTeste.lat);
+
+    // Limpa
+    await sb.from('gps').delete().eq('chave', 'entregador_gps_diag_temp');
+
+    const tudo_ok = tsValido && tsMatch && latOk;
+    log(`Fluxo GPS: write=${msWrite}ms, read=${msLeitura}ms, tipo=${tipoRetorno}, ts_valido=${tsValido}, ts_match=${tsMatch}`, tudo_ok ? 'ok' : 'warn');
+
+    setCard('fluxo', tudo_ok ? 'ok' : 'warn', tudo_ok ? 'OK' : 'ATENÇÃO', `
+      <b>Escrita:</b>  ${fmt(`${msWrite}ms`, msWrite > 2000 ? 'warn' : 'ok')}<br>
+      <b>Leitura:</b>  ${fmt(`${msLeitura}ms`, msLeitura > 1000 ? 'warn' : 'ok')}<br>
+      <b>Total:</b>    ${fmt(`${msWrite + msLeitura}ms`, msWrite + msLeitura > 3000 ? 'warn' : 'ok')}<br>
+      <b>Tipo retornado pelo Supabase:</b> ${fmt(tipoRetorno, tipoRetorno === 'string' || tipoRetorno === 'object' ? 'info' : 'fail')}<br>
+      <b>ts preservado:</b> ${tsValido ? fmt('✅ sim', 'ok') : fmt('❌ não — ts se perdeu no ciclo!', 'fail')}<br>
+      <b>ts idêntico:</b>   ${tsMatch  ? fmt('✅ sim', 'ok') : fmt('⚠️ valor diferente', 'warn')}<br>
+      <b>lat preservada:</b> ${latOk   ? fmt('✅ sim', 'ok') : fmt('❌ não', 'fail')}
+      ${!tsValido ? '<br><span class="val-fail">🔴 ESTE É O BUG: o ts não sobrevive ao ciclo write→read — Status.html não consegue calcular diffMs</span>' : ''}
+      ${!tsMatch && tsValido ? '<br><span class="val-warn">⚠️ ts mudou no ciclo — pode ser conversão de fuso horário pelo Supabase</span>' : ''}
+    `);
+  } catch(e) {
+    log(`Fluxo GPS erro: ${e.message}`, 'fail');
+    setCard('fluxo', 'fail', 'ERRO', `<span class="val-fail">❌ ${e.message}</span>`);
+  }
 }
 
-init();
+async function testeTimestamp() {
+  rodando('ts');
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/gps?select=valor&chave=eq.entregador_gps&limit=1`,
+      {
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Cache-Control': 'no-cache' },
+        cache: 'no-store'
+      }
+    );
+    const rows = await res.json();
+    const raw = rows?.[0]?.valor;
+    if (!raw) {
+      setCard('ts', 'warn', 'VAZIO', `<span class="val-warn">Sem dados GPS para verificar timestamp</span>`);
+      return;
+    }
+
+    let g = null;
+    try { g = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch(e) {}
+
+    const tsStr = g?.ts;
+    const tsMs  = tsStr ? new Date(tsStr).getTime() : NaN;
+    const diffS = isNaN(tsMs) ? null : Math.round((Date.now() - tsMs) / 1000);
+    const diffMs_calc = isNaN(tsMs) ? 'NaN ← BUG' : `${Date.now() - tsMs}ms`;
+
+    const estado = !tsStr ? 'fail' : isNaN(tsMs) ? 'fail' : diffS > 120 ? 'warn' : 'ok';
+    log(`Timestamp GPS: "${tsStr}", diff=${diffMs_calc}, isNaN=${isNaN(tsMs)}`, estado === 'ok' ? 'ok' : estado === 'warn' ? 'warn' : 'fail');
+
+    setCard('ts', estado, estado === 'ok' ? `${diffS}s` : 'PROBLEMA', `
+      <b>ts raw:</b>       ${fmt(tsStr || 'ausente', tsStr ? 'info' : 'fail')}<br>
+      <b>new Date(ts):</b> ${fmt(isNaN(tsMs) ? 'Invalid Date ← BUG' : new Date(tsMs).toLocaleString('pt-BR'), isNaN(tsMs) ? 'fail' : 'ok')}<br>
+      <b>diffMs no Status.html:</b> ${fmt(diffMs_calc, isNaN(tsMs) ? 'fail' : diffS * 1000 > 25000 ? 'warn' : 'ok')}<br>
+      <b>Seria considerado:</b> ${fmt(
+        !tsStr || isNaN(tsMs) ? '🔴 Offline (diffMs = NaN ou Infinity)' :
+        diffS < 8  ? '🟢 Online (verde)' :
+        diffS < 25 ? '🟡 Fraco (laranja)' :
+        '🔴 Offline (vermelho)',
+        !tsStr || isNaN(tsMs) ? 'fail' : diffS < 25 ? 'ok' : 'warn'
+      )}
+      ${isNaN(tsMs) ? '<br><span class="val-fail">🔴 CAUSA RAIZ: ts inválido faz diffMs=NaN → pill sempre mostra Offline</span>' : ''}
+      ${diffS > 120 ? '<br><span class="val-warn">⚠️ GPS muito antigo — entregador pode estar com app fechado</span>' : ''}
+    `);
+  } catch(e) {
+    log(`Teste ts erro: ${e.message}`, 'fail');
+    setCard('ts', 'fail', 'ERRO', `<span class="val-fail">❌ ${e.message}</span>`);
+  }
+}
+
+// ── ORQUESTRADOR ────────────────────────────────────────────────────────
+async function rodarDiagnostico() {
+  _inicio = Date.now();
+  _contadores = { ok: 0, warn: 0, fail: 0 };
+  _logTexto = [];
+
+  document.getElementById('btnRodar').disabled = true;
+  document.getElementById('btnRodar').textContent = '⏳ Rodando...';
+  document.getElementById('progressBar').style.display = 'block';
+  document.getElementById('resumoBox').style.display = 'flex';
+  document.getElementById('logBox').style.display = 'block';
+  document.getElementById('btnCopiar').style.display = 'block';
+  document.getElementById('logLinhas').innerHTML = '';
+
+  // Reseta todos os cards
+  const ids = ['dispositivo','conexao','gps-suporte','gps-permissao','gps-posicao','ping','tabela-gps','tabela-rotas','write','realtime','fluxo','ts'];
+  ids.forEach(id => {
+    const c = document.getElementById(`card-${id}`);
+    const b = document.getElementById(`badge-${id}`);
+    const d = document.getElementById(`det-${id}`);
+    if (c) c.className = 'test-card';
+    if (b) { b.className = 'test-badge idle'; b.textContent = '—'; }
+    if (d) { d.innerHTML = ''; d.style.display = 'none'; }
+  });
+
+  const total = 12;
+  let passo = 0;
+  const passo_ = () => { passo++; setProgresso(Math.round((passo / total) * 100)); };
+
+  log('=== DIAGNÓSTICO INICIADO ===', 'info');
+
+  await testeDispositivo();                   passo_();
+  await testeConexao();                       passo_();
+  const gpsOk = await testeGPSSuporte();      passo_();
+
+  if (gpsOk) {
+    await testeGPSPermissao();                passo_();
+    await testeGPSPosicao();                  passo_();
+  } else {
+    ['gps-permissao','gps-posicao'].forEach(id => {
+      setCard(id, 'warn', 'PULADO', `<span class="val-warn">GPS não disponível — teste pulado</span>`);
+      passo_();
+    });
+  }
+
+  await testePing();                          passo_();
+  await testeTabelaGPS();                     passo_();
+  await testeTabelaRotas();                   passo_();
+  await testeWrite();                         passo_();
+  await testeRealtime();                      passo_();
+  await testeFluxoGPS();                      passo_();
+  await testeTimestamp();                     passo_();
+
+  setProgresso(100);
+
+  const total_ms = Date.now() - _inicio;
+  log(`=== CONCLUÍDO em ${total_ms}ms — ✅${_contadores.ok} ⚠️${_contadores.warn} ❌${_contadores.fail} ===`, 'info');
+
+  document.getElementById('headerSub').textContent =
+    `✅ ${_contadores.ok} ok  ⚠️ ${_contadores.warn} atenção  ❌ ${_contadores.fail} falha  — ${total_ms}ms`;
+
+  document.getElementById('btnRodar').disabled = false;
+  document.getElementById('btnRodar').textContent = '🔄 Rodar novamente';
+
+  atualizarResumo();
+}
+
+function copiarLog() {
+  const texto = _logTexto.join('\n');
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(texto).then(() => {
+      document.getElementById('btnCopiar').textContent = '✅ Copiado!';
+      setTimeout(() => { document.getElementById('btnCopiar').textContent = '📋 Copiar log completo'; }, 2000);
+    });
+  } else {
+    // fallback para iOS antigo
+    const ta = document.createElement('textarea');
+    ta.value = texto;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    document.getElementById('btnCopiar').textContent = '✅ Copiado!';
+    setTimeout(() => { document.getElementById('btnCopiar').textContent = '📋 Copiar log completo'; }, 2000);
+  }
+}
 </script>
 </body>
 </html>
