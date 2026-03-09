@@ -726,6 +726,13 @@ let _ultimaTsAnterior = null;
 let _limiteVia = null;
 let _limiteTimer = null;
 
+// ── Controle de câmera suave (anti-stutter) ─────────────────────────────
+// Guarda o timestamp do último update de GPS para calcular duration dinâmico
+let _ultimoGpsTsReal = null;   // Date.now() quando chegou o último GPS
+let _marcadorLat = null;       // posição atual interpolada do marcador
+let _marcadorLon = null;
+let _interpId = null;          // requestAnimationFrame da interpolação
+
 // ── VELOCÍMETRO estilo Waze ──────────────────────────────────────────────
 let _veloZerarTimer = null;
 
@@ -888,12 +895,12 @@ function iniciarGPS() {
     { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 }
   );
 
-  // Heartbeat: salva posição a cada 4s sem travar o GPS
+  // Heartbeat: salva posição a cada 5s sem travar o GPS
   _gpsHeartbeat = setInterval(() => {
     if (posEntregador) {
       _enfileirarGPS(posEntregador.lat, posEntregador.lon, posEntregador.acc ?? 0);
     }
-  }, 4000);
+  }, 5000);
 }
 
 function onGPSUpdate(pos) {
@@ -903,12 +910,8 @@ function onGPSUpdate(pos) {
   const ts  = pos.timestamp;
   posEntregador = { lat, lon, acc, ts };
 
-  // ── Marcador no mapa: usa requestAnimationFrame para não travar a thread ──
-  if (_animFrameId) cancelAnimationFrame(_animFrameId);
-  _animFrameId = requestAnimationFrame(() => {
-    if (mkEntregador) mkEntregador.setLngLat([lon, lat]);
-    _atualizarCamera(lat, lon);
-  });
+  // ── Marcador + câmera: interpolação suave anti-stutter ──
+  _moverMarcadorSuave(lat, lon);
 
   setGPSStatus('ok', `±${acc}m`);
 
@@ -979,16 +982,86 @@ async function _processarFilaGPS() {
   if (_gpsSaveQueue) _processarFilaGPS(); // processa o próximo se chegou
 }
 
-function _atualizarCamera(lat, lon) {
+// ── CÂMERA + MARCADOR SUAVE (anti-stutter) ──────────────────────────────
+// Interpola o marcador frame a frame entre a posição anterior e a nova,
+// sincronizado com o intervalo real do GPS — elimina o "teleporte" e o stutter.
+function _moverMarcadorSuave(latAlvo, lonAlvo) {
+  const agora = Date.now();
+
+  // Intervalo real desde o último GPS (entre 200ms e 3000ms)
+  const intervalo = _ultimoGpsTsReal
+    ? Math.max(200, Math.min(agora - _ultimoGpsTsReal, 3000))
+    : 1000;
+  _ultimoGpsTsReal = agora;
+
+  // Ponto de partida: posição atual do marcador (ou mesma posição se primeira vez)
+  const latInicio = _marcadorLat ?? latAlvo;
+  const lonInicio = _marcadorLon ?? lonAlvo;
+
+  // Cancela interpolação anterior se ainda estiver rodando
+  if (_interpId) { cancelAnimationFrame(_interpId); _interpId = null; }
+
+  const tInicio = performance.now();
+
+  function _easeInOut(t) {
+    // Curva suave que acelera no início e desacelera no fim — sem saltos
+    return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+  }
+
+  function _tick(now) {
+    const elapsed = now - tInicio;
+    const t = Math.min(elapsed / intervalo, 1);
+    const e = _easeInOut(t);
+
+    const lat = latInicio + (latAlvo - latInicio) * e;
+    const lon = lonInicio + (lonAlvo - lonInicio) * e;
+
+    // Move o marcador interpolado — sem teleporte
+    if (mkEntregador) mkEntregador.setLngLat([lon, lat]);
+    _marcadorLat = lat;
+    _marcadorLon = lon;
+
+    // Atualiza câmera em sincronia com o marcador
+    _atualizarCamera(lat, lon, t < 1 ? intervalo - elapsed : 0);
+
+    if (t < 1) {
+      _interpId = requestAnimationFrame(_tick);
+    } else {
+      _interpId = null;
+      _marcadorLat = latAlvo;
+      _marcadorLon = lonAlvo;
+    }
+  }
+
+  _interpId = requestAnimationFrame(_tick);
+}
+
+function _atualizarCamera(lat, lon, durRestante) {
+  // duration = tempo restante da interpolação atual → câmera sempre chega junto com o marcador
+  // Se durRestante for 0 (fim da interpolação), usa jumpTo para não enfileirar nova animação
   if (_modo3D) {
-    map.easeTo({
-      center: [lon, lat], bearing: _bearingAtual,
-      pitch: 72, zoom: 18.5,
-      duration: 600, // reduzido: menos lag visual
-      essential: true, padding: _getMapPadding()
-    });
+    if (durRestante <= 0) {
+      map.jumpTo({ center: [lon, lat], bearing: _bearingAtual, pitch: 72, zoom: 18.5, padding: _getMapPadding() });
+    } else {
+      map.easeTo({
+        center: [lon, lat], bearing: _bearingAtual,
+        pitch: 72, zoom: 18.5,
+        duration: Math.round(durRestante),
+        easing: t => t, // linear — a curva já foi aplicada na interpolação do marcador
+        essential: true, padding: _getMapPadding()
+      });
+    }
   } else if (!_explorandoMapa) {
-    map.easeTo({ center: [lon, lat], zoom: 15, duration: 400, padding: _paddingNormal });
+    if (durRestante <= 0) {
+      map.jumpTo({ center: [lon, lat], zoom: 15, padding: _paddingNormal });
+    } else {
+      map.easeTo({
+        center: [lon, lat], zoom: 15,
+        duration: Math.round(durRestante),
+        easing: t => t,
+        padding: _paddingNormal
+      });
+    }
   }
 }
 
@@ -1063,10 +1136,7 @@ async function resetarRotasReutilizaveis() {
       fim_em: null,
       phones_entregues: [],
       entregas_realizadas: 0,
-      paradas: paradasReset,
-      // Limpa GPS antigo para não enganar o Status.html no dia seguinte
-      gps_lat: null, gps_lon: null, gps_ts: null, gps_precisao: null,
-      posicao_entregador: null
+      paradas: paradasReset
     }).eq('id', r.id);
   }
 
@@ -1204,12 +1274,6 @@ async function carregarRota() {
   }
 
   paradas = paradasBruto;
-
-  // Se acabou de ter uma rota ativa E já tem GPS fixado, salva imediatamente
-  // Evita gps_ts antigo até o próximo heartbeat ou movimento
-  if (rotaAtiva?.id && posEntregador) {
-    _enfileirarGPS(posEntregador.lat, posEntregador.lon, posEntregador.acc ?? 0);
-  }
 
   renderTudo();
   mostrarSemRota();
