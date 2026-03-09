@@ -263,6 +263,18 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 .badge-entregue { background: rgba(34,217,122,0.15); color: var(--green); }
 .badge-proxima  { background: var(--gold); color: #000; }
 
+.btn-entregar-rapido {
+  flex-shrink: 0;
+  width: 34px; height: 34px; border-radius: 50%;
+  background: rgba(34,217,122,0.15);
+  border: 1px solid rgba(34,217,122,0.35);
+  color: var(--green); font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: background 0.2s, transform 0.15s;
+  margin-left: 4px;
+}
+.btn-entregar-rapido:active { background: rgba(34,217,122,0.35); transform: scale(0.9); }
+
 /* ── MODAL DE ENTREGA ── */
 #modalEntrega {
   position: fixed; inset: 0; z-index: 200;
@@ -1541,15 +1553,16 @@ async function buscarSugestoesLocalizacao() {
   }
 
   try {
-    // Usa Nominatim para buscar sugestões
+    // Photon (Komoot) — prioriza resultados próximos à posição do entregador
+    const loc = posEntregador ? `&lat=${posEntregador.lat}&lon=${posEntregador.lon}` : `&bbox=-35.1,-8.4,-34.7,-7.8`;
     const resp = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(termo)}&format=json&limit=5&addressdetails=1`
+      `https://photon.komoot.io/api/?q=${encodeURIComponent(termo)}&limit=5&lang=pt${loc}`
     );
     
     if (!resp.ok) throw new Error('Erro ao buscar sugestões');
     
     const data = await resp.json();
-    sugestoesAtual = data || [];
+    sugestoesAtual = data?.features || [];
 
     if (sugestoesAtual.length === 0) {
       dropdown.style.display = 'none';
@@ -1557,10 +1570,12 @@ async function buscarSugestoesLocalizacao() {
     }
 
     // Renderiza as sugestões
-    dropdown.innerHTML = sugestoesAtual.map((lugar, idx) => {
-      const nome = lugar.display_name || lugar.name;
-      // Limita o tamanho do texto
+    dropdown.innerHTML = sugestoesAtual.map((feat, idx) => {
+      const p = feat.properties;
+      const nome = [p.name, p.street, p.housenumber].filter(Boolean).join(', ');
+      const cidade = p.city || p.town || p.state || '';
       const nomeFormatado = nome.length > 60 ? nome.substring(0, 60) + '...' : nome;
+      const [lon, lat] = feat.geometry.coordinates;
       
       return `
         <div 
@@ -1578,7 +1593,7 @@ async function buscarSugestoesLocalizacao() {
         >
           <div style="font-weight:600;">${nomeFormatado}</div>
           <div style="font-size:10px;color:var(--muted);margin-top:2px;">
-            ${lugar.address?.city || lugar.address?.town || 'Local'} • ${parseFloat(lugar.lat).toFixed(4)}, ${parseFloat(lugar.lon).toFixed(4)}
+            ${cidade} • ${parseFloat(lat).toFixed(4)}, ${parseFloat(lon).toFixed(4)}
           </div>
         </div>
       `;
@@ -1598,16 +1613,14 @@ async function buscarSugestoesLocalizacao() {
 function selecionarSugestao(idx) {
   if (idx < 0 || idx >= sugestoesAtual.length) return;
   
-  const lugar = sugestoesAtual[idx];
-  const lat = parseFloat(lugar.lat);
-  const lon = parseFloat(lugar.lon);
-  const nome = lugar.display_name || lugar.name;
+  const feat = sugestoesAtual[idx];
+  const [lon, lat] = feat.geometry.coordinates;
+  const p = feat.properties;
+  const nome = [p.name, p.street, p.housenumber, p.city].filter(Boolean).join(', ');
   
-  // Preenchee o input com o local selecionado
   document.getElementById('inputLocalizacaoCustomizada').value = nome;
   document.getElementById('sugestoesDropdown').style.display = 'none';
   
-  // Cria a rota automaticamente
   criarRotaCustomizada(lat, lon, nome);
 }
 
@@ -1624,25 +1637,25 @@ async function buscarLocalizacaoCustomizada() {
   }
 
   try {
-    // Usar Nominatim (gratuito) para buscar endereço
+    // Photon (Komoot) — prioriza resultados próximos à posição do entregador
+    const loc = posEntregador ? `&lat=${posEntregador.lat}&lon=${posEntregador.lon}` : `&bbox=-35.1,-8.4,-34.7,-7.8`;
     const resp = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(local)}&format=json&limit=1`
+      `https://photon.komoot.io/api/?q=${encodeURIComponent(local)}&limit=1&lang=pt${loc}`
     );
     
     if (!resp.ok) throw new Error('Erro ao buscar localização');
     
     const data = await resp.json();
-    if (!data || data.length === 0) {
+    const features = data?.features;
+    if (!features || features.length === 0) {
       alert('Local não encontrado. Tente outro nome ou endereço.');
       return;
     }
 
-    const lugar = data[0];
-    const lat = parseFloat(lugar.lat);
-    const lon = parseFloat(lugar.lon);
-    const nome = lugar.display_name || local;
+    const [lon, lat] = features[0].geometry.coordinates;
+    const props = features[0].properties;
+    const nome = [props.name, props.street, props.city].filter(Boolean).join(', ') || local;
 
-    // Criar rota customizada para este local
     await criarRotaCustomizada(lat, lon, nome);
     
   } catch (err) {
@@ -2024,11 +2037,10 @@ async function carregarEPlotarClientes() {
   const el = document.getElementById('totalComLocalizacao');
   if (el) el.textContent = lista.length;
 
-  // ── SEPARAÇÃO: só dentro de 20m, lado a lado ─────────────────────────
-  // 20m em graus ≈ 0.00018°
-  const RAIO_20M = 0.00018;
-
-  const posAjustada = lista.map(c => ({ lat: c.lat, lon: c.lon }));
+  // ── AGRUPAMENTO: clientes dentro de 20m ficam lado a lado em linha horizontal ──
+  const RAIO_20M = 0.00018; // ~20m em graus
+  const PASSO_PX = 46;
+  const offsetPx = lista.map(() => 0);
   const visitado = new Set();
 
   for (let i = 0; i < lista.length; i++) {
@@ -2044,22 +2056,19 @@ async function carregarEPlotarClientes() {
       }
     }
     visitado.add(i);
-    if (grupo.length === 1) continue;
 
-    // Espaço lateral entre marcadores (~50px em graus no zoom 15)
-    const passo = 0.00045;
-    const total = (grupo.length - 1) * passo;
+    // Todos no grupo → linha horizontal centralizada, sem pirâmide
+    const n = grupo.length;
     grupo.forEach((idx, k) => {
-      posAjustada[idx] = {
-        lat: lista[idx].lat,
-        lon: lista[idx].lon - total / 2 + k * passo,
-      };
+      offsetPx[idx] = (k - (n - 1) / 2) * PASSO_PX;
     });
   }
   // ─────────────────────────────────────────────────────────────────────
 
   lista.forEach((cli, idx) => {
-    const { lat, lon } = posAjustada[idx];
+    const lat = cli.lat;
+    const lon = cli.lon;
+    const offX = offsetPx[idx]; // pixels horizontais de deslocamento
 
     // Verifica se está na rota ativa e qual status
     const paradaRota = paradas.find(p => p.cliente_phone === cli.phone);
@@ -2092,7 +2101,7 @@ async function carregarEPlotarClientes() {
     el.appendChild(label);
     el.appendChild(circle);
 
-    const mk = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+    const mk = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [offX, 0] })
       .setLngLat([lon, lat])
       .addTo(map);
 
@@ -2328,26 +2337,30 @@ function renderListaParadas(paradassRota, isRotaAtiva) {
       : (proxima
         ? '<span class="parada-status-badge badge-proxima">Próxima</span>'
         : `<span class="parada-status-badge badge-pendente">#${idx+1}</span>`);
-    const clickable = isRotaAtiva && !entregue;
 
-    return `<div class="parada-card ${cls}" ${clickable ? `onclick="abrirModal(paradaSelecionada_${idx})"` : ''} data-idx="${idx}">
+    // Botão ✅ aparece em qualquer parada pendente — entrega em ordem livre
+    const btnEntregar = isRotaAtiva && !entregue
+      ? `<button class="btn-entregar-rapido" data-idx="${idx}" onclick="event.stopPropagation();abrirModalIdx(${idx})">✅</button>`
+      : '';
+
+    return `<div class="parada-card ${cls}" ${isRotaAtiva && !entregue ? `onclick="abrirModalIdx(${idx})"` : ''} data-idx="${idx}">
       <div class="parada-ordem">${entregue ? '✓' : idx+1}</div>
       <div class="parada-info">
         <div class="parada-nome">${p.nome || 'Cliente'}</div>
         <div class="parada-end">${p.endereco || p.coords ? (p.endereco || (p.coords[0].toFixed(4)+', '+p.coords[1].toFixed(4))) : 'Endereço não definido'}</div>
       </div>
       ${dist ? `<div class="parada-dist">${dist}</div>` : ''}
-      ${badge}
+      ${entregue ? badge : btnEntregar}
     </div>`;
   }).join('');
 
-  // Adiciona eventos de clique nas paradas da rota ativa
+  // Eventos de clique (fallback caso inline falhe)
   if (isRotaAtiva) {
     lista.querySelectorAll('.parada-card[data-idx]').forEach(el => {
       const idx = parseInt(el.dataset.idx);
       const p = paradassRota[idx];
       if (p && p.status !== 'entregue') {
-        el.onclick = () => abrirModal(p);
+        el.onclick = () => abrirModalIdx(idx);
       }
     });
   }
@@ -2484,6 +2497,12 @@ function esconderAlerta() {
 function abrirModalParaProximo() {
   const p = paradas.find(x => x.cliente_phone === alertaPhone);
   if (p) abrirModal(p);
+}
+
+// Abre modal de qualquer parada pelo índice — entrega em ordem livre
+function abrirModalIdx(idx) {
+  const p = paradasRotaAtiva?.[idx];
+  if (p && p.status !== 'entregue') abrirModal(p);
 }
 
 // Confirmação automática: sem modal, detecta pagamento e confirma direto
