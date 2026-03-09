@@ -664,7 +664,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // Posição da fábrica (centro inicial) — mesma do Adm
 const FABRICA_LAT = -8.1837748; // ajuste se necessário
 const FABRICA_LON = -34.9384996;
-const RAIO_ALERTA = 80; // metros para disparar alerta de proximidade
+const RAIO_ALERTA = 50; // metros para disparar alerta de proximidade
 const RAIO_AUTO   = 20; // metros para confirmação automática
 
 // Modo de confirmação: true = automático, false = manual
@@ -718,7 +718,7 @@ let mkClientes = {};        // phone → leaflet marker
 // Exploração livre no 2D: pausa o seguimento enquanto o usuário arrasta
 let _explorandoMapa = false;
 let _timerRecentrar = null;
-const TEMPO_RECENTRAR = 10000; // 10 segundos sem toque → recentra
+const TEMPO_RECENTRAR = 8000; // 8 segundos sem toque → recentra
 
 // Velocímetro — EMA (média exponencial) em vez de array de médias
 let _kmhEma = -1; // -1 = não inicializado
@@ -885,15 +885,15 @@ function iniciarGPS() {
     onGPSUpdate,
     onGPSErro,
     // maximumAge:0 → sempre posição fresca; timeout maior para não perder updates
-    { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 }
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
   );
 
-  // Heartbeat: salva posição a cada 5s sem travar o GPS
+  // Heartbeat: salva posição a cada 4s sem travar o GPS
   _gpsHeartbeat = setInterval(() => {
     if (posEntregador) {
       _enfileirarGPS(posEntregador.lat, posEntregador.lon, posEntregador.acc ?? 0);
     }
-  }, 5000);
+  }, 4000);
 }
 
 function onGPSUpdate(pos) {
@@ -957,7 +957,7 @@ function onGPSUpdate(pos) {
       _renderListaPendente = false;
       renderLista();
       verificarProximidade(lat, lon);
-    }, 2000); // atualiza lista no máximo a cada 2s
+    }, 1500); // atualiza lista no máximo a cada 1.5s
   }
 }
 
