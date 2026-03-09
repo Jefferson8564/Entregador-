@@ -442,45 +442,57 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 #velocimetro {
   position: fixed; left: 14px; bottom: 110px; z-index: 110;
   width: 90px; height: 90px; border-radius: 50%;
-  background: rgba(30,30,40,0.75);
-  border: 3px solid #9b59f5;
-  box-shadow: 0 0 12px rgba(139,92,246,0.45), inset 0 0 12px rgba(139,92,246,0.08);
+  background: rgba(80,80,90,0.82);
+  border: 3px solid rgba(160,160,170,0.6);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08);
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 0; transition: border-color 0.3s, box-shadow 0.3s, background 0.3s;
   cursor: default; user-select: none;
 }
-#velocimetro.overspeed {
-  background: rgba(255,77,109,0.85);
-  border-color: #ff4d6d;
-  box-shadow: 0 0 28px rgba(255,77,109,0.9), 0 0 60px rgba(255,77,109,0.4), inset 0 0 20px rgba(255,0,40,0.3);
-  animation: veloShake 0.4s ease;
-}
-#velocimetro.overspeed #veloNum { color: #fff; }
-#velocimetro.overspeed #veloUnit { color: rgba(255,255,255,0.8); }
-@keyframes veloShake {
-  0%,100%{transform:translateX(0)} 25%{transform:translateX(-4px)} 75%{transform:translateX(4px)}
-}
 #veloNum {
   font-family: 'DM Mono', monospace; font-size: 32px; font-weight: 500;
-  color: #c084fc; line-height: 1; letter-spacing: -1px;
+  color: #ffffff; line-height: 1; letter-spacing: -1px;
   transition: color 0.3s;
 }
 #veloUnit {
   font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 1.5px;
-  color: #9b59f5; text-transform: uppercase; margin-top: 2px;
+  color: rgba(220,220,220,0.75); text-transform: uppercase; margin-top: 2px;
   transition: color 0.3s; opacity: 0.8;
 }
 /* limite da via */
+/* Placa octogonal de limite de velocidade */
 #veloLimite {
-  position: fixed; left: 14px; bottom: 78px; z-index: 110;
-  width: 90px; height: 22px; border-radius: 6px;
-  background: rgba(10,10,15,0.7); border: 1px solid rgba(139,92,246,0.25);
-  display: none; align-items: center; justify-content: center; gap: 4px;
-  font-family: 'DM Mono', monospace; font-size: 10px; color: rgba(155,89,245,0.6);
-  backdrop-filter: blur(8px);
+  position: fixed; left: 19px; bottom: 208px; z-index: 111;
+  width: 70px; height: 70px;
+  display: none; align-items: center; justify-content: center;
+  flex-direction: column;
+  clip-path: polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%);
+  background: #cc0000;
+  transition: background 0.3s;
+  cursor: default; user-select: none;
+}
+#veloLimite::before {
+  content: '';
+  position: absolute; inset: 4px;
+  clip-path: polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%);
+  background: #fff;
+  z-index: 0;
 }
 #veloLimite.show { display: flex; }
-#veloLimite span { color: #c084fc; font-weight: 500; }
+#veloLimite.overspeed { background: #ff2200; animation: placaPulse 0.6s ease infinite alternate; }
+#veloLimVal {
+  position: relative; z-index: 1;
+  font-family: 'DM Mono', monospace; font-size: 22px; font-weight: 700;
+  color: #111; line-height: 1;
+}
+#veloLimLabel {
+  position: relative; z-index: 1;
+  font-family: 'DM Mono', monospace; font-size: 7px; font-weight: 600;
+  color: #333; letter-spacing: 0.5px; margin-top: 1px;
+}
+@keyframes placaPulse {
+  from { background: #cc0000; } to { background: #ff1100; }
+}
 
 /* Sem rota ativa */
 #semRota {
@@ -541,6 +553,83 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   <!-- Aba Informações -->
   <div id="tabInfo" class="tela-tab ativa">
     <div id="infoCardsBox">
+      <!-- Buscador de Localização Customizada -->
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:14px;position:relative;">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;">📍 Ir até um local</div>
+        <div style="display:flex;gap:8px;position:relative;">
+          <input 
+            type="text" 
+            id="inputLocalizacaoCustomizada" 
+            placeholder="Ex: Atacadão, Rua X, Supermercado..." 
+            style="
+              flex:1;
+              background:var(--bg);
+              border:1px solid var(--border);
+              border-radius:10px;
+              padding:10px 12px;
+              color:var(--text);
+              font-size:13px;
+              font-family:inherit;
+              outline:none;
+            "
+            oninput="buscarSugestoesLocalizacao()"
+            onkeypress="if(event.key==='Enter') selecionarSugestao(0);"
+          />
+          <button 
+            onclick="buscarLocalizacaoCustomizada()"
+            style="
+              background:linear-gradient(135deg,#9b59f5,#5b21b6);
+              border:none;
+              border-radius:10px;
+              padding:10px 16px;
+              color:#fff;
+              font-weight:600;
+              font-size:13px;
+              cursor:pointer;
+              flex-shrink:0;
+              transition:transform .15s;
+              box-shadow:0 2px 6px rgba(139,92,246,.3);
+            "
+            onmousedown="this.style.transform='scale(.95)'"
+            onmouseup="this.style.transform='scale(1)'"
+          >
+            🔍
+          </button>
+          
+          <!-- Dropdown de sugestões -->
+          <div 
+            id="sugestoesDropdown" 
+            style="
+              position:absolute;
+              top:100%;
+              left:0;
+              right:32px;
+              background:var(--surface2);
+              border:1px solid var(--border);
+              border-top:none;
+              border-radius:0 0 10px 10px;
+              max-height:200px;
+              overflow-y:auto;
+              display:none;
+              z-index:1000;
+              margin-top:-1px;
+            "
+          ></div>
+        </div>
+      </div>
+
+      <!-- Resultado da busca customizada -->
+      <div id="customRotaBox" style="display:none;margin-bottom:14px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <button onclick="fecharRotaCustomizada()" style="background:rgba(139,92,246,0.15);border:1px solid rgba(139,92,246,0.3);color:#c084fc;border-radius:50%;width:32px;height:32px;font-size:16px;cursor:pointer;flex-shrink:0;">←</button>
+          <div>
+            <div id="customRotaTitulo" style="font-size:15px;font-weight:800;color:var(--text);"></div>
+            <div id="customRotaInfo" style="font-size:11px;color:var(--muted);margin-top:1px;"></div>
+          </div>
+        </div>
+        <div id="customRotaDetalhes"></div>
+      </div>
+      
       <!-- Toggle confirmação automática -->
       <div onclick="toggleModoConfirmacao()" style="
         display:flex;align-items:center;justify-content:space-between;
@@ -651,7 +740,12 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
   <div id="veloNum">0</div>
   <div id="veloUnit">km/h</div>
 </div>
-<div id="veloLimite">lim <span id="veloLimVal">—</span></div>
+<div id="veloLimite">
+  <span id="veloLimVal">—</span>
+  <span id="veloLimLabel">km/h</span>
+</div>
+
+
 
 <div id="toast"></div>
 
@@ -703,6 +797,7 @@ let _bearingHist = [];
 let _ultimaPosAnterior = null;
 let rotaAtiva = null;       // objeto rota do Supabase
 let filaRotasHoje = [];     // todas as rotas do dia
+let paradasRotaAtiva = [];  // paradas com coords da rota atual (para antecipação de câmera)
 let rotaSelecionada = null; // rota cujas paradas estão expandidas no painel
 let paradas = [];           // paradas ativas (sem _meta)
 let posEntregador = null;   // { lat, lon }
@@ -725,6 +820,7 @@ let _kmhEma = -1; // -1 = não inicializado
 let _ultimaTsAnterior = null;
 let _limiteVia = null;
 let _limiteTimer = null;
+
 
 // ── Controle de câmera suave (anti-stutter) ─────────────────────────────
 // Guarda o timestamp do último update de GPS para calcular duration dinâmico
@@ -749,6 +845,15 @@ function atualizarVelocimetro(kmh) {
   const elBox = document.getElementById('velocimetro');
   const overspeed = _limiteVia !== null && vel > _limiteVia + 2;
   elBox.classList.toggle('overspeed', overspeed);
+  // Placa: aparece só quando vel >= limite-5, some quando vel < limite-8 (histerese)
+  const placa = document.getElementById('veloLimite');
+  if (placa && _limiteVia !== null) {
+    const perto = vel >= _limiteVia - 5;
+    const longe = vel < _limiteVia - 8;
+    if (perto)      placa.classList.add('show');
+    else if (longe) placa.classList.remove('show');
+    placa.classList.toggle('overspeed', overspeed);
+  }
 
   // Zera velocímetro se ficar 4s sem update (parado ou GPS perdido)
   clearTimeout(_veloZerarTimer);
@@ -776,7 +881,7 @@ async function buscarLimiteVia(lat, lon) {
         // Converte mph para km/h se necessário
         _limiteVia = raw.toLowerCase().includes('mph') ? Math.round(num * 1.609) : num;
         document.getElementById('veloLimVal').textContent = _limiteVia;
-        document.getElementById('veloLimite').classList.add('show');
+        // Placa só aparece quando velocidade se aproximar — não agora
         return;
       }
     }
@@ -792,10 +897,12 @@ async function buscarLimiteVia(lat, lon) {
     if (tipo && defaults[tipo]) {
       _limiteVia = defaults[tipo];
       document.getElementById('veloLimVal').textContent = _limiteVia;
-      document.getElementById('veloLimite').classList.add('show');
+      // Placa só aparece quando velocidade se aproximar — não agora
     }
   } catch(e) {}
 }
+
+
 
 
 function _calcBearing(lat1, lon1, lat2, lon2) {
@@ -812,6 +919,240 @@ function _suavizarBearing(b) {
   _bearingHist.forEach(v => { s += Math.sin(v*Math.PI/180); co += Math.cos(v*Math.PI/180); });
   return (Math.atan2(s, co) * 180 / Math.PI + 360) % 360;
 }
+
+/**
+ * Calcula bearing antecipado para a próxima parada.
+ * Se houver paradas pendentes na rota, calcula o bearing atual → próxima parada pendente.
+ * Isso faz a câmera "antecipar" as curvas da rota.
+ */
+function _calcBearingAntecipado(lat, lon) {
+  if (!paradasRotaAtiva || paradasRotaAtiva.length === 0) {
+    return null; // sem rota ativa, usa o bearing por GPS
+  }
+  
+  // Encontra a próxima parada pendente
+  const proximaParada = paradasRotaAtiva.find(p => p.status !== 'entregue' && p.coords);
+  if (!proximaParada) {
+    return null; // todas entregues ou sem coords
+  }
+  
+  const [pLat, pLon] = proximaParada.coords;
+  const bearing = _calcBearing(lat, lon, pLat, pLon);
+  return _suavizarBearing(bearing);
+}
+
+/**
+ * Desenha a rota no mapa com TRÊS LINHAS:
+ * 🔵 AZUL: você → próxima parada (forte e destacada)
+ * 🟢 VERDE: próxima parada → último cliente (rota ida)
+ * 🔴 VERMELHA: último cliente → fábrica (rota volta)
+ * ⬆️ Setas apenas na linha azul
+ */
+async function desenharRotaNoMapa() {
+  if (!map || !posEntregador || !paradasRotaAtiva || paradasRotaAtiva.length === 0) {
+    _limparRotaNoMapa();
+    return;
+  }
+
+  // Filtra apenas paradas pendentes com coords (mantém ordem original!)
+  const paradasPendentes = paradasRotaAtiva.filter(p => p.status !== 'entregue' && p.coords);
+  if (paradasPendentes.length === 0) {
+    _limparRotaNoMapa();
+    return;
+  }
+
+  try {
+    // ===== LINHA AZUL: Você → Próxima Parada =====
+    if (paradasPendentes.length > 0) {
+      const proximaParada = paradasPendentes[0];
+      const waypointsAzul = [
+        [posEntregador.lon, posEntregador.lat],
+        [proximaParada.coords[1], proximaParada.coords[0]] // [lon, lat]
+      ];
+
+      const coordsStrAzul = waypointsAzul.map(w => w.join(',')).join(';');
+      const urlAzul = `https://router.project-osrm.org/route/v1/driving/${coordsStrAzul}?geometries=geojson&overview=full`;
+      
+      const respAzul = await fetch(urlAzul);
+      if (respAzul.ok) {
+        const dataAzul = await respAzul.json();
+        if (dataAzul.routes && dataAzul.routes.length > 0) {
+          const geometryAzul = dataAzul.routes[0].geometry;
+          _adicionarLinhaRota('route-line-azul', geometryAzul, '#4D9EFF', 4.5, 0.9, true);
+        }
+      }
+    }
+
+    // ===== LINHA VERDE: Próxima → Último Cliente (IDA) =====
+    if (paradasPendentes.length > 1) {
+      const proximaParada = paradasPendentes[0];
+      
+      // Próxima parada → todas as outras paradas em ordem até a última
+      const waypointsVerde = [
+        [proximaParada.coords[1], proximaParada.coords[0]],
+        ...paradasPendentes.slice(1).map(p => [p.coords[1], p.coords[0]])
+      ];
+
+      const coordsStrVerde = waypointsVerde.map(w => w.join(',')).join(';');
+      const urlVerde = `https://router.project-osrm.org/route/v1/driving/${coordsStrVerde}?geometries=geojson&overview=full`;
+      
+      const respVerde = await fetch(urlVerde);
+      if (respVerde.ok) {
+        const dataVerde = await respVerde.json();
+        if (dataVerde.routes && dataVerde.routes.length > 0) {
+          const geometryVerde = dataVerde.routes[0].geometry;
+          _adicionarLinhaRota('route-line-verde', geometryVerde, '#22D97A', 3.5, 0.7, false);
+        }
+      }
+    }
+
+    // ===== LINHA VERMELHA: Último Cliente → Fábrica (VOLTA) =====
+    if (paradasPendentes.length > 0) {
+      const ultimaParada = paradasPendentes[paradasPendentes.length - 1];
+      const waypointsVermelho = [
+        [ultimaParada.coords[1], ultimaParada.coords[0]], // última parada
+        [FABRICA_LON, FABRICA_LAT] // volta para fábrica
+      ];
+
+      const coordsStrVermelho = waypointsVermelho.map(w => w.join(',')).join(';');
+      const urlVermelho = `https://router.project-osrm.org/route/v1/driving/${coordsStrVermelho}?geometries=geojson&overview=full`;
+      
+      const respVermelho = await fetch(urlVermelho);
+      if (respVermelho.ok) {
+        const dataVermelho = await respVermelho.json();
+        if (dataVermelho.routes && dataVermelho.routes.length > 0) {
+          const geometryVermelho = dataVermelho.routes[0].geometry;
+          _adicionarLinhaRota('route-line-vermelho', geometryVermelho, '#FF6B6B', 3, 0.4, false);
+        }
+      }
+    }
+
+  } catch (err) {
+    console.error('Erro ao desenhar rota:', err);
+    _limparRotaNoMapa();
+  }
+}
+
+/**
+ * Helper para adicionar uma linha com setas no mapa
+ */
+function _adicionarLinhaRota(layerId, geometry, cor, largura, opacidade, comSetas) {
+  if (!map) return;
+
+  // Remove layer anterior se existe
+  if (map.getLayer(layerId)) {
+    map.removeLayer(layerId);
+  }
+  if (map.getSource(layerId + '-source')) {
+    map.removeSource(layerId + '-source');
+  }
+
+  // Adiciona source
+  map.addSource(layerId + '-source', {
+    type: 'geojson',
+    data: {
+      type: 'Feature',
+      geometry: geometry,
+      properties: {}
+    }
+  });
+
+  // Adiciona layer da linha
+  map.addLayer({
+    id: layerId,
+    type: 'line',
+    source: layerId + '-source',
+    paint: {
+      'line-color': cor,
+      'line-width': largura,
+      'line-opacity': opacidade
+    },
+    layout: {
+      'line-join': 'round',
+      'line-cap': 'round'
+    }
+  }, 'mk-ent');
+
+  // Se tem setas, adiciona layer de símbolos com ^ para indicar direção
+  if (comSetas) {
+    _adicionarSetasNaRota(layerId);
+  }
+}
+
+/**
+ * Adiciona setas (^) ao longo da linha de rota
+ */
+function _adicionarSetasNaRota(layerId) {
+  if (!map) return;
+
+  const sourceId = layerId + '-source';
+  const setasLayerId = layerId + '-setas';
+
+  // Remove layer anterior se existe
+  if (map.getLayer(setasLayerId)) {
+    map.removeLayer(setasLayerId);
+  }
+
+  // Adiciona layer de símbolos ao longo da linha
+  map.addLayer({
+    id: setasLayerId,
+    type: 'symbol',
+    source: sourceId,
+    layout: {
+      'symbol-placement': 'line',
+      'symbol-spacing': 40, // espaçamento entre setas
+      'text-field': '^',
+      'text-font': ['Open Sans Regular'],
+      'text-size': 16,
+      'text-rotation-alignment': 'map'
+    },
+    paint: {
+      'text-color': (layerId === 'route-line-azul' ? '#4D9EFF' : (layerId === 'route-line-verde' ? '#22D97A' : '#FF6B6B')),
+      'text-opacity': (layerId === 'route-line-azul' ? 0.9 : (layerId === 'route-line-verde' ? 0.7 : 0.4))
+    }
+  }, 'mk-ent');
+}
+
+/**
+ * Remove todas as rotas do mapa (azul, verde, vermelha)
+ */
+function _limparRotaNoMapa() {
+  if (!map) return;
+  
+  // Limpa linha azul
+  if (map.getLayer('route-line-azul')) {
+    map.removeLayer('route-line-azul');
+  }
+  if (map.getLayer('route-line-azul-setas')) {
+    map.removeLayer('route-line-azul-setas');
+  }
+  if (map.getSource('route-line-azul-source')) {
+    map.removeSource('route-line-azul-source');
+  }
+  
+  // Limpa linha verde
+  if (map.getLayer('route-line-verde')) {
+    map.removeLayer('route-line-verde');
+  }
+  if (map.getLayer('route-line-verde-setas')) {
+    map.removeLayer('route-line-verde-setas');
+  }
+  if (map.getSource('route-line-verde-source')) {
+    map.removeSource('route-line-verde-source');
+  }
+  
+  // Limpa linha vermelha
+  if (map.getLayer('route-line-vermelho')) {
+    map.removeLayer('route-line-vermelho');
+  }
+  if (map.getLayer('route-line-vermelho-setas')) {
+    map.removeLayer('route-line-vermelho-setas');
+  }
+  if (map.getSource('route-line-vermelho-source')) {
+    map.removeSource('route-line-vermelho-source');
+  }
+}
+
 function toggle3D() {
   _modo3D = !_modo3D;
   const btn = document.getElementById('btn3D');
@@ -882,6 +1223,7 @@ let _gpsSaveQueue = null;
 let _gpsSaving = false;
 let _renderListaPendente = false;
 let _animFrameId = null;
+let _ultimoDesenhoRota = 0; // throttle para redesenho de rota
 
 function iniciarGPS() {
   if (!navigator.geolocation) {
@@ -925,9 +1267,18 @@ function onGPSUpdate(pos) {
     if (dt > 0) kmh = (d / dt) * 3.6;
   }
 
-  // Suavização exponencial (EMA) — mais responsiva que média simples
-  // α=0.4: reage rápido a mudanças mas filtra picos falsos
-  _kmhEma = _kmhEma < 0 ? kmh : _kmhEma * 0.6 + kmh * 0.4;
+  // EMA adaptativo (estilo Waze): alpha alto em aceleração/frenagem brusca,
+  // alpha baixo em velocidade estável (filtra ruído do GPS)
+  if (_kmhEma < 0) {
+    _kmhEma = kmh; // primeira leitura: aceita direto
+  } else {
+    const delta = Math.abs(kmh - _kmhEma);
+    const alpha = delta > 15 ? 0.90   // arrancada / freio forte → quase instantâneo
+                : delta > 7  ? 0.70   // aceleração moderada → rápido
+                : delta > 3  ? 0.50   // pequena variação → médio
+                :              0.30;  // velocidade estável → suave (filtra ruído)
+    _kmhEma = _kmhEma * (1 - alpha) + kmh * alpha;
+  }
   atualizarVelocimetro(_kmhEma);
 
   // ── Bearing ──
@@ -939,6 +1290,15 @@ function onGPSUpdate(pos) {
       _bearingAtual = _suavizarBearing(raw);
     }
   }
+  
+  // Se há rota ativa, tenta calcular bearing antecipado (câmera acompanha a próxima parada)
+  if (rotaAtiva && paradasRotaAtiva.length > 0) {
+    const bearingAntecipado = _calcBearingAntecipado(lat, lon);
+    if (bearingAntecipado !== null) {
+      _bearingAtual = bearingAntecipado;
+    }
+  }
+  
   _ultimaPosAnterior = [lat, lon];
   _ultimaTsAnterior  = ts;
 
@@ -960,6 +1320,13 @@ function onGPSUpdate(pos) {
       _renderListaPendente = false;
       renderLista();
       verificarProximidade(lat, lon);
+      
+      // ✨ Redesenha rota a cada ~5s (throttle para economizar recursos)
+      const now = Date.now();
+      if (paradasRotaAtiva.length > 0 && now - _ultimoDesenhoRota > 5000) {
+        _ultimoDesenhoRota = now;
+        desenharRotaNoMapa(); // sem await, assíncrono
+      }
     }, 2000); // atualiza lista no máximo a cada 2s
   }
 }
@@ -1155,6 +1522,316 @@ async function verificarViradaDia() {
   localStorage.setItem(_CHAVE_DIA, hojeAtual);
 }
 
+// ── ROTA CUSTOMIZADA ──────────────────────────────────────────────────────────
+let rotaCustomizadaAtiva = null;
+let sugestoesAtual = [];
+
+/**
+ * Busca sugestões de locais enquanto o usuário digita
+ */
+async function buscarSugestoesLocalizacao() {
+  const input = document.getElementById('inputLocalizacaoCustomizada');
+  const termo = input.value.trim();
+  const dropdown = document.getElementById('sugestoesDropdown');
+
+  if (!termo || termo.length < 2) {
+    dropdown.style.display = 'none';
+    sugestoesAtual = [];
+    return;
+  }
+
+  try {
+    // Usa Nominatim para buscar sugestões
+    const resp = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(termo)}&format=json&limit=5&addressdetails=1`
+    );
+    
+    if (!resp.ok) throw new Error('Erro ao buscar sugestões');
+    
+    const data = await resp.json();
+    sugestoesAtual = data || [];
+
+    if (sugestoesAtual.length === 0) {
+      dropdown.style.display = 'none';
+      return;
+    }
+
+    // Renderiza as sugestões
+    dropdown.innerHTML = sugestoesAtual.map((lugar, idx) => {
+      const nome = lugar.display_name || lugar.name;
+      // Limita o tamanho do texto
+      const nomeFormatado = nome.length > 60 ? nome.substring(0, 60) + '...' : nome;
+      
+      return `
+        <div 
+          onclick="selecionarSugestao(${idx})"
+          style="
+            padding:10px 12px;
+            border-bottom:1px solid var(--border);
+            cursor:pointer;
+            transition:background .15s;
+            font-size:12px;
+            color:var(--text);
+          "
+          onmouseover="this.style.background='rgba(139,92,246,0.1)'"
+          onmouseout="this.style.background='transparent'"
+        >
+          <div style="font-weight:600;">${nomeFormatado}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">
+            ${lugar.address?.city || lugar.address?.town || 'Local'} • ${parseFloat(lugar.lat).toFixed(4)}, ${parseFloat(lugar.lon).toFixed(4)}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    dropdown.style.display = 'block';
+    
+  } catch (err) {
+    console.error('Erro ao buscar sugestões:', err);
+    dropdown.style.display = 'none';
+  }
+}
+
+/**
+ * Seleciona uma sugestão do dropdown
+ */
+function selecionarSugestao(idx) {
+  if (idx < 0 || idx >= sugestoesAtual.length) return;
+  
+  const lugar = sugestoesAtual[idx];
+  const lat = parseFloat(lugar.lat);
+  const lon = parseFloat(lugar.lon);
+  const nome = lugar.display_name || lugar.name;
+  
+  // Preenchee o input com o local selecionado
+  document.getElementById('inputLocalizacaoCustomizada').value = nome;
+  document.getElementById('sugestoesDropdown').style.display = 'none';
+  
+  // Cria a rota automaticamente
+  criarRotaCustomizada(lat, lon, nome);
+}
+
+/**
+ * Busca uma localização pelo nome (Atacadão, endereço, etc) usando Nominatim
+ */
+async function buscarLocalizacaoCustomizada() {
+  const input = document.getElementById('inputLocalizacaoCustomizada');
+  const local = input.value.trim();
+  
+  if (!local) {
+    alert('Digite um local para buscar');
+    return;
+  }
+
+  try {
+    // Usar Nominatim (gratuito) para buscar endereço
+    const resp = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(local)}&format=json&limit=1`
+    );
+    
+    if (!resp.ok) throw new Error('Erro ao buscar localização');
+    
+    const data = await resp.json();
+    if (!data || data.length === 0) {
+      alert('Local não encontrado. Tente outro nome ou endereço.');
+      return;
+    }
+
+    const lugar = data[0];
+    const lat = parseFloat(lugar.lat);
+    const lon = parseFloat(lugar.lon);
+    const nome = lugar.display_name || local;
+
+    // Criar rota customizada para este local
+    await criarRotaCustomizada(lat, lon, nome);
+    
+  } catch (err) {
+    console.error('Erro ao buscar localização:', err);
+    alert('Erro ao buscar. Verifique a conexão.');
+  }
+}
+
+/**
+ * Cria e exibe uma rota customizada para um local específico
+ */
+async function criarRotaCustomizada(lat, lon, nome) {
+  if (!posEntregador) {
+    alert('GPS não está disponível ainda');
+    return;
+  }
+
+  try {
+    // Calcula rota com OSRM
+    const waypoints = [
+      [posEntregador.lon, posEntregador.lat],
+      [lon, lat]
+    ];
+
+    const coordsStr = waypoints.map(w => w.join(',')).join(';');
+    const url = `https://router.project-osrm.org/route/v1/driving/${coordsStr}?geometries=geojson&overview=full`;
+    
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('Erro ao calcular rota');
+    
+    const data = await resp.json();
+    if (!data.routes || data.routes.length === 0) {
+      alert('Não foi possível encontrar uma rota até este local.');
+      return;
+    }
+
+    const route = data.routes[0];
+    const distancia = (route.distance / 1000).toFixed(1); // km
+    const duracao = Math.ceil(route.duration / 60); // minutos
+    const geometry = route.geometry;
+
+    // Armazena rota customizada
+    rotaCustomizadaAtiva = {
+      nome: nome,
+      lat: lat,
+      lon: lon,
+      distancia: distancia,
+      duracao: duracao,
+      geometry: geometry
+    };
+
+    // Exibe resultado
+    const customBox = document.getElementById('customRotaBox');
+    document.getElementById('customRotaTitulo').textContent = `📍 ${nome}`;
+    document.getElementById('customRotaInfo').textContent = `${distancia}km · ${duracao} min`;
+    document.getElementById('customRotaDetalhes').innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div style="
+          background:var(--surface2);border:1px solid var(--border);
+          border-radius:12px;padding:12px;font-size:12px;color:var(--text);
+        ">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+            <span>Localização:</span>
+            <span style="color:var(--gold);">${lat.toFixed(4)}, ${lon.toFixed(4)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+            <span>Distância:</span>
+            <span style="color:var(--green);">${distancia} km</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;">
+            <span>Tempo estimado:</span>
+            <span style="color:var(--orange);">${duracao} min</span>
+          </div>
+        </div>
+        <button 
+          onclick="iniciarRotaCustomizada()"
+          style="
+            width:100%;
+            background:linear-gradient(135deg,#22d97a,#12a86d);
+            border:none;
+            border-radius:10px;
+            padding:12px;
+            color:#fff;
+            font-weight:600;
+            font-size:13px;
+            cursor:pointer;
+            transition:transform .15s;
+          "
+          onmousedown="this.style.transform='scale(.98)'"
+          onmouseup="this.style.transform='scale(1)'"
+        >
+          ✓ Iniciar Rota
+        </button>
+      </div>
+    `;
+    customBox.style.display = 'block';
+    
+    // Desenha a rota no mapa (linha azul simples)
+    _desenharRotaCustomizadaNoMapa(geometry);
+    
+  } catch (err) {
+    console.error('Erro ao criar rota customizada:', err);
+    alert('Erro ao criar rota. Tente novamente.');
+  }
+}
+
+/**
+ * Inicia a navegação para a rota customizada
+ */
+function iniciarRotaCustomizada() {
+  if (!rotaCustomizadaAtiva) return;
+  
+  // Centraliza mapa no destino
+  if (map) {
+    map.flyTo({
+      center: [rotaCustomizadaAtiva.lon, rotaCustomizadaAtiva.lat],
+      zoom: 15,
+      duration: 1000
+    });
+  }
+  
+  alert(`🗺️ Rota iniciada para ${rotaCustomizadaAtiva.nome}\n${rotaCustomizadaAtiva.distancia}km · ${rotaCustomizadaAtiva.duracao} min`);
+}
+
+/**
+ * Fecha a rota customizada
+ */
+function fecharRotaCustomizada() {
+  document.getElementById('customRotaBox').style.display = 'none';
+  rotaCustomizadaAtiva = null;
+  _limparRotaCustomizadaNoMapa();
+  document.getElementById('inputLocalizacaoCustomizada').value = '';
+}
+
+/**
+ * Desenha a rota customizada no mapa
+ */
+function _desenharRotaCustomizadaNoMapa(geometry) {
+  if (!map) return;
+
+  // Remove rota anterior
+  if (map.getLayer('custom-route-line')) {
+    map.removeLayer('custom-route-line');
+  }
+  if (map.getSource('custom-route-source')) {
+    map.removeSource('custom-route-source');
+  }
+
+  // Adiciona source
+  map.addSource('custom-route-source', {
+    type: 'geojson',
+    data: {
+      type: 'Feature',
+      geometry: geometry,
+      properties: {}
+    }
+  });
+
+  // Adiciona layer com estilo diferente (pontilhado)
+  map.addLayer({
+    id: 'custom-route-line',
+    type: 'line',
+    source: 'custom-route-source',
+    paint: {
+      'line-color': '#FFD700', // ouro/amarelo
+      'line-width': 3.5,
+      'line-opacity': 0.8,
+      'line-dasharray': [5, 3] // pontilhado
+    },
+    layout: {
+      'line-join': 'round',
+      'line-cap': 'round'
+    }
+  }, 'mk-ent');
+}
+
+/**
+ * Limpa a rota customizada do mapa
+ */
+function _limparRotaCustomizadaNoMapa() {
+  if (!map) return;
+  if (map.getLayer('custom-route-line')) {
+    map.removeLayer('custom-route-line');
+  }
+  if (map.getSource('custom-route-source')) {
+    map.removeSource('custom-route-source');
+  }
+}
+
 async function carregarRota() {
   const hoje = getHojeDia();
   const diaFormatado = getDiaSemanaDia();
@@ -1231,8 +1908,12 @@ async function carregarRota() {
     r.status === 'em_andamento' || r.status === 'aguardando'
   );
 
+  let rotaMudou = false;
   if (emAndamentoHoje) {
     if (!rotaAtiva || rotaAtiva.id === emAndamentoHoje.id) {
+      if (!rotaAtiva || rotaAtiva.id !== emAndamentoHoje.id) {
+        rotaMudou = true;
+      }
       rotaAtiva = emAndamentoHoje;
     }
   } else {
@@ -1245,7 +1926,15 @@ async function carregarRota() {
       if (anterior.status === 'concluido') { proximaDisponivel = r; break; }
       break;
     }
+    if (rotaAtiva?.id !== (proximaDisponivel?.id)) {
+      rotaMudou = true;
+    }
     rotaAtiva = proximaDisponivel || null;
+  }
+
+  // ✨ Se a rota ativa mudou, limpa paradasRotaAtiva para recalcular (câmera volta ao bearing por GPS)
+  if (rotaMudou) {
+    paradasRotaAtiva = [];
   }
 
   // ── Paradas da rota ativa ──
@@ -1274,6 +1963,11 @@ async function carregarRota() {
   }
 
   paradas = paradasBruto;
+  
+  // ✨ Atualiza paradasRotaAtiva para antecipação de câmera (quando abrirParadasRota não foi chamado)
+  if (!rotaSelecionada && rotaAtiva) {
+    paradasRotaAtiva = paradasBruto;
+  }
 
   renderTudo();
   mostrarSemRota();
@@ -1595,11 +2289,19 @@ async function abrirParadasRota(rotaId) {
   const pendentes = paradassRota.filter(p => p.status !== 'entregue').length;
   document.getElementById('rotaParadasStats').textContent = `✅ ${entregues} entregues · ⏳ ${pendentes} restantes`;
 
+  // ✨ Popula paradasRotaAtiva para antecipação de câmera
+  paradasRotaAtiva = paradassRota;
+  
+  // ✨ Desenha a rota no mapa
+  await desenharRotaNoMapa();
+
   renderListaParadas(paradassRota, r.id === rotaAtiva?.id);
 }
 
 function fecharParadasRota() {
   rotaSelecionada = null;
+  paradasRotaAtiva = []; // limpa paradas para não antecipar mais
+  _limparRotaNoMapa(); // limpa a rota do mapa
   document.getElementById('rotaCardsList').style.display = 'block';
   document.getElementById('rotaParadasBox').style.display = 'none';
 }
