@@ -1089,7 +1089,14 @@ function _aplicarEstiloLinhaInicial() {
   setEstiloLinha(estiloLinhaRota);
 }
 
-// Helper: busca rota OSRM em chunks de ate 10 waypoints e une os segmentos
+/**
+ * Desenha a rota no mapa com TRÊS LINHAS:
+ * 🔵 AZUL: você → próxima parada (forte e destacada)
+ * 🟢 VERDE: próxima parada → último cliente (rota ida)
+ * 🔴 VERMELHA: último cliente → fábrica (rota volta)
+ * ⬆️ Setas apenas na linha azul
+ */
+// Helper: busca rota OSRM em chunks de até 10 waypoints e une segmentos
 async function _fetchOSRMChunked(waypoints) {
   const CHUNK = 10;
   const allCoords = [];
@@ -1101,76 +1108,66 @@ async function _fetchOSRMChunked(waypoints) {
       const resp = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordsStr}?geometries=geojson&overview=full`);
       if (!resp.ok) continue;
       const data = await resp.json();
-      const segCoords = data.routes?.[0]?.geometry?.coordinates;
-      if (!segCoords) continue;
-      if (allCoords.length > 0) allCoords.push(...segCoords.slice(1));
-      else allCoords.push(...segCoords);
-    } catch(e) { /* ignora falha de segmento */ }
+      const seg = data.routes?.[0]?.geometry?.coordinates;
+      if (!seg) continue;
+      if (allCoords.length > 0) allCoords.push(...seg.slice(1));
+      else allCoords.push(...seg);
+    } catch(e) {}
   }
   if (allCoords.length < 2) return null;
   return { type: 'LineString', coordinates: allCoords };
 }
 
-/**
- * Desenha a rota no mapa com TRES LINHAS:
- * 🔵 AZUL: você → próxima parada (forte e destacada)
- * 🟢 VERDE: próxima parada → último cliente (rota ida)
- * 🔴 VERMELHA: último cliente → fábrica (rota volta)
- * ⬆️ Setas apenas na linha azul
- */
 async function desenharRotaNoMapa() {
-  if (!map || !posEntregador || !paradasRotaAtiva || paradasRotaAtiva.length === 0) {
-    _limparRotaNoMapa();
-    return;
+  // Funciona com ou sem GPS
+  if (!map || !paradasRotaAtiva || paradasRotaAtiva.length === 0) {
+    _limparRotaNoMapa(); return;
   }
+  if (!map.loaded()) { map.once('load', () => desenharRotaNoMapa()); return; }
 
   const paradasPendentes = paradasRotaAtiva.filter(p => p.status !== 'entregue' && p.coords);
   if (paradasPendentes.length === 0) { _limparRotaNoMapa(); return; }
 
   _limparRotaNoMapa();
 
-  // ── PONTA A PONTA: linha reta direta entre os pontos ──
+  // Origem: posicao do entregador OU primeira parada (sem GPS)
+  const origem = posEntregador
+    ? [posEntregador.lon, posEntregador.lat]
+    : [paradasPendentes[0].coords[1], paradasPendentes[0].coords[0]];
+
+  // ── PONTA A PONTA ──
   if (estiloLinhaRota === 'pontaaponta') {
-    const coords = [
-      [posEntregador.lon, posEntregador.lat],
-      ...paradasPendentes.map(p => [p.coords[1], p.coords[0]])
-    ];
-    const geometry = { type: 'LineString', coordinates: coords };
-    _adicionarLinhaRota('route-line-azul', geometry, '#c084fc', 3, 0.85, false, [6, 3]);
+    const coords = [origem, ...paradasPendentes.map(p => [p.coords[1], p.coords[0]])];
+    _adicionarLinhaRota('route-line-azul', { type: 'LineString', coordinates: coords }, '#c084fc', 3, 0.85, false, [6, 3]);
     return;
   }
 
   try {
-    // ── AZUL COMPLETO: uma linha azul do começo ao fim ──
+    // ── AZUL COMPLETO ──
     if (estiloLinhaRota === 'azulcompleto') {
-      const waypoints = [
-        [posEntregador.lon, posEntregador.lat],
-        ...paradasPendentes.map(p => [p.coords[1], p.coords[0]])
-      ];
-      const geometry = await _fetchOSRMChunked(waypoints);
-      if (geometry) _adicionarLinhaRota('route-line-azul', geometry, '#4D9EFF', 4.5, 0.9, true);
+      const waypoints = [origem, ...paradasPendentes.map(p => [p.coords[1], p.coords[0]])];
+      const geo = await _fetchOSRMChunked(waypoints);
+      if (geo) _adicionarLinhaRota('route-line-azul', geo, '#4D9EFF', 4.5, 0.9, true);
       return;
     }
 
-    // ===== LINHA AZUL: Você → Próxima Parada =====
-    const proximaParada = paradasPendentes[0];
-    const waypointsAzul = [[posEntregador.lon, posEntregador.lat], [proximaParada.coords[1], proximaParada.coords[0]]];
-    const geoAzul = await _fetchOSRMChunked(waypointsAzul);
+    // AZUL: origem ate a proxima parada
+    const proxima = paradasPendentes[0];
+    const geoAzul = await _fetchOSRMChunked([origem, [proxima.coords[1], proxima.coords[0]]]);
     if (geoAzul) _adicionarLinhaRota('route-line-azul', geoAzul, '#4D9EFF', 4.5, 0.9, true);
 
-    // ===== LINHA VERDE: Próxima → Último Cliente =====
+    // VERDE: percurso completo entre todas as paradas pendentes
     if (paradasPendentes.length > 1) {
-      const waypointsVerde = paradasPendentes.map(p => [p.coords[1], p.coords[0]]);
-      const geoVerde = await _fetchOSRMChunked(waypointsVerde);
+      const wpVerde = paradasPendentes.map(p => [p.coords[1], p.coords[0]]);
+      const geoVerde = await _fetchOSRMChunked(wpVerde);
       if (geoVerde) _adicionarLinhaRota('route-line-verde', geoVerde, '#22D97A', 3.5, 0.7, false);
     }
 
-    // ===== LINHA VERMELHA: Último → Fábrica (só no modo "tres") =====
+    // VERMELHA: ultimo cliente ate a fabrica (apenas modo "tres")
     if (estiloLinhaRota === 'tres') {
-      const ultimaParada = paradasPendentes[paradasPendentes.length - 1];
-      const waypointsVermelho = [[ultimaParada.coords[1], ultimaParada.coords[0]], [FABRICA_LON, FABRICA_LAT]];
-      const geoVermelho = await _fetchOSRMChunked(waypointsVermelho);
-      if (geoVermelho) _adicionarLinhaRota('route-line-vermelho', geoVermelho, '#FF6B6B', 3, 0.4, false);
+      const ultima = paradasPendentes[paradasPendentes.length - 1];
+      const geoVerm = await _fetchOSRMChunked([[ultima.coords[1], ultima.coords[0]], [FABRICA_LON, FABRICA_LAT]]);
+      if (geoVerm) _adicionarLinhaRota('route-line-vermelho', geoVerm, '#FF6B6B', 3, 0.55, false);
     }
 
   } catch (err) {
@@ -1390,9 +1387,9 @@ function onGPSUpdate(pos) {
   // ── Marcador + câmera: interpolação suave anti-stutter ──
   _moverMarcadorSuave(lat, lon);
 
-  // Ao receber o primeiro GPS, desenha a rota imediatamente (sem esperar o throttle de 5s)
+  // Redesenha linha azul ao receber primeiro GPS
   if (_primeiroGPS && paradasRotaAtiva.length > 0) {
-    setTimeout(() => desenharRotaNoMapa(), 500);
+    setTimeout(() => desenharRotaNoMapa(), 300);
   }
 
   setGPSStatus('ok', `±${acc}m`);
@@ -1915,6 +1912,12 @@ async function carregarRota() {
 
   renderTudo();
   mostrarSemRota();
+
+  // Desenha linhas de rota ao carregar (com ou sem GPS)
+  if (!rotaSelecionada && paradasRotaAtiva.length > 0 && map) {
+    if (map.loaded()) desenharRotaNoMapa();
+    else map.once('load', () => desenharRotaNoMapa());
+  }
 
   if (rotaSelecionada) {
     const rotaAtualizada = filaRotasHoje.find(r => r.id === rotaSelecionada.id);
