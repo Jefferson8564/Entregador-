@@ -1674,6 +1674,10 @@ async function carregarRota() {
   // ✨ Atualiza paradasRotaAtiva para antecipação de câmera (quando abrirParadasRota não foi chamado)
   if (!rotaSelecionada && rotaAtiva) {
     paradasRotaAtiva = paradasBruto;
+    // Desenha rota imediatamente ao carregar (não espera GPS mover)
+    if (posEntregador && paradasRotaAtiva.length > 0) {
+      desenharRotaNoMapa();
+    }
   }
 
   renderTudo();
