@@ -1567,37 +1567,46 @@ async function carregarRota() {
   // Guarda pedidosSet nas rotas para usar no render
   filaRotasHoje._pedidosSet = pedidosSet;
 
-  // ── Auto-finaliza rotas sem pedido quando passou o horário de saída ──
-  // ── Auto-inicia rotas com pedido quando chegou o horário (app aberto ou não) ──
+  // ── Auto-inicia rotas quando chegou o horário de saída ──
+  // Trata rotas 'criada' normais E rotas 'concluida' do dia anterior que ainda não reiniciaram
+  // A rota só vira 'concluida' quando TODAS as entregas forem marcadas como entregues
   const horaAtual = `${String(agoraSP.getHours()).padStart(2,'0')}:${String(agoraSP.getMinutes()).padStart(2,'0')}`;
+  const [_vhv, _vmv] = _getViradaHoraMin(agoraSP.getDay());
+  const horaViradaStr = `${String(_vhv).padStart(2,'0')}:${String(_vmv).padStart(2,'0')}`;
   for (let i = 0; i < filaRotasHoje.length; i++) {
     const r = filaRotasHoje[i];
-    if (r.status !== 'criada') continue;
     const meta = (r.paradas || []).find(x => x._meta) || {};
     const horaSaida = meta.hora_saida || '00:00';
     if (horaAtual < horaSaida) continue; // ainda não chegou o horário
-    // Verifica se algum cliente desta rota fez pedido
-    const phones = (r.paradas || []).filter(p => !p._meta).map(p => p.cliente_phone).filter(Boolean);
-    const temPedido = phones.some(ph => pedidosSet.has(ph));
-    if (!temPedido && phones.length > 0) {
-      // Zero pedidos e já passou o horário → auto-finaliza
+    const anteriorOk = i === 0 || filaRotasHoje[i - 1].status === 'concluido' || filaRotasHoje[i - 1].status === 'em_andamento';
+    // Rota 'criada' → inicia normalmente
+    if (r.status === 'criada' && anteriorOk) {
       await sb.from('rotas').update({
-        status: 'concluido',
-        fim_em: new Date().toISOString()
+        status: 'em_andamento',
+        inicio_em: r.inicio_em || new Date().toISOString()
       }).eq('id', r.id);
-      r.status = 'concluido';
-      r.fim_em = new Date().toISOString();
-    } else if (temPedido) {
-      // Tem pedidos e passou o horário → auto-inicia (1ª da fila, ou anterior já concluída)
-      const anteriorConcluida = i === 0 || filaRotasHoje[i - 1].status === 'concluido';
-      if (anteriorConcluida) {
-        await sb.from('rotas').update({
-          status: 'em_andamento',
-          inicio_em: r.inicio_em || new Date().toISOString()
-        }).eq('id', r.id);
-        r.status = 'em_andamento';
-        if (!r.inicio_em) r.inicio_em = new Date().toISOString();
-      }
+      r.status = 'em_andamento';
+      if (!r.inicio_em) r.inicio_em = new Date().toISOString();
+    }
+    // Rota 'concluida' do dia anterior (antes da virada) → reseta e inicia
+    else if (r.status === 'concluido' && horaAtual < horaViradaStr && anteriorOk) {
+      const paradasReset = (r.paradas || []).map(p => {
+        if (p._meta) return p;
+        return { ...p, status: 'pendente', entregue_em: null, pagamento: null };
+      });
+      await sb.from('rotas').update({
+        status: 'em_andamento',
+        inicio_em: new Date().toISOString(),
+        fim_em: null,
+        phones_entregues: [],
+        entregas_realizadas: 0,
+        paradas: paradasReset
+      }).eq('id', r.id);
+      r.status = 'em_andamento';
+      r.fim_em = null;
+      r.phones_entregues = [];
+      r.entregas_realizadas = 0;
+      r.paradas = paradasReset;
     }
   }
 
