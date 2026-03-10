@@ -725,13 +725,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
       </div>
     </div>
 
-    <!-- Fiado direto -->
-    <div id="secFiado" style="display:none;margin-bottom:14px">
-      <div style="background:rgba(255,140,66,0.08);border:1px solid rgba(255,140,66,0.3);border-radius:12px;padding:12px 14px;font-size:13px;color:var(--orange);font-weight:600">
-        📋 Pagamento: <strong>Fiado</strong> — será registrado na conta do cliente
-      </div>
-    </div>
-
     <!-- Botão principal -->
     <button class="btn-confirmar" id="btnConfirmar" onclick="confirmarEntrega()"
       style="width:100%;padding:16px;border-radius:14px;border:none;font-family:'Syne',sans-serif;font-size:15px;font-weight:800;cursor:pointer;transition:opacity 0.15s;margin-top:4px">
@@ -913,8 +906,7 @@ let alertaPhone = null;     // phone do cliente em alerta
 let painelAberto = false;
 let modalParada = null;     // parada sendo confirmada
 let pagSelecionado = null;
-let popupParada = null;     // parada do pop-up automático
-let popupPedido = null;     // pedido do pop-up automático
+let popupFila = [];         // fila de pop-ups em espera (pilha)
 let mkClientes = {};        // phone → leaflet marker
 
 // Exploração livre no 2D: pausa o seguimento enquanto o usuário arrasta
@@ -2398,19 +2390,31 @@ function verificarProximidade(lat, lon) {
   const pendentes = paradas.filter(p => p.status !== 'entregue' && p.coords);
   if (pendentes.length === 0) { esconderAlerta(); return; }
 
-  const prox = pendentes[0]; // primeiro pendente
-  const [pLat, pLon] = prox.coords;
-  const d = distancia(lat, lon, pLat, pLon);
-
-  // ── Automático: 20m → confirma direto ──
-  if (modoAutoConfirmar && d <= RAIO_AUTO && !_autoConfirmados.has(prox.cliente_phone)) {
-    _autoConfirmados.add(prox.cliente_phone);
-    esconderAlerta();
-    _confirmarEntregaAuto(prox);
-    return;
+  // ── CONFIRMAÇÃO AUTOMÁTICA: confirma TODOS dentro de 20m ──
+  if (modoAutoConfirmar) {
+    let algumConfirmado = false;
+    for (const p of pendentes) {
+      const [pLat, pLon] = p.coords;
+      const d = distancia(lat, lon, pLat, pLon);
+      
+      if (d <= RAIO_AUTO && !_autoConfirmados.has(p.cliente_phone)) {
+        _autoConfirmados.add(p.cliente_phone);
+        algumConfirmado = true;
+        _confirmarEntregaAuto(p);
+      }
+    }
+    
+    if (algumConfirmado) {
+      esconderAlerta();
+      return;
+    }
   }
 
-  // ── Manual: 80m → mostra alerta ──
+  // ── ALERTA MANUAL: mostra o primeiro pendente dentro de 80m ──
+  const prox = pendentes[0];
+  const [pLat, pLon] = prox.coords;
+  const d = distancia(lat, lon, pLat, pLon);
+  
   if (d <= RAIO_ALERTA) {
     mostrarAlerta(prox);
   } else {
@@ -2456,14 +2460,11 @@ async function _confirmarEntregaAuto(p) {
 
   // ── Se é PAGAR NA ENTREGA, mostra pop-up ──
   if (pagarNaEntrega) {
-    // Guarda contexto para o pop-up
-    popupParada = p;
-    popupPedido = pedido;
+    // Adiciona à fila de pop-ups
+    popupFila.push({ parada: p, pedido: pedido });
     
-    // Mostra pop-up
-    document.getElementById('popupNomeCliente').textContent = p.nome || 'Cliente';
-    document.getElementById('popupTotal').textContent = `Total: R$ ${Number(pedido.total || 0).toFixed(2).replace('.', ',')}`;
-    document.getElementById('popupPagamentoAuto').style.display = 'flex';
+    // Mostra o último pop-up da fila (o mais novo fica em cima)
+    mostrarProximoPopup();
     return; // NÃO confirma automaticamente, aguarda resposta do entregador
   }
 
@@ -2570,8 +2571,6 @@ async function abrirModal(p) {
 
   // Mostrar secção de pagamento APENAS se for pagar na entrega
   document.getElementById('secPagamento').style.display = pagarNaEntrega ? 'block' : 'none';
-  // Mostrar secção de fiado direto APENAS se já foi pedido como fiado
-  document.getElementById('secFiado').style.display = ehFiado ? 'block' : 'none';
 
   // Reset botões Sim/Não
   document.getElementById('btnSimPago').classList.remove('sel');
@@ -2696,7 +2695,9 @@ async function confirmarEntrega() {
       await sb.from('pedidos').update(upd).eq('id', pedido.id);
 
       // 3. Se fiado: atualiza débito do cliente
-      if (ehFiado) {
+      // MAS APENAS SE O PEDIDO NÃO ERA FIADO DESDE O INÍCIO
+      const eraFiadoDesdeInicio = pedido?.payment_method?.toUpperCase() === 'FIADO';
+      if (ehFiado && !eraFiadoDesdeInicio) {
         const { data: cli } = await sb.from('clientes').select('debt').eq('phone', p.cliente_phone).maybeSingle();
         const debtAtual = parseFloat(cli?.debt || 0);
         await sb.from('clientes').update({
@@ -2720,19 +2721,35 @@ async function confirmarEntrega() {
 }
 
 // Função para responder ao pop-up de pagamento automático
-async function confirmarPagamentoAuto(foiPago) {
-  if (!popupParada || !popupPedido) {
+// Mostra o próximo pop-up da fila (último adicionado fica em cima)
+function mostrarProximoPopup() {
+  if (popupFila.length === 0) {
     document.getElementById('popupPagamentoAuto').style.display = 'none';
     return;
   }
+  
+  const popupAtual = popupFila[popupFila.length - 1]; // último da fila
+  document.getElementById('popupNomeCliente').textContent = popupAtual.parada.nome || 'Cliente';
+  document.getElementById('popupTotal').textContent = `Total: R$ ${Number(popupAtual.pedido.total || 0).toFixed(2).replace('.', ',')}`;
+  document.getElementById('popupPagamentoAuto').style.display = 'flex';
+}
+
+async function confirmarPagamentoAuto(foiPago) {
+  if (popupFila.length === 0) {
+    document.getElementById('popupPagamentoAuto').style.display = 'none';
+    return;
+  }
+
+  // Remove o pop-up atual da fila (o último)
+  const popupAtual = popupFila.pop();
+  const p = popupAtual.parada;
+  const pedido = popupAtual.pedido;
 
   // Desabilita botões para evitar múltiplos cliques
   const popup = document.getElementById('popupPagamentoAuto');
   const buttons = popup.querySelectorAll('button');
   buttons.forEach(btn => btn.disabled = true);
 
-  const p = popupParada;
-  const pedido = popupPedido;
   const agora = new Date().toISOString();
   const ehFiado = !foiPago; // Se não pagou, é fiado
   const pagamento = foiPago ? (pedido?.payment_method || 'dinheiro') : 'fiado';
@@ -2782,7 +2799,9 @@ async function confirmarPagamentoAuto(foiPago) {
       await sb.from('pedidos').update(upd).eq('id', pedido.id);
 
       // 3. Se não pagou (fiado): atualiza débito do cliente
-      if (ehFiado) {
+      // MAS APENAS SE O PEDIDO NÃO ERA FIADO DESDE O INÍCIO
+      const eraFiadoDesdeInicio = pedido?.payment_method?.toUpperCase() === 'FIADO';
+      if (ehFiado && !eraFiadoDesdeInicio) {
         const { data: cli } = await sb.from('clientes').select('debt').eq('phone', p.cliente_phone).maybeSingle();
         const debtAtual = parseFloat(cli?.debt || 0);
         await sb.from('clientes').update({
@@ -2792,20 +2811,20 @@ async function confirmarPagamentoAuto(foiPago) {
       }
     }
 
-    // Fecha o pop-up
-    popup.style.display = 'none';
-    popupParada = null;
-    popupPedido = null;
     esconderAlerta();
-    
     showToast(ehFiado ? '📋 Fiado registrado!' : '✅ Entrega confirmada!', 'ok');
     await carregarRota();
+
+    // Mostra o próximo pop-up da fila (se houver)
+    mostrarProximoPopup();
 
   } catch(e) {
     console.error(e);
     showToast('Erro ao salvar', 'err');
     // Re-habilita botões em caso de erro
     buttons.forEach(btn => btn.disabled = false);
+    // Volta o pop-up para a fila
+    popupFila.push(popupAtual);
   }
 }
 
