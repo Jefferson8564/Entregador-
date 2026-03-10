@@ -720,7 +720,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
           padding:16px 10px;border-radius:14px;border:2px solid rgba(255,140,66,0.3);
           background:rgba(255,140,66,0.07);color:var(--orange);font-family:'Syne',sans-serif;
           font-size:15px;font-weight:800;cursor:pointer;transition:all 0.15s;text-align:center">
-          📋 Fiado
+          ❌ Não Pagou
         </button>
       </div>
     </div>
@@ -754,6 +754,101 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 </div>
 
 
+
+<div id="toast"></div>
+
+<!-- Pop-up de pagamento automático (aparece quando entrega é confirmada por GPS e é pagar na entrega) -->
+<div id="popupPagamentoAuto" style="
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,0.7); 
+  display: none;
+  align-items: center; justify-content: center;
+  animation: fadeIn 0.3s ease-out;
+">
+  <div style="
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    padding: 32px 24px;
+    max-width: 340px;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    animation: slideUp 0.35s cubic-bezier(0.34,1.56,0.64,1);
+  ">
+    <!-- Cliente info -->
+    <div style="margin-bottom: 20px;">
+      <div style="font-size: 28px; margin-bottom: 8px;">📍</div>
+      <div style="font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 4px;" id="popupNomeCliente"></div>
+      <div style="font-size: 13px; color: var(--muted);">Entrega Confirmada</div>
+    </div>
+
+    <!-- Total -->
+    <div style="
+      background: rgba(34,217,122,0.08);
+      border: 1px solid rgba(34,217,122,0.2);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 24px;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--green);
+    " id="popupTotal"></div>
+
+    <!-- Pergunta -->
+    <div style="
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 20px;
+      line-height: 1.4;
+    ">
+      💰 Cliente pagou?
+    </div>
+
+    <!-- Botões -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+      <button onclick="confirmarPagamentoAuto(true)" style="
+        padding: 14px 12px;
+        border-radius: 12px;
+        border: 2px solid rgba(34,217,122,0.3);
+        background: rgba(34,217,122,0.07);
+        color: var(--green);
+        font-family: 'Syne', sans-serif;
+        font-size: 14px;
+        font-weight: 800;
+        cursor: pointer;
+        transition: all 0.15s;
+      " onmouseover="this.style.borderColor='var(--green)';this.style.background='rgba(34,217,122,0.15)'" onmouseout="this.style.borderColor='rgba(34,217,122,0.3)';this.style.background='rgba(34,217,122,0.07)'">
+        ✅ Pagou
+      </button>
+      <button onclick="confirmarPagamentoAuto(false)" style="
+        padding: 14px 12px;
+        border-radius: 12px;
+        border: 2px solid rgba(255,140,66,0.3);
+        background: rgba(255,140,66,0.07);
+        color: var(--orange);
+        font-family: 'Syne', sans-serif;
+        font-size: 14px;
+        font-weight: 800;
+        cursor: pointer;
+        transition: all 0.15s;
+      " onmouseover="this.style.borderColor='var(--orange)';this.style.background='rgba(255,140,66,0.15)'" onmouseout="this.style.borderColor='rgba(255,140,66,0.3)';this.style.background='rgba(255,140,66,0.07)'">
+        ❌ Não Pagou
+      </button>
+    </div>
+  </div>
+</div>
+
+<style>
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideUp {
+  from { transform: translateY(30px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+</style>
 
 <div id="toast"></div>
 
@@ -818,6 +913,8 @@ let alertaPhone = null;     // phone do cliente em alerta
 let painelAberto = false;
 let modalParada = null;     // parada sendo confirmada
 let pagSelecionado = null;
+let popupParada = null;     // parada do pop-up automático
+let popupPedido = null;     // pedido do pop-up automático
 let mkClientes = {};        // phone → leaflet marker
 
 // Exploração livre no 2D: pausa o seguimento enquanto o usuário arrasta
@@ -2355,6 +2452,22 @@ async function _confirmarEntregaAuto(p) {
   const pedido = pedidos?.[0];
   const metodo = (pedido?.payment_method || '').toUpperCase();
   const ehFiado = metodo === 'FIADO';
+  const pagarNaEntrega = !ehFiado && metodo !== 'PREMIO' && pedido;
+
+  // ── Se é PAGAR NA ENTREGA, mostra pop-up ──
+  if (pagarNaEntrega) {
+    // Guarda contexto para o pop-up
+    popupParada = p;
+    popupPedido = pedido;
+    
+    // Mostra pop-up
+    document.getElementById('popupNomeCliente').textContent = p.nome || 'Cliente';
+    document.getElementById('popupTotal').textContent = `Total: R$ ${Number(pedido.total || 0).toFixed(2).replace('.', ',')}`;
+    document.getElementById('popupPagamentoAuto').style.display = 'flex';
+    return; // NÃO confirma automaticamente, aguarda resposta do entregador
+  }
+
+  // ── Se é FIADO direto, confirma automaticamente ──
   const pagamento = ehFiado ? 'fiado' : (pedido?.payment_method || 'dinheiro');
   const agora = new Date().toISOString();
 
@@ -2455,7 +2568,9 @@ async function abrirModal(p) {
   // "pagar na entrega" = dinheiro ou pix (qualquer coisa que não seja fiado e não seja premio)
   const pagarNaEntrega = !ehFiado && metodo !== 'PREMIO' && pedido;
 
+  // Mostrar secção de pagamento APENAS se for pagar na entrega
   document.getElementById('secPagamento').style.display = pagarNaEntrega ? 'block' : 'none';
+  // Mostrar secção de fiado direto APENAS se já foi pedido como fiado
   document.getElementById('secFiado').style.display = ehFiado ? 'block' : 'none';
 
   // Reset botões Sim/Não
@@ -2463,9 +2578,10 @@ async function abrirModal(p) {
   document.getElementById('btnNaoPago').classList.remove('sel');
 
   const btnConf = document.getElementById('btnConfirmar');
-  btnConf.disabled = pagarNaEntrega; // bloqueia até responder Sim ou Não
-  btnConf.textContent = ehFiado ? '📋 Registrar Fiado' : '✅ Confirmar Entrega';
-  btnConf.style.background = ehFiado ? 'var(--orange)' : 'var(--green)';
+  // Bloqueia botão APENAS se for pagar na entrega e ainda não respondeu
+  btnConf.disabled = pagarNaEntrega;
+  btnConf.textContent = '✅ Confirmar Entrega';
+  btnConf.style.background = 'var(--green)';
   btnConf.style.color = '#000';
   btnConf.style.opacity = pagarNaEntrega ? '0.4' : '1';
 
@@ -2501,15 +2617,9 @@ function respPago(foiPago) {
     : 'fiado';
 
   btnConf.disabled = false;
-  if (!foiPago) {
-    btnConf.textContent = '📋 Confirmar como Fiado';
-    btnConf.style.background = 'var(--orange)';
-    btnConf.style.color = '#000';
-  } else {
-    btnConf.textContent = '✅ Confirmar Entrega';
-    btnConf.style.background = 'var(--green)';
-    btnConf.style.color = '#000';
-  }
+  btnConf.textContent = '✅ Confirmar Entrega';
+  btnConf.style.background = 'var(--green)';
+  btnConf.style.color = '#000';
 }
 
 function fecharModal() {
@@ -2598,14 +2708,104 @@ async function confirmarEntrega() {
 
     fecharModal();
     esconderAlerta();
-    showToast(ehFiado ? '📋 Registrado como fiado!' : '✅ Entrega confirmada!', 'ok');
+    showToast(ehFiado ? '📋 Fiado registrado!' : '✅ Entrega confirmada!', 'ok');
     await carregarRota();
 
   } catch(e) {
     console.error(e);
     showToast('Erro ao salvar', 'err');
     btn.disabled = false;
-    btn.textContent = ehFiado ? '📋 Registrar Fiado' : '✅ Confirmar Entrega';
+    btn.textContent = '✅ Confirmar Entrega';
+  }
+}
+
+// Função para responder ao pop-up de pagamento automático
+async function confirmarPagamentoAuto(foiPago) {
+  if (!popupParada || !popupPedido) {
+    document.getElementById('popupPagamentoAuto').style.display = 'none';
+    return;
+  }
+
+  // Desabilita botões para evitar múltiplos cliques
+  const popup = document.getElementById('popupPagamentoAuto');
+  const buttons = popup.querySelectorAll('button');
+  buttons.forEach(btn => btn.disabled = true);
+
+  const p = popupParada;
+  const pedido = popupPedido;
+  const agora = new Date().toISOString();
+  const ehFiado = !foiPago; // Se não pagou, é fiado
+  const pagamento = foiPago ? (pedido?.payment_method || 'dinheiro') : 'fiado';
+
+  // ── Atualiza local IMEDIATAMENTE ──
+  paradas = paradas.map(x =>
+    (!x._meta && x.cliente_phone === p.cliente_phone)
+      ? { ...x, status: 'entregue', entregue_em: agora, pagamento }
+      : x
+  );
+  paradasRotaAtiva = paradasRotaAtiva.map(x =>
+    (!x._meta && x.cliente_phone === p.cliente_phone)
+      ? { ...x, status: 'entregue', entregue_em: agora, pagamento }
+      : x
+  );
+
+  try {
+    // 1. Marca parada como entregue na rota
+    if (rotaAtiva?.id) {
+      const novasParadas = (rotaAtiva.paradas || []).map(x => {
+        if (!x._meta && x.cliente_phone === p.cliente_phone) {
+          return { ...x, status: 'entregue', entregue_em: agora, pagamento };
+        }
+        return x;
+      });
+      const entreguesCount = novasParadas.filter(x => !x._meta && x.status === 'entregue').length;
+      // Verifica se todas as paradas ativas foram entregues → conclui a rota
+      const paradasAtivas = novasParadas.filter(x => !x._meta && x.desativado !== true);
+      const todasEntregues = paradasAtivas.length > 0 && paradasAtivas.every(x => x.status === 'entregue');
+      await sb.from('rotas').update({
+        paradas: novasParadas,
+        phones_entregues: [...(rotaAtiva.phones_entregues || []), p.cliente_phone],
+        entregas_realizadas: entreguesCount,
+        ...(todasEntregues ? { status: 'concluido', fim_em: new Date().toISOString() } : {})
+      }).eq('id', rotaAtiva.id);
+      if (todasEntregues) showToast('🎉 Todas as entregas concluídas!', 'ok', 3000);
+    }
+
+    // 2. Atualiza pedido
+    if (pedido?.id) {
+      const upd = {
+        entregue: true,
+        entregue_em: agora,
+        payment_method: ehFiado ? 'FIADO' : pagamento,
+        status_entrega: 'entregue'
+      };
+      await sb.from('pedidos').update(upd).eq('id', pedido.id);
+
+      // 3. Se não pagou (fiado): atualiza débito do cliente
+      if (ehFiado) {
+        const { data: cli } = await sb.from('clientes').select('debt').eq('phone', p.cliente_phone).maybeSingle();
+        const debtAtual = parseFloat(cli?.debt || 0);
+        await sb.from('clientes').update({
+          debt: debtAtual + Number(pedido.total || 0),
+          fiado: true
+        }).eq('phone', p.cliente_phone);
+      }
+    }
+
+    // Fecha o pop-up
+    popup.style.display = 'none';
+    popupParada = null;
+    popupPedido = null;
+    esconderAlerta();
+    
+    showToast(ehFiado ? '📋 Fiado registrado!' : '✅ Entrega confirmada!', 'ok');
+    await carregarRota();
+
+  } catch(e) {
+    console.error(e);
+    showToast('Erro ao salvar', 'err');
+    // Re-habilita botões em caso de erro
+    buttons.forEach(btn => btn.disabled = false);
   }
 }
 
