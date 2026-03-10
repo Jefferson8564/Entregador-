@@ -1887,7 +1887,7 @@ function renderRotaCards() {
     return;
   }
 
-  const statusLabel = { criada:'⏳ Aguardando', aguardando:'🏭 Na fábrica', em_andamento:'🛵 Em andamento', concluido:'✅ Concluída' };
+  const statusLabel = { criada:'🚀 Inicia', aguardando:'🏭 Na fábrica', em_andamento:'🛵 Em rota', concluido:'✅ Concluída' };
   const badgeClass  = { criada:'ag', aguardando:'ag', em_andamento:'em', concluido:'ok' };
 
   box.innerHTML = filaRotasHoje.map((r, idx) => {
@@ -1906,56 +1906,68 @@ function renderRotaCards() {
     const anterior   = idx > 0 ? filaRotasHoje[idx - 1] : null;
     const isBloqueada = r.status === 'criada' && anterior && anterior.status !== 'concluido';
 
+    // Concluída de ontem mas ainda não chegou hora de saída → trata como aguardando saída
+    const agoraSPr = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+    const horaAtualR = `${String(agoraSPr.getHours()).padStart(2,'0')}:${String(agoraSPr.getMinutes()).padStart(2,'0')}`;
+    const aguardandoSaida = isConcluida && hora !== '--:--' && horaAtualR < hora;
+
     const posLabel  = ['1ª','2ª','3ª','4ª','5ª'][idx] || `${idx+1}ª`;
-    const cardClass = isConcluida ? 'concluida' : isAtiva ? 'ativa' : '';
+    const cardClass = (isConcluida && !aguardandoSaida) ? 'concluida' : isAtiva ? 'ativa' : '';
     const bc        = badgeClass[r.status] || 'ag';
-    const barColor  = isConcluida ? 'var(--green)' : isAtiva ? 'var(--gold)' : 'rgba(192,132,252,0.4)';
+    const barColor  = (isConcluida && !aguardandoSaida) ? 'var(--green)' : isAtiva ? 'var(--gold)' : 'rgba(192,132,252,0.4)';
     const badgeHtml = isBloqueada
       ? `<span class="rota-card-badge ag">🔒 Aguardando anterior</span>`
-      : `<span class="rota-card-badge ${bc}">${statusLabel[r.status] || r.status}</span>`;
+      : aguardandoSaida
+        ? `<span class="rota-card-badge ag">⏳ Aguardando saída</span>`
+        : `<span class="rota-card-badge ${bc}">${statusLabel[r.status] || r.status}</span>`;
 
     const pedidoLabel = (isConcluida && pedidoQtd === 0)
       ? '<span>📦 Sem pedidos</span>'
       : `<span>📦 ${entregues}/${pedidoQtd} pedido${pedidoQtd !== 1 ? 's' : ''}</span>`;
 
     // Countdown:
-    //   - Rota 'criada' → conta até hora de saída (ex: 05:20)
-    //   - Rota 'concluida' → conta até virada do dia (14:30 seg-sáb / 08:00 dom)
+    //   - criada               → 🚀 Saída às HH:MM (ainda não saiu)
+    //   - concluida antes hora → 🚀 Saída às HH:MM (reinicia amanhã, mas saída é o que importa)
+    //   - concluida após hora  → 🔄 Reinicia às 14:30 (saiu e finalizou hoje, aguarda virada)
     let countdownHtml = '';
-    if (isConcluida) {
-      // Após finalizar: mostra countdown até reiniciar (virada)
+    if (hora !== '--:--') {
       const agoraSPc = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
-      const [vhc, vmc] = _getViradaHoraMin(agoraSPc.getDay());
-      const horaVirada = `${String(vhc).padStart(2,'0')}:${String(vmc).padStart(2,'0')}`;
-      countdownHtml = `<div style="
-        margin-top:10px;display:flex;align-items:center;gap:8px;
-        background:rgba(245,200,66,0.08);border:1px solid rgba(245,200,66,0.2);
-        border-radius:10px;padding:8px 12px;
-      ">
-        <span style="font-size:14px;">🔄</span>
-        <div>
-          <div style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:1px;">Reinicia às ${horaVirada}</div>
-          <div class="rota-countdown" data-hora="${horaVirada}" style="font-family:'DM Mono',monospace;font-size:16px;font-weight:500;color:var(--gold);">--:--</div>
-        </div>
-      </div>`;
-    } else if (r.status === 'criada' && hora !== '--:--') {
-      // Antes de sair: mostra countdown até hora de saída
-      countdownHtml = `<div style="
-        margin-top:10px;display:flex;align-items:center;gap:8px;
-        background:rgba(66,245,126,0.06);border:1px solid rgba(66,245,126,0.18);
-        border-radius:10px;padding:8px 12px;
-      ">
-        <span style="font-size:14px;">🚀</span>
-        <div>
-          <div style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:1px;">Saída às ${hora}</div>
-          <div class="rota-countdown" data-hora="${hora}" style="font-family:'DM Mono',monospace;font-size:16px;font-weight:500;color:var(--green);">--:--</div>
-        </div>
-      </div>`;
+      const horaAtualStr = `${String(agoraSPc.getHours()).padStart(2,'0')}:${String(agoraSPc.getMinutes()).padStart(2,'0')}`;
+      const concluidaAposHora = isConcluida && horaAtualStr >= hora;
+      if (concluidaAposHora) {
+        // Finalizou hoje após sair → mostra countdown até virada
+        const [vhc, vmc] = _getViradaHoraMin(agoraSPc.getDay());
+        const horaVirada = `${String(vhc).padStart(2,'0')}:${String(vmc).padStart(2,'0')}`;
+        countdownHtml = `<div style="
+          margin-top:10px;display:flex;align-items:center;gap:8px;
+          background:rgba(245,200,66,0.08);border:1px solid rgba(245,200,66,0.2);
+          border-radius:10px;padding:8px 12px;
+        ">
+          <span style="font-size:14px;">🔄</span>
+          <div>
+            <div style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:1px;">Reinicia às ${horaVirada}</div>
+            <div class="rota-countdown" data-hora="${horaVirada}" style="font-family:'DM Mono',monospace;font-size:16px;font-weight:500;color:var(--gold);">--:--</div>
+          </div>
+        </div>`;
+      } else if (r.status === 'criada' || isConcluida) {
+        // Ainda não saiu (criada) OU concluída mas hora ainda não chegou → mostra saída
+        countdownHtml = `<div style="
+          margin-top:10px;display:flex;align-items:center;gap:8px;
+          background:rgba(66,245,126,0.06);border:1px solid rgba(66,245,126,0.18);
+          border-radius:10px;padding:8px 12px;
+        ">
+          <span style="font-size:14px;">🚀</span>
+          <div>
+            <div style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:1px;">Saída às ${hora}</div>
+            <div class="rota-countdown" data-hora="${hora}" style="font-family:'DM Mono',monospace;font-size:16px;font-weight:500;color:var(--green);">--:--</div>
+          </div>
+        </div>`;
+      }
     }
 
     return `<div class="rota-card ${cardClass}" style="${isBloqueada ? 'opacity:0.5;' : ''}" onclick="abrirParadasRota('${r.id}')">
       <div class="rota-card-top">
-        <div class="rota-card-icon">${isConcluida ? '✓' : posLabel}</div>
+        <div class="rota-card-icon">${(isConcluida && !aguardandoSaida) ? '✓' : posLabel}</div>
         <div class="rota-card-info">
           <div class="rota-card-nome">${r.nome_rota || 'Rota'}</div>
           <div class="rota-card-meta">
