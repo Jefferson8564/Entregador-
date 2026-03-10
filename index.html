@@ -579,7 +579,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
             </div>
             <div>
               <div style="font-size:12px;font-weight:700;color:var(--text);">3 linhas</div>
-              <div style="font-size:10px;color:var(--muted);">Azul → ida → volta à fábrica</div>
+              <div style="font-size:10px;color:var(--muted);">Azul (próx.) + Verde (rota) + Vermelho (volta)</div>
             </div>
           </div>
 
@@ -612,7 +612,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
             </div>
             <div>
               <div style="font-size:12px;font-weight:700;color:var(--text);">Azul completo</div>
-              <div style="font-size:10px;color:var(--muted);">Uma linha azul do início ao fim</div>
+              <div style="font-size:10px;color:var(--muted);">Linha azul completa: você → clientes → fábrica</div>
             </div>
           </div>
 
@@ -1048,12 +1048,36 @@ function _suavizarBearing(b) {
  * Se houver paradas pendentes na rota, calcula o bearing atual → próxima parada pendente.
  * Isso faz a câmera "antecipar" as curvas da rota.
  */
+// ── ANTECIPAÇÃO DE CURVAS (bearing futuro) ────────────────────────────────
+// Analisa a rota futura para detectar curvas e girar o mapa antecipadamente
+let _rotaFuturaCoordsCache = null;
+let _ultimaBearingPorCurva = null;
+let _tempoModoAutomatico = 0;
+
 function _calcBearingAntecipado(lat, lon) {
   if (!paradasRotaAtiva || paradasRotaAtiva.length === 0) {
     return null; // sem rota ativa, usa o bearing por GPS
   }
   
-  // Encontra a próxima parada pendente
+  // Tenta encontrar curva à frente (até 150m)
+  const bearingCurva = _detectarCurvaAFrente(lat, lon, _rotaAzulCoords || []);
+  if (bearingCurva !== null) {
+    _ultimaBearingPorCurva = bearingCurva;
+    _tempoModoAutomatico = Date.now();
+    return bearingCurva;
+  }
+  
+  // Se estava em modo "curva" mas entregador ignorou → volta ao bearing por GPS
+  if (_ultimaBearingPorCurva !== null && Date.now() - _tempoModoAutomatico > 8000) {
+    _ultimaBearingPorCurva = null;
+  }
+  
+  // Se ainda está em modo curva recente, mantém aquele bearing
+  if (_ultimaBearingPorCurva !== null) {
+    return _ultimaBearingPorCurva;
+  }
+  
+  // Fallback: bearing para próxima parada
   const proximaParada = paradasRotaAtiva.find(p => p.status !== 'entregue' && p.coords);
   if (!proximaParada) {
     return null; // todas entregues ou sem coords
@@ -1062,6 +1086,71 @@ function _calcBearingAntecipado(lat, lon) {
   const [pLat, pLon] = proximaParada.coords;
   const bearing = _calcBearing(lat, lon, pLat, pLon);
   return _suavizarBearing(bearing);
+}
+
+// ── DETECTOR DE CURVAS À FRENTE ───────────────────────────────────────────
+// Analisa coordenadas futuras da rota e detecta mudanças de direção
+function _detectarCurvaAFrente(lat, lon, rotaCoords) {
+  if (!rotaCoords || rotaCoords.length < 3) return null;
+  
+  // Encontra o ponto atual mais próximo na rota
+  let idxMaisProximo = 0;
+  let distMenor = Infinity;
+  
+  for (let i = 0; i < rotaCoords.length - 1; i++) {
+    const [lon1, lat1] = rotaCoords[i];
+    const [lon2, lat2] = rotaCoords[i + 1];
+    
+    // Distância do entregador ao segmento [i, i+1]
+    const dx = lon2 - lon1, dy = lat2 - lat1;
+    const len2 = dx*dx + dy*dy;
+    let t = len2 > 0 ? ((lon - lon1)*dx + (lat - lat1)*dy) / len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    
+    const projLon = lon1 + t*dx, projLat = lat1 + t*dy;
+    const d = distancia(lat, lon, projLat, projLon);
+    
+    if (d < distMenor) {
+      distMenor = d;
+      idxMaisProximo = i + Math.min(t, 1);
+    }
+  }
+  
+  // Índice a procurar curvas (50-150m à frente, ajustado por velocidade)
+  const DIST_MIN = 50, DIST_MAX = 150;
+  const idxFuturo = Math.min(
+    rotaCoords.length - 2,
+    Math.floor(idxMaisProximo + (DIST_MAX / 111000)) // ~1.35 índices por 150m
+  );
+  
+  if (idxFuturo <= idxMaisProximo + 2) return null;
+  
+  // Calcula bearing atual (próximos 2 pontos)
+  const [lon0, lat0] = rotaCoords[Math.floor(idxMaisProximo)];
+  const [lon1, lat1] = rotaCoords[Math.floor(idxMaisProximo) + 1];
+  const bearingAtual = _calcBearing(lat0, lon0, lat1, lon1);
+  
+  // Calcula bearing futuro (próximos pontos futuros)
+  const idxF1 = Math.floor(idxFuturo);
+  if (idxF1 + 1 >= rotaCoords.length) return null;
+  
+  const [lonF0, latF0] = rotaCoords[idxF1];
+  const [lonF1, latF1] = rotaCoords[idxF1 + 1];
+  const bearingFuturo = _calcBearing(latF0, lonF0, latF1, lonF1);
+  
+  // Detecta mudança de direção (curva) > 15°
+  const delta = Math.abs(_normalizarBearing(bearingFuturo - bearingAtual));
+  if (delta > 15 && delta < 345) { // ignora giros insignificantes e voltas
+    return _suavizarBearing(bearingFuturo);
+  }
+  
+  return null;
+}
+
+// Normaliza bearing para intervalo [-180, 180]
+function _normalizarBearing(b) {
+  b = b % 360;
+  return b > 180 ? b - 360 : (b < -180 ? b + 360 : b);
 }
 
 // ── ESTILO DA LINHA DE ROTA ───────────────────────────────────────────────
@@ -1092,8 +1181,8 @@ function _aplicarEstiloLinhaInicial() {
 /**
  * Desenha a rota no mapa com TRÊS LINHAS:
  * 🔵 AZUL: você → próxima parada (forte e destacada)
- * 🟢 VERDE: próxima parada → último cliente (rota ida)
- * 🔴 VERMELHA: último cliente → fábrica (rota volta)
+ * 🟢 VERDE: você → todas as paradas pendentes (rota completa de ida)
+ * 🔴 VERMELHA: último cliente → fábrica (volta, só no modo "tres")
  * ⬆️ Setas apenas na linha azul
  */
 // Helper: busca rota OSRM em chunks de até 10 waypoints e une segmentos
@@ -1128,52 +1217,223 @@ async function desenharRotaNoMapa() {
   const paradasPendentes = paradasRotaAtiva.filter(p => p.status !== 'entregue' && p.coords);
   if (paradasPendentes.length === 0) { _limparRotaNoMapa(); return; }
 
-  _limparRotaNoMapa();
-
   // Origem: posicao do entregador OU primeira parada (sem GPS)
   const origem = posEntregador
     ? [posEntregador.lon, posEntregador.lat]
     : [paradasPendentes[0].coords[1], paradasPendentes[0].coords[0]];
 
-  // ── PONTA A PONTA ──
+  // ── PONTA A PONTA (sem fetch, aplica direto) ──
   if (estiloLinhaRota === 'pontaaponta') {
     const coords = [origem, ...paradasPendentes.map(p => [p.coords[1], p.coords[0]])];
+    _limparRotaNoMapa();
     _adicionarLinhaRota('route-line-azul', { type: 'LineString', coordinates: coords }, '#c084fc', 3, 0.85, false, [6, 3]);
     return;
   }
 
   try {
-    // ── AZUL COMPLETO ──
+    // ── Busca TODOS os dados do OSRM em paralelo antes de tocar no mapa ──
+    let geoAzul = null, geoVerde = null, geoVerm = null;
+
     if (estiloLinhaRota === 'azulcompleto') {
-      const waypoints = [origem, ...paradasPendentes.map(p => [p.coords[1], p.coords[0]])];
-      const geo = await _fetchOSRMChunked(waypoints);
-      if (geo) _adicionarLinhaRota('route-line-azul', geo, '#4D9EFF', 4.5, 0.9, true);
+      const waypoints = [origem, ...paradasPendentes.map(p => [p.coords[1], p.coords[0]]), [FABRICA_LON, FABRICA_LAT]];
+      geoAzul = await _fetchOSRMChunked(waypoints);
+    } else {
+      const proxima = paradasPendentes[0];
+      const wpVerde = [origem, ...paradasPendentes.map(p => [p.coords[1], p.coords[0]])];
+      const ultima  = paradasPendentes[paradasPendentes.length - 1];
+
+      // Busca as 3 rotas em paralelo (muito mais rápido)
+      const fetches = [
+        _fetchOSRMChunked([origem, [proxima.coords[1], proxima.coords[0]]]),
+        _fetchOSRMChunked(wpVerde),
+        estiloLinhaRota === 'tres'
+          ? _fetchOSRMChunked([[ultima.coords[1], ultima.coords[0]], [FABRICA_LON, FABRICA_LAT]])
+          : Promise.resolve(null)
+      ];
+      [geoAzul, geoVerde, geoVerm] = await Promise.all(fetches);
+    }
+
+    // ── Só agora limpa e redesenha — mapa fica vazio por milissegundos ──
+    _limparRotaNoMapa();
+
+    if (estiloLinhaRota === 'azulcompleto') {
+      if (geoAzul) _adicionarLinhaRota('route-line-azul', geoAzul, '#4D9EFF', 4.5, 0.9, true);
       return;
     }
 
-    // AZUL: origem ate a proxima parada
-    const proxima = paradasPendentes[0];
-    const geoAzul = await _fetchOSRMChunked([origem, [proxima.coords[1], proxima.coords[0]]]);
-    if (geoAzul) _adicionarLinhaRota('route-line-azul', geoAzul, '#4D9EFF', 4.5, 0.9, true);
-
-    // VERDE: percurso completo entre todas as paradas pendentes
-    if (paradasPendentes.length > 1) {
-      const wpVerde = paradasPendentes.map(p => [p.coords[1], p.coords[0]]);
-      const geoVerde = await _fetchOSRMChunked(wpVerde);
-      if (geoVerde) _adicionarLinhaRota('route-line-verde', geoVerde, '#22D97A', 3.5, 0.7, false);
+    if (geoAzul) {
+      _rotaAzulCoords = geoAzul.coordinates; // salva para detecção de desvio
+      _adicionarLinhaRota('route-line-azul', geoAzul, '#4D9EFF', 4.5, 0.9, true);
     }
-
-    // VERMELHA: ultimo cliente ate a fabrica (apenas modo "tres")
-    if (estiloLinhaRota === 'tres') {
-      const ultima = paradasPendentes[paradasPendentes.length - 1];
-      const geoVerm = await _fetchOSRMChunked([[ultima.coords[1], ultima.coords[0]], [FABRICA_LON, FABRICA_LAT]]);
-      if (geoVerm) _adicionarLinhaRota('route-line-vermelho', geoVerm, '#FF6B6B', 3, 0.55, false);
-    }
+    if (geoVerde) _adicionarSomenteSetasVerdes(geoVerde);
+    if (geoVerm)  _adicionarSomenteSetasVermelhas(geoVerm);
 
   } catch (err) {
     console.error('Erro ao desenhar rota:', err);
-    _limparRotaNoMapa();
   }
+}
+
+/**
+ * Gera pontos espaçados ao longo de uma LineString com bearing entre cada ponto
+ */
+function _gerarPontosSetasVerdes(coords, spacingMetros) {
+  const RAD = Math.PI / 180;
+  const DEG = 180 / Math.PI;
+  function dist(a, b) {
+    const R = 6371000;
+    const dLat = (b[1]-a[1])*RAD, dLon = (b[0]-a[0])*RAD;
+    const s = Math.sin(dLat/2)**2 + Math.cos(a[1]*RAD)*Math.cos(b[1]*RAD)*Math.sin(dLon/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
+  }
+  function bearing(a, b) {
+    const dL = (b[0]-a[0])*RAD;
+    const y = Math.sin(dL)*Math.cos(b[1]*RAD);
+    const x = Math.cos(a[1]*RAD)*Math.sin(b[1]*RAD) - Math.sin(a[1]*RAD)*Math.cos(b[1]*RAD)*Math.cos(dL);
+    return (Math.atan2(y,x)*DEG + 360) % 360;
+  }
+  function interpolate(a, b, t) { return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t]; }
+
+  const points = [];
+  let acum = spacingMetros * 0.5; // começa no meio do primeiro intervalo
+  for (let i = 0; i < coords.length - 1; i++) {
+    const segDist = dist(coords[i], coords[i+1]);
+    const bear = bearing(coords[i], coords[i+1]);
+    let d = acum;
+    while (d <= segDist) {
+      const t = d / segDist;
+      points.push({ coord: interpolate(coords[i], coords[i+1], t), bearing: bear });
+      d += spacingMetros;
+    }
+    acum = d - segDist;
+  }
+  return points;
+}
+
+/**
+ * Adiciona só setas verdes ao longo da rota como círculos rotacionados (sem depender de fontes)
+ */
+function _adicionarSomenteSetasVerdes(geometry) {
+  if (!map) return;
+  const layerId = 'route-line-verde';
+  const setasId = 'route-line-verde-setas';
+
+  // Remove anteriores
+  if (map.getLayer(setasId)) map.removeLayer(setasId);
+  if (map.getLayer(layerId)) map.removeLayer(layerId);
+  if (map.getSource(layerId + '-source')) map.removeSource(layerId + '-source');
+  if (map.getSource(setasId + '-source')) map.removeSource(setasId + '-source');
+
+  const _labelRef = map.getStyle().layers.find(l => l.type === 'symbol' && (l.id.includes('label') || l.id.includes('place')));
+  const _beforeId = _labelRef ? _labelRef.id : undefined;
+
+  // Gera pontos de seta a cada ~120m
+  const pontos = _gerarPontosSetasVerdes(geometry.coordinates, 120);
+
+  // Cria imagem de seta no canvas se ainda não existe
+  if (!map.hasImage('seta-verde')) {
+    const sz = 24;
+    const canvas = document.createElement('canvas');
+    canvas.width = sz; canvas.height = sz;
+    const ctx = canvas.getContext('2d');
+    // Desenha triângulo apontando para cima (norte = 0°)
+    ctx.fillStyle = 'rgba(34,217,122,0.85)';
+    ctx.beginPath();
+    ctx.moveTo(sz/2, 2);         // topo
+    ctx.lineTo(sz-4, sz-4);      // direita
+    ctx.lineTo(sz/2, sz-8);      // meio baixo
+    ctx.lineTo(4, sz-4);         // esquerda
+    ctx.closePath();
+    ctx.fill();
+    map.addImage('seta-verde', { width: sz, height: sz, data: new Uint8Array(ctx.getImageData(0,0,sz,sz).data) });
+  }
+
+  // Source com pontos GeoJSON
+  const features = pontos.map(p => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: p.coord },
+    properties: { bearing: p.bearing }
+  }));
+
+  map.addSource(setasId + '-source', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features }
+  });
+
+  map.addLayer({
+    id: setasId,
+    type: 'symbol',
+    source: setasId + '-source',
+    layout: {
+      'icon-image': 'seta-verde',
+      'icon-size': 0.7,
+      'icon-rotate': ['get', 'bearing'],
+      'icon-rotation-alignment': 'map',
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true
+    },
+    paint: { 'icon-opacity': 0.75 }
+  }, _beforeId);
+}
+
+/**
+ * Adiciona só setas vermelhas ao longo da rota de volta à fábrica
+ */
+function _adicionarSomenteSetasVermelhas(geometry) {
+  if (!map) return;
+  const layerId = 'route-line-vermelho';
+  const setasId = 'route-line-vermelho-setas';
+
+  if (map.getLayer(setasId)) map.removeLayer(setasId);
+  if (map.getLayer(layerId)) map.removeLayer(layerId);
+  if (map.getSource(layerId + '-source')) map.removeSource(layerId + '-source');
+  if (map.getSource(setasId + '-source')) map.removeSource(setasId + '-source');
+
+  const _labelRef = map.getStyle().layers.find(l => l.type === 'symbol' && (l.id.includes('label') || l.id.includes('place')));
+  const _beforeId = _labelRef ? _labelRef.id : undefined;
+
+  const pontos = _gerarPontosSetasVerdes(geometry.coordinates, 120);
+
+  if (!map.hasImage('seta-vermelha')) {
+    const sz = 24;
+    const canvas = document.createElement('canvas');
+    canvas.width = sz; canvas.height = sz;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = 'rgba(255,107,107,0.85)';
+    ctx.beginPath();
+    ctx.moveTo(sz/2, 2);
+    ctx.lineTo(sz-4, sz-4);
+    ctx.lineTo(sz/2, sz-8);
+    ctx.lineTo(4, sz-4);
+    ctx.closePath();
+    ctx.fill();
+    map.addImage('seta-vermelha', { width: sz, height: sz, data: new Uint8Array(ctx.getImageData(0,0,sz,sz).data) });
+  }
+
+  const features = pontos.map(p => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: p.coord },
+    properties: { bearing: p.bearing }
+  }));
+
+  map.addSource(setasId + '-source', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features }
+  });
+
+  map.addLayer({
+    id: setasId,
+    type: 'symbol',
+    source: setasId + '-source',
+    layout: {
+      'icon-image': 'seta-vermelha',
+      'icon-size': 0.7,
+      'icon-rotate': ['get', 'bearing'],
+      'icon-rotation-alignment': 'map',
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true
+    },
+    paint: { 'icon-opacity': 0.7 }
+  }, _beforeId);
 }
 
 /**
@@ -1197,20 +1457,24 @@ function _adicionarLinhaRota(layerId, geometry, cor, largura, opacidade, comSeta
     ...(dasharray ? { 'line-dasharray': dasharray } : {})
   };
 
+  // Insere abaixo dos labels do mapa (beforeId válido ou sem referência)
+  const _labelRef = map.getStyle().layers.find(l => l.type === 'symbol' && (l.id.includes('label') || l.id.includes('place')));
+  const _beforeId = _labelRef ? _labelRef.id : undefined;
+
   map.addLayer({
     id: layerId, type: 'line',
     source: layerId + '-source',
     paint,
     layout: { 'line-join': 'round', 'line-cap': 'round' }
-  }, 'mk-ent');
+  }, _beforeId);
 
-  if (comSetas) _adicionarSetasNaRota(layerId);
+  if (comSetas) _adicionarSetasNaRota(layerId, _beforeId);
 }
 
 /**
  * Adiciona setas (^) ao longo da linha de rota
  */
-function _adicionarSetasNaRota(layerId) {
+function _adicionarSetasNaRota(layerId, _beforeId) {
   if (!map) return;
 
   const sourceId = layerId + '-source';
@@ -1236,9 +1500,9 @@ function _adicionarSetasNaRota(layerId) {
     },
     paint: {
       'text-color': (layerId === 'route-line-azul' ? '#4D9EFF' : (layerId === 'route-line-verde' ? '#22D97A' : '#FF6B6B')),
-      'text-opacity': (layerId === 'route-line-azul' ? 0.9 : (layerId === 'route-line-verde' ? 0.7 : 0.4))
+      'text-opacity': (layerId === 'route-line-azul' ? 0.9 : (layerId === 'route-line-verde' ? 0.35 : 0.4))
     }
-  }, 'mk-ent');
+  }, _beforeId);
 }
 
 /**
@@ -1246,6 +1510,7 @@ function _adicionarSetasNaRota(layerId) {
  */
 function _limparRotaNoMapa() {
   if (!map) return;
+  _rotaAzulCoords = null;
   
   // Limpa linha azul
   if (map.getLayer('route-line-azul')) {
@@ -1258,27 +1523,17 @@ function _limparRotaNoMapa() {
     map.removeSource('route-line-azul-source');
   }
   
-  // Limpa linha verde
-  if (map.getLayer('route-line-verde')) {
-    map.removeLayer('route-line-verde');
-  }
-  if (map.getLayer('route-line-verde-setas')) {
-    map.removeLayer('route-line-verde-setas');
-  }
-  if (map.getSource('route-line-verde-source')) {
-    map.removeSource('route-line-verde-source');
-  }
+  // Limpa linha verde e setas verdes (source próprio)
+  if (map.getLayer('route-line-verde')) map.removeLayer('route-line-verde');
+  if (map.getLayer('route-line-verde-setas')) map.removeLayer('route-line-verde-setas');
+  if (map.getSource('route-line-verde-source')) map.removeSource('route-line-verde-source');
+  if (map.getSource('route-line-verde-setas-source')) map.removeSource('route-line-verde-setas-source');
   
   // Limpa linha vermelha
-  if (map.getLayer('route-line-vermelho')) {
-    map.removeLayer('route-line-vermelho');
-  }
-  if (map.getLayer('route-line-vermelho-setas')) {
-    map.removeLayer('route-line-vermelho-setas');
-  }
-  if (map.getSource('route-line-vermelho-source')) {
-    map.removeSource('route-line-vermelho-source');
-  }
+  if (map.getLayer('route-line-vermelho')) map.removeLayer('route-line-vermelho');
+  if (map.getLayer('route-line-vermelho-setas')) map.removeLayer('route-line-vermelho-setas');
+  if (map.getSource('route-line-vermelho-source')) map.removeSource('route-line-vermelho-source');
+  if (map.getSource('route-line-vermelho-setas-source')) map.removeSource('route-line-vermelho-setas-source');
 }
 
 function toggle3D() {
@@ -1355,6 +1610,8 @@ let _gpsSaving = false;
 let _renderListaPendente = false;
 let _animFrameId = null;
 let _ultimoDesenhoRota = 0; // throttle para redesenho de rota
+let _rotaAzulCoords = null;  // coordenadas da linha azul atual (para detectar desvio)
+let _recalculando = false;   // evita recálculos simultâneos
 
 function iniciarGPS() {
   if (!navigator.geolocation) {
@@ -1458,11 +1715,20 @@ function onGPSUpdate(pos) {
       renderLista();
       verificarProximidade(lat, lon);
       
-      // ✨ Redesenha rota a cada ~5s (throttle para economizar recursos)
+      // ✨ Redesenha rota a cada ~5s OU imediatamente se desviou >20m da linha azul
       const now = Date.now();
-      if (paradasRotaAtiva.length > 0 && now - _ultimoDesenhoRota > 5000) {
-        _ultimoDesenhoRota = now;
-        desenharRotaNoMapa(); // sem await, assíncrono
+      if (paradasRotaAtiva.length > 0) {
+        const tempoOk = now - _ultimoDesenhoRota > 5000;
+        // Detecta desvio: distância do entregador à linha azul atual
+        const distRota = _rotaAzulCoords
+          ? _distanciaAPolyline(lat, lon, _rotaAzulCoords)
+          : Infinity;
+        const desviou = distRota > 20 && now - _ultimoDesenhoRota > 3000; // mín 3s entre recálculos
+        if ((tempoOk || desviou) && !_recalculando) {
+          _ultimoDesenhoRota = now;
+          _recalculando = true;
+          desenharRotaNoMapa().finally(() => { _recalculando = false; });
+        }
       }
     }, 2000); // atualiza lista no máximo a cada 2s
   }
@@ -2984,6 +3250,26 @@ function centrarMapa() {
 }
 
 // ── DISTÂNCIA (Haversine) ─────────────────────────────────────────────────
+// Distância mínima em metros de um ponto à polyline (lista de coords [lon,lat])
+function _distanciaAPolyline(lat, lon, coords) {
+  if (!coords || coords.length < 2) return Infinity;
+  let minDist = Infinity;
+  for (let i = 0; i < coords.length - 1; i++) {
+    // Segmento: coords[i] e coords[i+1] são [lon, lat]
+    const [ax, ay] = [coords[i][1], coords[i][0]];   // lat, lon
+    const [bx, by] = [coords[i+1][1], coords[i+1][0]];
+    // Projeção do ponto sobre o segmento
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx*dx + dy*dy;
+    let t = len2 > 0 ? ((lat-ax)*dx + (lon-ay)*dy) / len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const projLat = ax + t*dx, projLon = ay + t*dy;
+    const d = distancia(lat, lon, projLat, projLon);
+    if (d < minDist) minDist = d;
+  }
+  return minDist;
+}
+
 function distancia(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180;
