@@ -641,6 +641,29 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
           "></div>
         </div>
       </div>
+
+      <!-- Toggle filtro de clientes da rota -->
+      <div onclick="toggleFiltroRotaAtiva()" style="
+        display:flex;align-items:center;justify-content:space-between;
+        background:var(--surface2);border:1px solid var(--border);
+        border-radius:14px;padding:14px 16px;cursor:pointer;
+        user-select:none;margin-top:12px;
+      ">
+        <div>
+          <div style="font-size:13px;font-weight:700;color:var(--text);" id="filtroRotaLabel">🗺️ Mostrar só clientes da rota</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px;" id="filtroRotaDesc">Ocultar clientes de outras rotas</div>
+        </div>
+        <div id="toggleFiltroSwitch" style="
+          width:44px;height:26px;border-radius:13px;
+          background:rgba(255,255,255,0.15);position:relative;transition:background .2s;flex-shrink:0;
+        ">
+          <div id="toggleFiltroThumb" style="
+            position:absolute;top:3px;left:3px;
+            width:20px;height:20px;border-radius:50%;
+            background:#fff;transition:left .2s;box-shadow:0 1px 4px rgba(0,0,0,.3);
+          "></div>
+        </div>
+      </div>
     </div>
 
     <!-- Lista expandida ao clicar num card -->
@@ -860,6 +883,7 @@ const RAIO_AUTO   = 20; // metros para confirmação automática
 // Modo de confirmação: true = automático, false = manual
 // Persiste em localStorage
 let modoAutoConfirmar = localStorage.getItem('modoAutoConfirmar') !== 'false';
+let filtroRotaAtiva = localStorage.getItem('filtroRotaAtiva') === 'true'; // mostra só clientes da rota
 
 // ── ESTADO ──────────────────────────────────────────────────────────────
 
@@ -1040,7 +1064,6 @@ function _calcBearingAntecipado(lat, lon) {
   return _suavizarBearing(bearing);
 }
 
-/**
 // ── ESTILO DA LINHA DE ROTA ───────────────────────────────────────────────
 function setEstiloLinha(estilo) {
   estiloLinhaRota = estilo;
@@ -1066,8 +1089,30 @@ function _aplicarEstiloLinhaInicial() {
   setEstiloLinha(estiloLinhaRota);
 }
 
+// Helper: busca rota OSRM em chunks de ate 10 waypoints e une os segmentos
+async function _fetchOSRMChunked(waypoints) {
+  const CHUNK = 10;
+  const allCoords = [];
+  for (let i = 0; i < waypoints.length - 1; i += CHUNK - 1) {
+    const slice = waypoints.slice(i, i + CHUNK);
+    if (slice.length < 2) break;
+    const coordsStr = slice.map(w => w.join(',')).join(';');
+    try {
+      const resp = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordsStr}?geometries=geojson&overview=full`);
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      const segCoords = data.routes?.[0]?.geometry?.coordinates;
+      if (!segCoords) continue;
+      if (allCoords.length > 0) allCoords.push(...segCoords.slice(1));
+      else allCoords.push(...segCoords);
+    } catch(e) { /* ignora falha de segmento */ }
+  }
+  if (allCoords.length < 2) return null;
+  return { type: 'LineString', coordinates: allCoords };
+}
+
 /**
- * Desenha a rota no mapa com TRÊS LINHAS:
+ * Desenha a rota no mapa com TRES LINHAS:
  * 🔵 AZUL: você → próxima parada (forte e destacada)
  * 🟢 VERDE: próxima parada → último cliente (rota ida)
  * 🔴 VERMELHA: último cliente → fábrica (rota volta)
@@ -1102,43 +1147,30 @@ async function desenharRotaNoMapa() {
         [posEntregador.lon, posEntregador.lat],
         ...paradasPendentes.map(p => [p.coords[1], p.coords[0]])
       ];
-      const coordsStr = waypoints.map(w => w.join(',')).join(';');
-      const resp = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordsStr}?geometries=geojson&overview=full`);
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data.routes?.[0]) _adicionarLinhaRota('route-line-azul', data.routes[0].geometry, '#4D9EFF', 4.5, 0.9, true);
-      }
+      const geometry = await _fetchOSRMChunked(waypoints);
+      if (geometry) _adicionarLinhaRota('route-line-azul', geometry, '#4D9EFF', 4.5, 0.9, true);
       return;
     }
 
     // ===== LINHA AZUL: Você → Próxima Parada =====
     const proximaParada = paradasPendentes[0];
     const waypointsAzul = [[posEntregador.lon, posEntregador.lat], [proximaParada.coords[1], proximaParada.coords[0]]];
-    const respAzul = await fetch(`https://router.project-osrm.org/route/v1/driving/${waypointsAzul.map(w=>w.join(',')).join(';')}?geometries=geojson&overview=full`);
-    if (respAzul.ok) {
-      const dataAzul = await respAzul.json();
-      if (dataAzul.routes?.[0]) _adicionarLinhaRota('route-line-azul', dataAzul.routes[0].geometry, '#4D9EFF', 4.5, 0.9, true);
-    }
+    const geoAzul = await _fetchOSRMChunked(waypointsAzul);
+    if (geoAzul) _adicionarLinhaRota('route-line-azul', geoAzul, '#4D9EFF', 4.5, 0.9, true);
 
     // ===== LINHA VERDE: Próxima → Último Cliente =====
     if (paradasPendentes.length > 1) {
       const waypointsVerde = paradasPendentes.map(p => [p.coords[1], p.coords[0]]);
-      const respVerde = await fetch(`https://router.project-osrm.org/route/v1/driving/${waypointsVerde.map(w=>w.join(',')).join(';')}?geometries=geojson&overview=full`);
-      if (respVerde.ok) {
-        const dataVerde = await respVerde.json();
-        if (dataVerde.routes?.[0]) _adicionarLinhaRota('route-line-verde', dataVerde.routes[0].geometry, '#22D97A', 3.5, 0.7, false);
-      }
+      const geoVerde = await _fetchOSRMChunked(waypointsVerde);
+      if (geoVerde) _adicionarLinhaRota('route-line-verde', geoVerde, '#22D97A', 3.5, 0.7, false);
     }
 
     // ===== LINHA VERMELHA: Último → Fábrica (só no modo "tres") =====
     if (estiloLinhaRota === 'tres') {
       const ultimaParada = paradasPendentes[paradasPendentes.length - 1];
       const waypointsVermelho = [[ultimaParada.coords[1], ultimaParada.coords[0]], [FABRICA_LON, FABRICA_LAT]];
-      const respVermelho = await fetch(`https://router.project-osrm.org/route/v1/driving/${waypointsVermelho.map(w=>w.join(',')).join(';')}?geometries=geojson&overview=full`);
-      if (respVermelho.ok) {
-        const dataVermelho = await respVermelho.json();
-        if (dataVermelho.routes?.[0]) _adicionarLinhaRota('route-line-vermelho', dataVermelho.routes[0].geometry, '#FF6B6B', 3, 0.4, false);
-      }
+      const geoVermelho = await _fetchOSRMChunked(waypointsVermelho);
+      if (geoVermelho) _adicionarLinhaRota('route-line-vermelho', geoVermelho, '#FF6B6B', 3, 0.4, false);
     }
 
   } catch (err) {
@@ -1352,10 +1384,16 @@ function onGPSUpdate(pos) {
   const lon = pos.coords.longitude;
   const acc = Math.round(pos.coords.accuracy);
   const ts  = pos.timestamp;
+  const _primeiroGPS = !posEntregador;
   posEntregador = { lat, lon, acc, ts };
 
   // ── Marcador + câmera: interpolação suave anti-stutter ──
   _moverMarcadorSuave(lat, lon);
+
+  // Ao receber o primeiro GPS, desenha a rota imediatamente (sem esperar o throttle de 5s)
+  if (_primeiroGPS && paradasRotaAtiva.length > 0) {
+    setTimeout(() => desenharRotaNoMapa(), 500);
+  }
 
   setGPSStatus('ok', `±${acc}m`);
 
@@ -1702,15 +1740,22 @@ async function carregarRota() {
   filaRotasHoje = (data || []).filter(r => {
     const meta = (r.paradas || []).find(x => x._meta) || {};
     const dias = meta.dias_semana || [];
+    
+    // Rota concluída hoje (independente se recorrente ou não)
+    if (r.status === 'concluido' && r.fim_em) {
+      // Converte fim_em (UTC) para data em São Paulo
+      const fimDataSP = new Date(r.fim_em).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      const hojeSP = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      console.log(`[debug] Rota ${r.nome_rota}: fim_em=${r.fim_em}, fimDataSP=${fimDataSP}, hojeSP=${hojeSP}, bate=${fimDataSP === hojeSP}`);
+      return fimDataSP === hojeSP;
+    }
+    
     // Rota recorrente: filtra por dia da semana
     if (dias.length > 0) return dias.includes(diaFormatado);
+    
     // Rota avulsa: inclui se ativa
     if (r.status === 'criada' || r.status === 'em_andamento' || r.status === 'aguardando') return true;
-    // Rota concluída hoje
-    if (r.status === 'concluido' && r.fim_em) {
-      const fimData = new Date(r.fim_em).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-      return fimData === hoje;
-    }
+    
     return false;
   }).sort((a, b) => {
     const hA = ((a.paradas || []).find(x => x._meta) || {}).hora_saida || '00:00';
@@ -1780,12 +1825,13 @@ async function carregarRota() {
       const todasEntregues = paradasAtivas.length > 0 &&
         paradasAtivas.every(p => p.status === 'entregue');
       if (todasEntregues) {
+        const fimEm = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' })).toISOString();
         await sb.from('rotas').update({
           status: 'concluido',
-          fim_em: new Date().toISOString()
+          fim_em: fimEm
         }).eq('id', r.id);
         r.status = 'concluido';
-        r.fim_em = new Date().toISOString();
+        r.fim_em = fimEm;
         console.log(`[rota] ${r.nome_rota || r.id} concluída — todas as entregas ativas feitas`);
       }
     }
@@ -1896,7 +1942,6 @@ function iniciarRealtime() {
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'pedidos' }, async (payload) => {
       const phone = payload.new?.customer_phone;
       if (phone) {
-        console.log(`[realtime] Pedido novo de ${phone} — ativando parada`);
         await ativarParadaPorPedido(phone);
         await carregarRota();
       }
@@ -1925,11 +1970,17 @@ async function carregarEPlotarClientes() {
   mkClientesGlobal = {};
 
   // Monta lista com coordenadas válidas
-  const lista = clientes.map(cli => ({
+  let lista = clientes.map(cli => ({
     ...cli,
     lat: cli.delivery_lat ?? cli.lat,
     lon: cli.delivery_lon ?? cli.lon,
   })).filter(c => c.lat && c.lon);
+
+  // ── FILTRO: se ativado, mostra só clientes da rota ativa ──
+  if (filtroRotaAtiva && rotaAtiva) {
+    const phonesRota = paradas.map(p => p.cliente_phone);
+    lista = lista.filter(cli => phonesRota.includes(cli.phone));
+  }
 
   // Atualiza total no header do painel
   const el = document.getElementById('totalComLocalizacao');
@@ -2188,7 +2239,18 @@ function renderRotaCards() {
 
 // Abre paradas de uma rota específica ao clicar no card
 async function abrirParadasRota(rotaId) {
-  const r = filaRotasHoje.find(x => x.id === rotaId);
+  // Recarrega dados da rota para garantir que estão atualizados
+  const { data: rotasAtualizadas } = await sb.from('rotas')
+    .select('*')
+    .eq('id', rotaId)
+    .limit(1);
+  
+  let r = rotasAtualizadas?.[0];
+  if (!r) {
+    // Se não encontrou, tenta na lista em memória
+    r = filaRotasHoje.find(x => x.id === rotaId);
+  }
+  
   if (!r) return;
   rotaSelecionada = r;
 
@@ -2382,6 +2444,28 @@ function toggleModoConfirmacao() {
   showToast(modoAutoConfirmar ? '🤖 Modo automático ativado' : '✋ Modo manual ativado', 'ok');
 }
 
+function _atualizarToggleFiltroUI() {
+  const sw    = document.getElementById('toggleFiltroSwitch');
+  const thumb = document.getElementById('toggleFiltroThumb');
+  if (!sw) return;
+  if (filtroRotaAtiva) {
+    sw.style.background = 'var(--green)';
+    thumb.style.left = 'calc(100% - 23px)';
+  } else {
+    sw.style.background = 'rgba(255,255,255,0.15)';
+    thumb.style.left = '3px';
+  }
+}
+
+function toggleFiltroRotaAtiva() {
+  filtroRotaAtiva = !filtroRotaAtiva;
+  localStorage.setItem('filtroRotaAtiva', filtroRotaAtiva);
+  _atualizarToggleFiltroUI();
+  showToast(filtroRotaAtiva ? '🗺️ Mostrando só clientes da rota' : '🗺️ Mostrando todos os clientes', 'ok');
+  // Recarrega o mapa para aplicar filtro
+  renderizarMarcadoresClientes();
+}
+
 // Guarda phones já confirmados automaticamente nesta sessão para não re-disparar
 const _autoConfirmados = new Set();
 
@@ -2496,11 +2580,12 @@ async function _confirmarEntregaAuto(p) {
       // Verifica se todas as paradas ativas foram entregues → conclui a rota
       const paradasAtivasAuto = novasParadas.filter(x => !x._meta && x.desativado !== true);
       const todasEntreguesAuto = paradasAtivasAuto.length > 0 && paradasAtivasAuto.every(x => x.status === 'entregue');
+      const fimEmAuto = todasEntreguesAuto ? new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' })).toISOString() : undefined;
       await sb.from('rotas').update({
         paradas: novasParadas,
         phones_entregues: [...(rotaAtiva.phones_entregues || []), p.cliente_phone],
         entregas_realizadas: entreguesCount,
-        ...(todasEntreguesAuto ? { status: 'concluido', fim_em: new Date().toISOString() } : {})
+        ...(todasEntreguesAuto ? { status: 'concluido', fim_em: fimEmAuto } : {})
       }).eq('id', rotaAtiva.id);
       if (todasEntreguesAuto) showToast('🎉 Todas as entregas concluídas!', 'ok', 3000);
     }
@@ -2633,8 +2718,8 @@ async function confirmarEntrega() {
   // Se era pagar na entrega, precisa ter respondido Sim ou Não
   if (modalParada._pagarNaEntrega && !pagSelecionado) return;
 
-  // Se era fiado direto, pagSelecionado fica como 'fiado'
-  if (modalParada._ehFiado) pagSelecionado = 'fiado';
+  // Se era fiado direto, apenas confirma entrega (sem alterar pagamento)
+  if (modalParada._ehFiado) pagSelecionado = 'FIADO_JA_DEBITADO';
 
   // Se sem pedido (rota manual sem pedido registrado), confirma entrega sem pagamento
   if (!modalParada._pedido) pagSelecionado = pagSelecionado || 'sem_pedido';
@@ -2646,18 +2731,20 @@ async function confirmarEntrega() {
   const p = modalParada;
   const pedido = p._pedido;
   const agora = new Date().toISOString();
-  const ehFiado = pagSelecionado === 'fiado';
+  const ehFiadoJaDebitado = pagSelecionado === 'FIADO_JA_DEBITADO';
+  const ehFiadoNovamente = pagSelecionado === 'fiado' && !ehFiadoJaDebitado;
 
   // ── Bloqueia auto-confirm e atualiza local IMEDIATAMENTE ──
   _autoConfirmados.add(p.cliente_phone);
+  const pagamentoFinal = ehFiadoJaDebitado ? 'FIADO' : pagSelecionado;
   paradas = paradas.map(x =>
     (!x._meta && x.cliente_phone === p.cliente_phone)
-      ? { ...x, status: 'entregue', entregue_em: agora, pagamento: pagSelecionado }
+      ? { ...x, status: 'entregue', entregue_em: agora, pagamento: pagamentoFinal }
       : x
   );
   paradasRotaAtiva = paradasRotaAtiva.map(x =>
     (!x._meta && x.cliente_phone === p.cliente_phone)
-      ? { ...x, status: 'entregue', entregue_em: agora, pagamento: pagSelecionado }
+      ? { ...x, status: 'entregue', entregue_em: agora, pagamento: pagamentoFinal }
       : x
   );
 
@@ -2666,7 +2753,7 @@ async function confirmarEntrega() {
     if (rotaAtiva?.id) {
       const novasParadas = (rotaAtiva.paradas || []).map(x => {
         if (!x._meta && x.cliente_phone === p.cliente_phone) {
-          return { ...x, status: 'entregue', entregue_em: agora, pagamento: pagSelecionado };
+          return { ...x, status: 'entregue', entregue_em: agora, pagamento: pagamentoFinal };
         }
         return x;
       });
@@ -2675,11 +2762,12 @@ async function confirmarEntrega() {
       const paradasAtivas = novasParadas.filter(x => !x._meta && x.desativado !== true);
       const todasEntregues = paradasAtivas.length > 0 && paradasAtivas.every(x => x.status === 'entregue');
       const novoStatus = todasEntregues ? 'concluido' : rotaAtiva.status;
+      const fimEm = todasEntregues ? new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' })).toISOString() : undefined;
       await sb.from('rotas').update({
         paradas: novasParadas,
         phones_entregues: [...(rotaAtiva.phones_entregues || []), p.cliente_phone],
         entregas_realizadas: entreguesCount,
-        ...(todasEntregues ? { status: 'concluido', fim_em: new Date().toISOString() } : {})
+        ...(todasEntregues ? { status: 'concluido', fim_em: fimEm } : {})
       }).eq('id', rotaAtiva.id);
       if (todasEntregues) showToast('🎉 Todas as entregas concluídas!', 'ok', 3000);
     }
@@ -2689,15 +2777,15 @@ async function confirmarEntrega() {
       const upd = {
         entregue: true,
         entregue_em: agora,
-        payment_method: ehFiado ? 'FIADO' : pagSelecionado,
+        payment_method: ehFiadoJaDebitado ? 'FIADO' : (ehFiadoNovamente ? 'FIADO' : pagSelecionado),
         status_entrega: 'entregue'
       };
       await sb.from('pedidos').update(upd).eq('id', pedido.id);
 
-      // 3. Se fiado: atualiza débito do cliente
-      // MAS APENAS SE O PEDIDO NÃO ERA FIADO DESDE O INÍCIO
-      const eraFiadoDesdeInicio = pedido?.payment_method?.toUpperCase() === 'FIADO';
-      if (ehFiado && !eraFiadoDesdeInicio) {
+      // 3. ADICIONA DÉBITO apenas se:
+      // - Cliente mudou de PAGAR NA ENTREGA para FIADO (ehFiadoNovamente)
+      // - MAS NÃO se já era FIADO desde o início (ehFiadoJaDebitado)
+      if (ehFiadoNovamente) {
         const { data: cli } = await sb.from('clientes').select('debt').eq('phone', p.cliente_phone).maybeSingle();
         const debtAtual = parseFloat(cli?.debt || 0);
         await sb.from('clientes').update({
@@ -2709,7 +2797,7 @@ async function confirmarEntrega() {
 
     fecharModal();
     esconderAlerta();
-    showToast(ehFiado ? '📋 Fiado registrado!' : '✅ Entrega confirmada!', 'ok');
+    showToast(ehFiadoJaDebitado ? '✅ Entrega confirmada!' : (ehFiadoNovamente ? '📋 Fiado registrado!' : '✅ Entrega confirmada!'), 'ok');
     await carregarRota();
 
   } catch(e) {
@@ -2779,11 +2867,12 @@ async function confirmarPagamentoAuto(foiPago) {
       // Verifica se todas as paradas ativas foram entregues → conclui a rota
       const paradasAtivas = novasParadas.filter(x => !x._meta && x.desativado !== true);
       const todasEntregues = paradasAtivas.length > 0 && paradasAtivas.every(x => x.status === 'entregue');
+      const fimEm = todasEntregues ? new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' })).toISOString() : undefined;
       await sb.from('rotas').update({
         paradas: novasParadas,
         phones_entregues: [...(rotaAtiva.phones_entregues || []), p.cliente_phone],
         entregas_realizadas: entreguesCount,
-        ...(todasEntregues ? { status: 'concluido', fim_em: new Date().toISOString() } : {})
+        ...(todasEntregues ? { status: 'concluido', fim_em: fimEm } : {})
       }).eq('id', rotaAtiva.id);
       if (todasEntregues) showToast('🎉 Todas as entregas concluídas!', 'ok', 3000);
     }
@@ -2916,6 +3005,7 @@ async function init() {
   initMap();
   iniciarGPS();
   _atualizarToggleUI(); // aplica estado salvo do toggle
+  _atualizarToggleFiltroUI(); // aplica estado salvo do filtro de rota
   await carregarRota();
 
   // ── Sincroniza UMA VEZ ao abrir: ativa quem já pediu hoje, desativa quem não pediu ──
